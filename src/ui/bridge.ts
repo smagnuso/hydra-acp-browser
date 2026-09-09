@@ -424,19 +424,6 @@ export function handleFrame(frame: JsonRpcFrame): void {
       state.current.cold = false;
       state.current.ready = true;
     }
-    if (frame.error) {
-      const err = frame.error as { code?: number; message?: string };
-      pushLog({
-        kind: "error",
-        text: `Prompt failed: ${err.message ?? "unknown error"}`,
-      });
-      finalizeTurn();
-      render();
-      return;
-    }
-    const result = frame.result as { stopReason?: unknown } | undefined;
-    const stopReason =
-      typeof result?.stopReason === "string" ? result.stopReason : undefined;
     // A response proves THIS prompt resolved — not that the live turn
     // ended. Cancelling a queued prompt resolves its original
     // session/prompt with stopReason "cancelled" (the daemon calls
@@ -447,13 +434,38 @@ export function handleFrame(frame: JsonRpcFrame): void {
     // stamp and markIdleAndDrain declared the session idle, while the
     // agent carried on and finished normally. Only the prompt that owns
     // the live spinner may end the turn; anyone else just settles its
-    // own queue entry.
+    // own queue entry. Applies equally to an error response: a queued
+    // prompt that fails must not tear down a healthy running turn.
     const owner = state.current.spinnerOwner;
     const ownsLiveTurn =
       entry === undefined ||
       owner === undefined ||
       owner === entry.id ||
       (entry.messageId !== undefined && owner === entry.messageId);
+    if (frame.error) {
+      const err = frame.error as { code?: number; message?: string };
+      pushLog({
+        kind: "error",
+        text: `Prompt failed: ${err.message ?? "unknown error"}`,
+      });
+      if (ownsLiveTurn) {
+        // Same own=true contract as the success path below. Without the
+        // explicit "error" reason the stamp renders as a plain
+        // "thought · Xs" (renderTurnStamp only flags a non-end_turn
+        // stopReason), so a failed turn read as a completed one until a
+        // reload replayed the daemon's turn_complete.
+        finalizeTurn("error", undefined, true);
+      } else if (entry.status !== "amended") {
+        // Terminal, but not the live turn's end: settle it so the queue
+        // math stops counting a dead prompt as active.
+        entry.status = "done";
+      }
+      render();
+      return;
+    }
+    const result = frame.result as { stopReason?: unknown } | undefined;
+    const stopReason =
+      typeof result?.stopReason === "string" ? result.stopReason : undefined;
     if (ownsLiveTurn) {
       // own=true: this response IS the end-of-turn signal for a turn we
       // started, and the daemon sends us no turn_complete for it — see
