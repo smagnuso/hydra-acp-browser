@@ -398,6 +398,24 @@ export function pushChunk(
   });
 }
 
+// Assembled text of the agent bubble a chunk would merge into right now
+// — the same backward scan pushChunk uses, so it sees the accumulated
+// text rather than one mid-word fragment. Used by bridge.ts to drop a
+// "Prompt failed" toast whose message the agent already streamed
+// verbatim; returns undefined when the last output isn't an agent
+// stream, which keeps that check failing closed.
+export function lastAgentStreamText(): string | undefined {
+  if (!state.current) return undefined;
+  const log = state.current.log;
+  for (let i = queuedBoundary() - 1; i >= 0; i--) {
+    const e = log[i]!;
+    if (e.kind === "spinner") continue;
+    if (e.kind === "stream" && e.role === "agent") return e.text;
+    return undefined;
+  }
+  return undefined;
+}
+
 // Mark the most recent OPEN stream entry as closed so a subsequent
 // chunk of the same role starts a fresh bubble rather than appending.
 // Called at every natural boundary: a tool call begins, a turn ends,

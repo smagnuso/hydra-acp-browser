@@ -15,6 +15,7 @@ import {
   handleAgentRequest,
   handleNotification,
   hydrateQueueFromSnapshot,
+  lastAgentStreamText,
   markActive,
   pushLog,
   dropPendingCursorGroup,
@@ -444,10 +445,26 @@ export function handleFrame(frame: JsonRpcFrame): void {
       (entry.messageId !== undefined && owner === entry.messageId);
     if (frame.error) {
       const err = frame.error as { code?: number; message?: string };
-      pushLog({
-        kind: "error",
-        text: `Prompt failed: ${err.message ?? "unknown error"}`,
-      });
+      const message = err.message ?? "unknown error";
+      // Hydra echoes an agent-side failure into the turn's own output AND
+      // rejects the session/prompt call, so the same sentence would land
+      // twice: once as the agent bubble, once as this toast. The RPC
+      // message is the wrapped one ("Internal error: " + what streamed),
+      // so the containment runs message-contains-output, not the reverse.
+      // Coverage guard keeps a short trailing line ("Done.") from
+      // matching inside an unrelated error and hiding it. Nothing here is
+      // load-bearing for correctness: a miss just shows the toast, which
+      // is the old behaviour, and turn_complete records only
+      // stopReason, so this text exists nowhere else once dropped.
+      const streamed = ownsLiveTurn ? lastAgentStreamText()?.trim() : undefined;
+      const alreadyShown =
+        streamed !== undefined &&
+        streamed.length > 0 &&
+        message.includes(streamed) &&
+        streamed.length * 2 >= message.length;
+      if (!alreadyShown) {
+        pushLog({ kind: "error", text: `Prompt failed: ${message}` });
+      }
       if (ownsLiveTurn) {
         // Same own=true contract as the success path below. Without the
         // explicit "error" reason the stamp renders as a plain
