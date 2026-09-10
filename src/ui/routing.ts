@@ -22,6 +22,46 @@ const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
 // "Reconnecting…" (warn) to "Still disconnected — retrying…" (bad).
 const RECONNECT_BANNER_ESCALATE_AT = 5;
 
+// How long the chat-header pill, composer placeholder, and offline-queue
+// chip all assume a connect attempt (initial open or reconnect) will
+// finish before admitting "connecting…"/"offline" to the user.
+// Reattaching to an already-warm session is normally well under this —
+// even over a phone's LAN/tailscale link, not just localhost — so
+// showing "connecting…" for the whole round trip just to immediately
+// flip back to "ready" reads as a glitch, not information. Only a
+// genuinely slow attach (cold resurrect, real network trouble) sticks
+// around long enough for the user to see it. All three surfaces share
+// this one constant (via isConnectingGrace below) specifically so they
+// can't disagree with each other mid-window.
+export const CONNECTING_GRACE_MS = 2_000;
+
+// Called at the start of every connect attempt (openChat's initial state
+// and every reconnect via resetConnectionStateForReconnect). Schedules a
+// re-render at grace expiry so a still-not-ready chat actually reveals
+// "connecting…" once the grace window is up, instead of relying on some
+// unrelated render to notice.
+function beginConnectingGrace(chat: ChatState): void {
+  chat.connectingSince = performance.now();
+  setTimeout(() => {
+    if (state.current === chat && !chat.ready) {
+      render();
+    }
+  }, CONNECTING_GRACE_MS);
+}
+
+// Shared by every "are we still pretending to be ready" check — the
+// chat-header pill, the composer placeholder, and the offline-queue
+// chip's dashed styling (views.ts) all need the same answer, and
+// disagreeing between them would be its own, more visible glitch: a
+// header that says "ready" next to a composer that says "Connecting…"
+// tells the user less than either alone.
+export function isConnectingGrace(chat: ChatState): boolean {
+  return (
+    chat.connectingSince !== undefined &&
+    performance.now() - chat.connectingSince < CONNECTING_GRACE_MS
+  );
+}
+
 // Reflect the current session in the URL fragment so a reload (or
 // copy-pasted link) drops the user back into the same chat.
 export function buildSessionHash(sessionId: string, load: boolean): string {
@@ -197,10 +237,12 @@ export function openChat(sessionId: string, load: boolean): void {
     loadOnConnect: load,
     reconnectAttempt: 0,
     headerExpanded: false,
+    titleDraft: null,
     unsolicitedTurnOpen: new Set(),
     configOptions: [],
     connectionHealthy: true,
   };
+  beginConnectingGrace(initial);
   state.current = initial;
   // Keeps the split-view rail's highlight glued to whichever session is
   // actually being viewed — every way of opening a session (card click,
@@ -468,6 +510,7 @@ function scheduleReconnect(chat: ChatState): void {
 function resetConnectionStateForReconnect(chat: ChatState): void {
   chat.ws = null;
   chat.ready = false;
+  beginConnectingGrace(chat);
   chat.pendingRequestById = new Map();
   chat.responseHandlers = new Map();
   // JSON-RPC responses can't cross sockets, so an id awaiting its

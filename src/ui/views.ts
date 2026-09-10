@@ -36,7 +36,7 @@ import {
   sendWorkspaceCommand,
   updateQueuedPrompt,
 } from "./queue.js";
-import { openChat, closeChat, requestFullHistory } from "./routing.js";
+import { openChat, closeChat, requestFullHistory, isConnectingGrace } from "./routing.js";
 import { queueDraftWrite } from "./composer-draft.js";
 import {
   requestNotificationPermission,
@@ -1039,6 +1039,64 @@ function priorityRow(sessionId: string, priority: number | undefined): HTMLEleme
     el("span", { class: "k" }, "high priority"),
     checkbox,
   );
+}
+
+// Editable counterpart to detailRow's static rows — session titles can be
+// renamed via PATCH /v1/sessions/:id (see PROTOCOL.md's "direct
+// retitle"). Saves on blur/Enter; Escape discards the in-progress edit.
+// c.titleDraft tracks the edit so a render landing mid-edit (typing
+// itself holds off renders — see renderer.ts's isActivelyTyping — but a
+// pause past TYPING_HOLDOFF_MS can still land one) doesn't snap the
+// field back to the last-synced server title.
+function titleRow(c: ChatState, liveTitle: string): HTMLElement {
+  let cancelled = false;
+  const input = el("input", {
+    type: "text",
+    class: "title-edit",
+    "data-focus-key": "chat-title-edit",
+    oninput: (e: Event) => {
+      c.titleDraft = (e.target as HTMLInputElement).value;
+    },
+    onkeydown: (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        (e.target as HTMLInputElement).blur();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelled = true;
+        (e.target as HTMLInputElement).blur();
+      }
+    },
+    onblur: (e: Event) => {
+      const value = (e.target as HTMLInputElement).value.trim();
+      c.titleDraft = null;
+      if (!cancelled && value && value !== liveTitle) {
+        void saveSessionTitle(c.sessionId, value);
+      }
+      render();
+    },
+  }) as HTMLInputElement;
+  input.value = c.titleDraft ?? liveTitle;
+  return el(
+    "div",
+    { class: "detail" },
+    el("span", { class: "k" }, "title"),
+    input,
+  );
+}
+
+async function saveSessionTitle(sessionId: string, title: string): Promise<void> {
+  try {
+    await api(`/api/sessions/${encodeURIComponent(sessionId)}/title`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    });
+    void pollSessions();
+  } catch (err) {
+    setState({
+      banner: { kind: "bad", text: "title update failed: " + (err as Error).message },
+    });
+  }
 }
 
 async function setSessionPriority(sessionId: string, priority: number | null): Promise<void> {
@@ -3113,6 +3171,11 @@ function renderChat(c: ChatState): HTMLElement {
     c.headerExpanded = !c.headerExpanded;
     render();
   };
+  // See routing.ts's isConnectingGrace: a fresh connect attempt (open or
+  // reconnect) still within its grace window is treated as ready by the
+  // pill and composer below rather than flashing "connecting…"/"cold"
+  // for a beat that usually just flips straight back.
+  const withinConnectingGrace = isConnectingGrace(c);
   const header = el(
     "div",
     { class: "chat-header" },
@@ -3154,7 +3217,7 @@ function renderChat(c: ChatState): HTMLElement {
           title: "Click for session details",
           ...tapHandler(toggleDetails),
         },
-      !c.ready && c.cold
+      !c.ready && c.cold && !withinConnectingGrace
         ? el(
             "span",
             {
@@ -3164,7 +3227,7 @@ function renderChat(c: ChatState): HTMLElement {
             },
             "cold",
           )
-        : !c.ready
+        : !c.ready && !withinConnectingGrace
         ? el(
             "span",
             {
@@ -3289,7 +3352,7 @@ function renderChat(c: ChatState): HTMLElement {
     ? el(
         "div",
         { class: "chat-details" },
-        detailRow("title", title),
+        titleRow(c, title),
         detailRow("session", shortSessionId(c.sessionId)),
         detailRow("directory", cwd || "?"),
         priorityRow(c.sessionId, live?.priority),
@@ -3401,7 +3464,7 @@ function renderChat(c: ChatState): HTMLElement {
     "textarea",
     {
       "data-focus-key": "composer",
-      placeholder: c.ready
+      placeholder: c.ready || withinConnectingGrace
         ? "Message…"
         : c.cold
         ? "Message… (wakes the session)"
@@ -3482,7 +3545,7 @@ function renderChat(c: ChatState): HTMLElement {
     textarea = buildTextarea();
     view.composerTextarea = textarea;
   }
-  textarea.placeholder = c.ready
+  textarea.placeholder = c.ready || withinConnectingGrace
     ? "Message…"
     : c.cold
     ? "Message… (wakes the session)"
@@ -4066,9 +4129,16 @@ function renderQueueChip(entry: QueueEntry): Node {
     );
   }
   if (entry.status === "offline") {
+    // Still held locally either way (queue.ts's saveOfflineEntry — that
+    // safety net doesn't change), but within the reconnect grace window
+    // this is expected to flush for real any moment. The dashed
+    // "never actually sent" styling exists to flag a real, sustained
+    // outage; showing it for a normal fast-reconnect blip would
+    // contradict a header pill that's simultaneously claiming "ready".
+    const stillConnecting = state.current !== null && isConnectingGrace(state.current);
     return el(
       "div",
-      { class: "queue-chip queue-offline" },
+      { class: stillConnecting ? "queue-chip queue-queued" : "queue-chip queue-offline" },
       el("span", null, "pending"),
       el(
         "button",

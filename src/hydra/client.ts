@@ -171,6 +171,16 @@ export class HydraRestClient {
     );
   }
 
+  // See PROTOCOL.md's `PATCH /v1/sessions/:id` "direct retitle" body.
+  // Works on live and cold sessions.
+  async setTitle(sessionId: string, title: string): Promise<void> {
+    await this.json(
+      "PATCH",
+      `/v1/sessions/${encodeURIComponent(sessionId)}`,
+      { title },
+    );
+  }
+
   async listAgents(): Promise<{ agents: HydraAgentInfo[] }> {
     return this.json("GET", "/v1/agents");
   }

@@ -130,6 +130,22 @@ export function registerSessionRoutes(
     }
   });
 
+  app.patch("/api/sessions/:id/title", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const body = (request.body ?? {}) as { title?: unknown };
+    if (typeof body.title !== "string" || body.title.trim().length === 0) {
+      reply.code(400).send({ error: "title must be a non-empty string" });
+      return;
+    }
+    try {
+      await clientFor(ctx, request).setTitle(id, body.title.trim());
+      reply.code(204).send();
+    } catch (err) {
+      const status = err instanceof HydraRestError ? err.status : 502;
+      reply.code(status).send({ error: (err as Error).message });
+    }
+  });
+
   app.post("/api/kill", async (request, reply) => {
     const body = (request.body ?? {}) as KillBody;
     if (!body.sessionId) {

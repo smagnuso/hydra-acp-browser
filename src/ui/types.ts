@@ -355,6 +355,14 @@ export interface ChatState {
   agentId: string;
   ws: WebSocket | null;
   ready: boolean;
+  // performance.now() timestamp of the most recent connect attempt
+  // (initial open or reconnect). The chat-header pill uses it to hold
+  // off showing "connecting…" for CONNECTING_GRACE_MS — see routing.ts's
+  // beginConnectingGrace — on the assumption that reattaching to an
+  // already-warm session usually finishes well inside that window, so
+  // flashing "connecting…" just to immediately flip back to "ready"
+  // would tell the user nothing true was ever wrong.
+  connectingSince?: number;
   // Identity (entry.id or messageId) of the prompt that opened the live
   // spinner via startTurnSpinner — undefined for ensureSpinner's
   // anonymous activity fallback. Lets prompt_queue/removed{started}
@@ -475,6 +483,13 @@ export interface ChatState {
   // Whether the chat-header's detail panel (full title/cwd/agent/model,
   // untruncated) is expanded. Toggled by clicking the header's info block.
   headerExpanded: boolean;
+  // In-progress edit of the session title, or null when not editing.
+  // Mirrors composerValue's role: render() tears down and rebuilds the
+  // whole tree on every poll/WS tick, so an input bound straight to the
+  // live (server) title would snap back to it mid-keystroke. Cleared
+  // back to null once the edit is saved or cancelled, at which point the
+  // input falls back to showing the live title again.
+  titleDraft: string | null;
   // Whether renderChat has already tried auto-focusing the composer for
   // this ChatState. One-shot so it fires on the chat's first render
   // (nothing else has had a chance to take focus yet) and never again —
