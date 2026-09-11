@@ -311,6 +311,15 @@ export function renderMarkdown(src: unknown): string {
   return out;
 }
 
+// Inline-only formatting for synthetic CLI-style text (`.body.raw`):
+// links (including hydra:// session links), code spans, bold/italic, and
+// bare-URL autolinking, but no block-level parsing — so the literal line
+// breaks and indentation that make it "raw" still survive.
+export function renderInlineMarkdown(src: unknown): string {
+  const s = typeof src === "string" ? src : String(src ?? "");
+  return inlineMd(escapeHtml(s));
+}
+
 // Best-effort flatten of an ACP content blob (string | array | object)
 // into a string. Lives here because it's used in multiple places that
 // also lean on markdown.

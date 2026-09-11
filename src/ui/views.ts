@@ -13,7 +13,7 @@ import {
   isWideLayout,
   TAP_MOVE_THRESHOLD,
 } from "./dom.js";
-import { renderMarkdown, escapeHtml } from "./markdown.js";
+import { renderMarkdown, renderInlineMarkdown, escapeHtml } from "./markdown.js";
 import { highlightCode } from "./hljs.js";
 import {
   api,
@@ -3707,12 +3707,12 @@ function renderChat(c: ChatState): HTMLElement {
 // unchanged one hits.
 const markdownHtmlCache = new WeakMap<object, { text: string; html: string }>();
 
-function cachedMarkdown(key: object, text: string): string {
+function cachedMarkdown(key: object, text: string, render: (s: string) => string = renderMarkdown): string {
   const hit = markdownHtmlCache.get(key);
   if (hit && hit.text === text) {
     return hit.html;
   }
-  const html = renderMarkdown(text);
+  const html = render(text);
   markdownHtmlCache.set(key, { text, html });
   return html;
 }
@@ -3833,7 +3833,7 @@ function renderLogItem(item: ChatState["log"][number]): Node {
       }
       const body = el("div", { class: item.synthetic ? "body raw" : "body" });
       if (item.synthetic) {
-        body.textContent = item.text;
+        body.innerHTML = cachedMarkdown(item, item.text, renderInlineMarkdown);
       } else {
         body.innerHTML = cachedMarkdown(item, item.text);
       }
