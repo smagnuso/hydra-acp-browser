@@ -132,6 +132,50 @@ export async function pollSessions(): Promise<void> {
   await pollAllSessions();
 }
 
+// Sessions this tab asked the daemon to kill, keyed by sessionId ->
+// request time. See reattachIfWarmedElsewhere below for why this exists.
+const recentlyKilled = new Map<string, number>();
+
+// For a federated (`name:localId`) session, GET /api/sessions is served
+// from the daemon's ForeignSessionCache, which only refreshes from the
+// peer every 5s in the background (PROTOCOL.md's "Federated session ids"
+// section) — so a poll landing shortly after a kill can still report
+// "warm" from a snapshot taken before the kill was issued. Suppress
+// reattach for a session we ourselves just killed until that cache has
+// had time to catch up, otherwise reattachIfWarmedElsewhere below forces
+// a reconnect into a session that's mid-close, which drops again as soon
+// as the daemon's real state lands, and the next stale poll can force
+// another reconnect — a rapid open/close loop that looks like the kill
+// never took effect.
+const KILL_SUPPRESS_MS = 8000;
+
+export function markSessionKillRequested(sessionId: string): void {
+  recentlyKilled.set(sessionId, Date.now());
+}
+
+function recentlyKilledByUs(sessionId: string): boolean {
+  const at = recentlyKilled.get(sessionId);
+  if (at === undefined) return false;
+  if (Date.now() - at > KILL_SUPPRESS_MS) {
+    recentlyKilled.delete(sessionId);
+    return false;
+  }
+  return true;
+}
+
+// Same staleness window as recentlyKilledByUs, applied to poll data
+// instead of the reattach heuristic: a session we just killed can still
+// come back from a poll reporting "warm" from a pre-kill snapshot, which
+// would flicker the card we already flipped to cold (views.ts's
+// killSession) right back to warm. Force it cold locally until the
+// window passes and the daemon's own state has had time to catch up.
+function suppressStaleWarmth(s: SessionInfo): SessionInfo {
+  if (s.status === "cold" || !recentlyKilledByUs(s.sessionId)) {
+    return s;
+  }
+  return { ...s, status: "cold", busy: false, awaitingInput: false };
+}
+
 // A chat marked cold (bridge.ts's hydra-acp/session/closed handling)
 // leaves its WS open but idle — nothing ever closes it, so the existing
 // close -> scheduleReconnect -> connectChatSocket chain (routing.ts)
@@ -146,7 +190,8 @@ function reattachIfWarmedElsewhere(live: SessionInfo): void {
     live.status === "warm" &&
     state.current &&
     state.current.sessionId === live.sessionId &&
-    state.current.cold
+    state.current.cold &&
+    !recentlyKilledByUs(live.sessionId)
   ) {
     forceReconnect();
   }
@@ -159,8 +204,8 @@ function reattachIfWarmedElsewhere(live: SessionInfo): void {
 // it while we're viewing one session.
 async function pollCurrentSessionOnly(sessionId: string): Promise<void> {
   try {
-    const live = await api<SessionInfo>(
-      `/api/sessions/${encodeURIComponent(sessionId)}`,
+    const live = suppressStaleWarmth(
+      await api<SessionInfo>(`/api/sessions/${encodeURIComponent(sessionId)}`),
     );
     const idx = state.sessions.findIndex((s) => s.sessionId === sessionId);
     if (idx >= 0) {
@@ -218,7 +263,9 @@ async function pollAllSessions(): Promise<void> {
       removed: data.removed ?? [],
       cursor: data.cursor ?? 0,
     };
-    const newSessions = mergeSessionListPage(state.sessions, page, incremental) as never;
+    const newSessions = (
+      mergeSessionListPage(state.sessions, page, incremental) as SessionInfo[]
+    ).map(suppressStaleWarmth) as never;
     sessionCursor = page.cursor;
     // Only worth persisting when a cold session actually changed — most
     // polls carry nothing but warm-session churn (busy/timestamps), and

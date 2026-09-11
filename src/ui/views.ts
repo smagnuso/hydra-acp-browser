@@ -3,7 +3,7 @@
 // largest module by design — keeping all the DOM-shaping code together
 // makes UX iteration easier than chasing pieces across files.
 
-import { state, setState, isRailDirty, markRailClean } from "./state.js";
+import { state, setState, isRailDirty, markRailClean, markRailDirty } from "./state.js";
 import { render, noteTypingActivity } from "./renderer.js";
 import {
   el,
@@ -18,6 +18,7 @@ import { highlightCode } from "./hljs.js";
 import {
   api,
   importBundle,
+  markSessionKillRequested,
   pollSessions,
   tryImportBundleWith409,
 } from "./api.js";
@@ -1737,6 +1738,17 @@ async function killSession(s: SessionInfo): Promise<void> {
       method: "POST",
       body: JSON.stringify({ sessionId: s.sessionId }),
     });
+    markSessionKillRequested(s.sessionId);
+    // Flip the card cold immediately rather than waiting on the next
+    // poll — for a federated session the daemon's own view of the peer
+    // can lag several seconds (see markSessionKillRequested's callers in
+    // api.ts), which read as the kill having done nothing.
+    const idx = state.sessions.findIndex((x) => x.sessionId === s.sessionId);
+    if (idx >= 0) {
+      state.sessions[idx] = { ...state.sessions[idx], status: "cold", busy: false, awaitingInput: false };
+      markRailDirty();
+      render();
+    }
     void pollSessions();
   } catch (err) {
     setState({
