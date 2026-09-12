@@ -1,9 +1,12 @@
 import { stat, realpath } from "node:fs/promises";
-import { relative } from "node:path";
-import { resolveScopedPath } from "./routes-files.js";
+import { relative, resolve } from "node:path";
+import { PathScopeError, resolveScopedPath } from "./routes-files.js";
+import { isEditedPath } from "./session-files.js";
 
 export interface FileMention {
   raw: string;
+  // What the viewer should open: relative to the session cwd for a file
+  // inside the project, absolute for an edited file outside it.
   relPath: string;
   line?: number;
   lineEnd?: number;
@@ -127,7 +130,11 @@ export function contentToText(content: unknown): string {
 // treats an absolute input as itself and joins a relative one against
 // cwd, then rejects anything that escapes the tree — so an absolute path
 // pointing elsewhere on the daemon's host is never linkable.
-export async function findFileMentions(cwd: string, text: string): Promise<FileMention[]> {
+export async function findFileMentions(
+  sessionId: string,
+  cwd: string,
+  text: string,
+): Promise<FileMention[]> {
   const candidates = extractCandidates(text);
   if (candidates.length === 0) return [];
   let cwdReal: string;
@@ -147,7 +154,7 @@ export async function findFileMentions(cwd: string, text: string): Promise<FileM
     emitted.add(c.raw);
     let relPath = resolved.get(c.path);
     if (relPath === undefined) {
-      relPath = await resolveToRelative(cwd, cwdReal, c.path);
+      relPath = await resolveForViewer(sessionId, cwd, cwdReal, c.path);
       resolved.set(c.path, relPath);
     }
     if (relPath === null) continue;
@@ -161,21 +168,41 @@ export async function findFileMentions(cwd: string, text: string): Promise<FileM
   return mentions;
 }
 
-async function resolveToRelative(
+// The path the viewer should open, or null when this candidate isn't
+// linkable. Relative to cwd for a file inside the project; absolute for
+// one outside it that this session edited, which the read route permits
+// by the same allowlist (session-files.ts). Without that second case a
+// prose mention of a file would go unlinked while the edit block for
+// that exact same file was clickable.
+async function resolveForViewer(
+  sessionId: string,
   cwd: string,
   cwdReal: string,
   path: string,
 ): Promise<string | null> {
+  let real: string;
   try {
-    const real = await resolveScopedPath(cwd, path);
-    const s = await stat(real);
-    if (!s.isFile()) return null;
-    const rel = relative(cwdReal, real);
-    if (!rel || rel.startsWith("..")) return null;
-    return rel;
+    real = await resolveScopedPath(cwd, path);
+  } catch (err) {
+    if (!(err instanceof PathScopeError)) return null;
+    // Resolved against the session's cwd, not the server process's, so a
+    // relative mention like ../scan.md is checked as the file the reader
+    // actually meant.
+    const abs = resolve(cwdReal, path);
+    if (!(await isEditedPath(sessionId, abs))) return null;
+    return (await isReadableFile(abs)) ? abs : null;
+  }
+  if (!(await isReadableFile(real))) return null;
+  const rel = relative(cwdReal, real);
+  if (!rel || rel.startsWith("..")) return null;
+  return rel;
+}
+
+async function isReadableFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
   } catch {
-    // PathScopeError (escapes cwd), ENOENT, EACCES — all just mean "not
-    // linkable", and the caller never needs to tell them apart.
-    return null;
+    // ENOENT, EACCES — not linkable, and the caller needn't tell them apart.
+    return false;
   }
 }

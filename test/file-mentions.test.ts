@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractCandidates, findFileMentions } from "../src/server/file-mentions.js";
+import { _reset, recordEditedPath } from "../src/server/session-files.js";
 
 // realpath.native for the same reason test/files.test.ts does it: the
 // production path resolves before comparing, so an unresolved fixture
@@ -19,7 +20,7 @@ function makeRoot(): { cwd: string; cleanup: () => void } {
 test("a real relative path is confirmed", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    const m = await findFileMentions(cwd, "see src/foo.ts for detail");
+    const m = await findFileMentions("s1", cwd, "see src/foo.ts for detail");
     assert.deepEqual(m, [{ raw: "src/foo.ts", relPath: "src/foo.ts" }]);
   } finally {
     cleanup();
@@ -29,7 +30,7 @@ test("a real relative path is confirmed", async () => {
 test("a line suffix is carried, a column is dropped", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    const m = await findFileMentions(cwd, "see src/foo.ts:42 and src/foo.ts:7:3");
+    const m = await findFileMentions("s1", cwd, "see src/foo.ts:42 and src/foo.ts:7:3");
     assert.deepEqual(m, [
       { raw: "src/foo.ts:42", relPath: "src/foo.ts", line: 42 },
       { raw: "src/foo.ts:7:3", relPath: "src/foo.ts", line: 7 },
@@ -42,7 +43,7 @@ test("a line suffix is carried, a column is dropped", async () => {
 test("an absolute path inside cwd resolves to the same relative path", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    const m = await findFileMentions(cwd, `see ${join(cwd, "src/foo.ts")} now`);
+    const m = await findFileMentions("s1", cwd, `see ${join(cwd, "src/foo.ts")} now`);
     assert.equal(m.length, 1);
     assert.equal(m[0]!.relPath, "src/foo.ts");
   } finally {
@@ -53,7 +54,7 @@ test("an absolute path inside cwd resolves to the same relative path", async () 
 test("an absolute path outside cwd is refused", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    assert.deepEqual(await findFileMentions(cwd, "look at /etc/passwd please"), []);
+    assert.deepEqual(await findFileMentions("s1", cwd, "look at /etc/passwd please"), []);
   } finally {
     cleanup();
   }
@@ -62,10 +63,10 @@ test("an absolute path outside cwd is refused", async () => {
 test("missing paths, directories and prose are all refused", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    assert.deepEqual(await findFileMentions(cwd, "src/nope.ts is gone"), []);
+    assert.deepEqual(await findFileMentions("s1", cwd, "src/nope.ts is gone"), []);
     // A directory exists but isn't openable in the preview.
-    assert.deepEqual(await findFileMentions(cwd, "everything under src/ really"), []);
-    assert.deepEqual(await findFileMentions(cwd, "e.g. Node.js and version 1.2.3"), []);
+    assert.deepEqual(await findFileMentions("s1", cwd, "everything under src/ really"), []);
+    assert.deepEqual(await findFileMentions("s1", cwd, "e.g. Node.js and version 1.2.3"), []);
   } finally {
     cleanup();
   }
@@ -74,7 +75,7 @@ test("missing paths, directories and prose are all refused", async () => {
 test("a bare filename in the root resolves", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    const m = await findFileMentions(cwd, "documented in README.md");
+    const m = await findFileMentions("s1", cwd, "documented in README.md");
     assert.deepEqual(m, [{ raw: "README.md", relPath: "README.md" }]);
   } finally {
     cleanup();
@@ -84,7 +85,7 @@ test("a bare filename in the root resolves", async () => {
 test("trailing sentence punctuation is not part of the path", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    const m = await findFileMentions(cwd, "it lives in src/foo.ts. Also (src/foo.ts:9).");
+    const m = await findFileMentions("s1", cwd, "it lives in src/foo.ts. Also (src/foo.ts:9).");
     assert.deepEqual(m, [
       { raw: "src/foo.ts", relPath: "src/foo.ts" },
       { raw: "src/foo.ts:9", relPath: "src/foo.ts", line: 9 },
@@ -97,7 +98,7 @@ test("trailing sentence punctuation is not part of the path", async () => {
 test("a repeated mention is emitted once", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    const m = await findFileMentions(cwd, "src/foo.ts then src/foo.ts then src/foo.ts");
+    const m = await findFileMentions("s1", cwd, "src/foo.ts then src/foo.ts then src/foo.ts");
     assert.deepEqual(m, [{ raw: "src/foo.ts", relPath: "src/foo.ts" }]);
   } finally {
     cleanup();
@@ -107,7 +108,7 @@ test("a repeated mention is emitted once", async () => {
 test("URLs do not yield candidates that could resolve", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    const m = await findFileMentions(cwd, "https://example.com/src/foo.ts is remote");
+    const m = await findFileMentions("s1", cwd, "https://example.com/src/foo.ts is remote");
     assert.deepEqual(m, []);
   } finally {
     cleanup();
@@ -122,7 +123,7 @@ test("extractCandidates requires a separator or a lettered extension", () => {
 test("a bare #L fragment keeps the line, unlike the TUI's bare tokens", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    const m = await findFileMentions(cwd, "see src/foo.ts#L2 now");
+    const m = await findFileMentions("s1", cwd, "see src/foo.ts#L2 now");
     // raw spans the whole reference so nothing dangles outside the link.
     assert.deepEqual(m, [{ raw: "src/foo.ts#L2", relPath: "src/foo.ts", line: 2 }]);
   } finally {
@@ -133,10 +134,10 @@ test("a bare #L fragment keeps the line, unlike the TUI's bare tokens", async ()
 test("a bare #L range keeps both ends", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    assert.deepEqual(await findFileMentions(cwd, "see src/foo.ts#L2-L3 now"), [
+    assert.deepEqual(await findFileMentions("s1", cwd, "see src/foo.ts#L2-L3 now"), [
       { raw: "src/foo.ts#L2-L3", relPath: "src/foo.ts", line: 2, lineEnd: 3 },
     ]);
-    assert.deepEqual(await findFileMentions(cwd, "lenient src/foo.ts#L2-3 too"), [
+    assert.deepEqual(await findFileMentions("s1", cwd, "lenient src/foo.ts#L2-3 too"), [
       { raw: "src/foo.ts#L2-3", relPath: "src/foo.ts", line: 2, lineEnd: 3 },
     ]);
   } finally {
@@ -147,7 +148,7 @@ test("a bare #L range keeps both ends", async () => {
 test("a #L fragment on a path that isn't there yields nothing", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    assert.deepEqual(await findFileMentions(cwd, "src/nope.ts#L12 is gone"), []);
+    assert.deepEqual(await findFileMentions("s1", cwd, "src/nope.ts#L12 is gone"), []);
   } finally {
     cleanup();
   }
@@ -156,7 +157,7 @@ test("a #L fragment on a path that isn't there yields nothing", async () => {
 test("a non-#L fragment is not treated as a path reference", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    assert.deepEqual(await findFileMentions(cwd, "see README.md#installation"), []);
+    assert.deepEqual(await findFileMentions("s1", cwd, "see README.md#installation"), []);
   } finally {
     cleanup();
   }
@@ -165,10 +166,49 @@ test("a non-#L fragment is not treated as a path reference", async () => {
 test("sentence punctuation after a #L fragment is trimmed", async () => {
   const { cwd, cleanup } = makeRoot();
   try {
-    assert.deepEqual(await findFileMentions(cwd, "it is at src/foo.ts#L2."), [
+    assert.deepEqual(await findFileMentions("s1", cwd, "it is at src/foo.ts#L2."), [
       { raw: "src/foo.ts#L2", relPath: "src/foo.ts", line: 2 },
     ]);
   } finally {
+    cleanup();
+  }
+});
+
+test("a prose mention outside cwd links only if the session edited it", async () => {
+  // Otherwise an edit block for a file would be clickable while the
+  // agent's own sentence about that same file was not.
+  const { cwd, cleanup } = makeRoot();
+  const outside = join(cwd, "..", `sibling-${process.pid}.md`);
+  try {
+    writeFileSync(outside, "hi\n");
+    _reset();
+    assert.deepEqual(await findFileMentions("s1", cwd, `see ${outside} now`), []);
+    recordEditedPath("s1", outside);
+    const m = await findFileMentions("s1", cwd, `see ${outside} now`);
+    assert.equal(m.length, 1);
+    // Absolute, since it can't be expressed relative to the cwd.
+    assert.equal(m[0]!.relPath, realpathSync.native(outside));
+    // Still scoped per session.
+    assert.deepEqual(await findFileMentions("other", cwd, `see ${outside} now`), []);
+  } finally {
+    rmSync(outside, { force: true });
+    cleanup();
+  }
+});
+
+test("an edited-path allowance does not extend to its neighbours", async () => {
+  const { cwd, cleanup } = makeRoot();
+  const outside = join(cwd, "..", `sibling-ok-${process.pid}.md`);
+  const neighbour = join(cwd, "..", `sibling-no-${process.pid}.md`);
+  try {
+    writeFileSync(outside, "hi\n");
+    writeFileSync(neighbour, "nope\n");
+    _reset();
+    recordEditedPath("s1", outside);
+    assert.deepEqual(await findFileMentions("s1", cwd, `see ${neighbour} now`), []);
+  } finally {
+    rmSync(outside, { force: true });
+    rmSync(neighbour, { force: true });
     cleanup();
   }
 });

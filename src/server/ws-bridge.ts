@@ -341,7 +341,7 @@ function handleConnection(
     for (const [messageId, text] of pending) {
       let mentions;
       try {
-        mentions = await findFileMentions(cwd, text);
+        mentions = await findFileMentions(sessionId, cwd, text);
       } catch (err) {
         log.debug(`file mention scan failed session=${sessionId}: ${(err as Error).message}`);
         continue;
