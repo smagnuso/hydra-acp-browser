@@ -74,6 +74,40 @@ function parseCandidate(token: string): Candidate | null {
     : { raw: token, path };
 }
 
+// Paths this tool call edited, read the same way the client's
+// extractEditDiff reads them: a content[] diff block, or the tool's raw
+// input. Feeds session-files.ts's allowlist, so it is deliberately
+// conservative — a Read or Grep that merely names a path must not make
+// that path readable, hence the isWrite check below.
+export function extractEditedPaths(update: unknown): string[] {
+  if (!update || typeof update !== "object") return [];
+  const u = update as Record<string, unknown>;
+  const out: string[] = [];
+  const content = u.content;
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (!block || typeof block !== "object") continue;
+      const b = block as Record<string, unknown>;
+      if (b.type === "diff" && typeof b.path === "string" && b.path) out.push(b.path);
+    }
+  }
+  const rawInput = u.rawInput;
+  if (rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)) {
+    const r = rawInput as Record<string, unknown>;
+    const isWrite =
+      typeof r.old_string === "string" ||
+      typeof r.oldString === "string" ||
+      typeof r.content === "string";
+    if (isWrite) {
+      for (const key of ["file_path", "filePath", "path"]) {
+        const v = r[key];
+        if (typeof v === "string" && v) out.push(v);
+      }
+    }
+  }
+  return out;
+}
+
 // Best-effort flatten of an ACP content blob, mirroring the client's
 // contentToText. Duplicated rather than imported so the server bundle
 // doesn't pull in the UI's markdown module.

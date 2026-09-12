@@ -3,6 +3,7 @@ import { resolve, sep } from "node:path";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { HydraRestClient } from "../hydra/client.js";
 import type { ServerContext } from "./http.js";
+import { isEditedPath } from "./session-files.js";
 
 interface ListBody {
   sessionId?: string;
@@ -154,12 +155,19 @@ export function registerFileRoutes(
     try {
       target = await resolveScopedPath(cwd, body.path);
     } catch (err) {
-      if (err instanceof PathScopeError) {
+      if (!(err instanceof PathScopeError)) {
+        reply.code(500).send({ error: (err as Error).message });
+        return;
+      }
+      // Outside the cwd root. Permitted only for a file this session was
+      // observed editing, compared on resolved paths — see
+      // session-files.ts for why that is a per-file allowlist rather
+      // than a wider root. Everything else stays refused.
+      if (!(await isEditedPath(body.sessionId, body.path))) {
         reply.code(400).send({ error: "path out of scope" });
         return;
       }
-      reply.code(500).send({ error: (err as Error).message });
-      return;
+      target = resolve(body.path);
     }
     let stat;
     try {

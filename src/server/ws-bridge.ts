@@ -19,7 +19,8 @@ import {
 import { checkStateChanging } from "../util/csrf.js";
 import type { ServerContext } from "./http.js";
 import { HydraRestClient } from "../hydra/client.js";
-import { contentToText, findFileMentions } from "./file-mentions.js";
+import { contentToText, extractEditedPaths, findFileMentions } from "./file-mentions.js";
+import { recordEditedPath } from "./session-files.js";
 import { hasSubscriptions, sendPushToEndpoint } from "./push-store.js";
 import { registerForPush } from "./turn-notify-callback.js";
 import { clearConnection, isSessionVisible, setConnectionVisible } from "./session-visibility.js";
@@ -514,6 +515,15 @@ function handleConnection(
       }
       if (update?.sessionUpdate === "stop" || update?.sessionUpdate === "turn_complete") {
         void scanForFileMentions();
+      }
+      // Remember what this session edits, so the Files API can open a
+      // file the agent just changed even when it sits outside the
+      // session cwd. History replay re-delivers these frames, so a
+      // browser reload repopulates the set.
+      if (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") {
+        for (const edited of extractEditedPaths(update)) {
+          recordEditedPath(sessionId, edited);
+        }
       }
       if (
         update?.sessionUpdate === "permission_resolved" &&

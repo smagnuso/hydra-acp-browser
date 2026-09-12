@@ -4671,14 +4671,20 @@ export function openFileAtLine(
   lineEnd?: number,
   locate?: EditAnchor,
 ): void {
-  // An edit block's path is always absolute in practice, and the Files
-  // API would happily resolve it — but the breadcrumb and savedFileView
-  // elsewhere in the overlay are cwd-relative, and an absolute path eats
-  // the whole width of a phone. Anything outside the cwd is left alone
-  // for the server to scope-reject as usual.
+  // An edit block's path is always absolute in practice. Inside the cwd
+  // it's folded to a relative one, because the breadcrumb and
+  // savedFileView elsewhere in the overlay are cwd-relative and an
+  // absolute path eats the whole width of a phone.
   const path = relativeToCwd(c.cwd, rawPath);
+  const outsideCwd = path.startsWith("/");
+  // A file outside the cwd is readable only because this session edited
+  // it (the server's per-file allowlist); its *directory* is not
+  // listable, and asking would fail the listing half of the fetch below
+  // and surface an error over a preview that loaded fine. Root the
+  // listing at the cwd instead, so "back to listing" still goes
+  // somewhere sensible.
   const slash = path.lastIndexOf("/");
-  const dirPath = slash === -1 ? "" : path.slice(0, slash);
+  const dirPath = outsideCwd || slash === -1 ? "" : path.slice(0, slash);
   // A markdown file renders as prose by default, and that view has no
   // line gutter at all — so a line request has to force source view or
   // it would silently fail to scroll.
