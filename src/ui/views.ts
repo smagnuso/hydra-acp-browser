@@ -4784,10 +4784,6 @@ function toggleMaximizeFiles(): void {
   render();
 }
 
-// Long enough to find the line after the scroll lands, short enough not
-// to linger as a permanent-looking selection.
-const LINE_HIGHLIGHT_MS = 2500;
-
 // Anchor for an edit block's header link, looked up at click time so the
 // diff text never has to ride along in the DOM.
 export function editAnchorForToolCall(c: ChatState, toolCallId: string): EditAnchor | undefined {
@@ -5045,8 +5041,9 @@ function closeFilePreview(): void {
 // here, and it meant the tint expiring counted as a content change: you
 // would open a file at a line, scroll somewhere, and 2.5s later the
 // timer that clears the tint rebuilt the overlay and dropped you back at
-// the top. A tint is decoration — applyLineHighlight toggles the class
-// on the rows in place instead, so the node survives.
+// the top. The tint no longer expires at all, so it cannot change
+// without the preview changing with it — and a fresh preview object
+// rebuilds the node regardless.
 let overlayCache: { chat: ChatState; sig: unknown[]; node: Node } | null = null;
 
 function fileOverlaySig(c: ChatState, fo: FileOverlayState): unknown[] {
@@ -5074,31 +5071,11 @@ function cachedFileOverlay(c: ChatState): Node {
     hit.sig.length === sig.length &&
     hit.sig.every((v, i) => v === sig[i])
   ) {
-    applyLineHighlight(hit.node, fo);
     return hit.node;
   }
   const node = renderFileOverlay(c);
   overlayCache = { chat: c, sig, node };
   return node;
-}
-
-// Syncs the tinted rows on an already-built overlay, so the highlight
-// coming and going never costs a rebuild. Cost is proportional to the
-// rows involved, not the file: the clear pass only visits rows that are
-// currently tinted, and the set pass only the requested range.
-function applyLineHighlight(node: Node, fo: FileOverlayState): void {
-  if (!(node instanceof HTMLElement)) return;
-  for (const row of node.querySelectorAll<HTMLElement>(".ln.ln-target")) {
-    if (!inHighlight(fo, Number(row.dataset.line))) {
-      row.classList.remove("ln-target");
-    }
-  }
-  const from = fo.highlightLine;
-  if (from === undefined) return;
-  const to = fo.highlightLineEnd ?? from;
-  for (let ln = from; ln <= to; ln++) {
-    node.querySelector<HTMLElement>(`.ln[data-line="${ln}"]`)?.classList.add("ln-target");
-  }
 }
 
 function renderFileOverlay(c: ChatState): Node {
@@ -5152,7 +5129,10 @@ function renderFileOverlay(c: ChatState): Node {
       // One-shot scroll for a file-mention link. Cleared immediately so
       // an unrelated later render doesn't drag the view back; a line
       // past EOF simply finds no row and does nothing. The tint is
-      // separate because it has to outlive this node (see highlightLine).
+      // separate because the tint outlives this one-shot (see
+      // highlightLine): it stays until you open a different file, since
+      // it marks the line you came here for and losing it after a few
+      // seconds means having to find your way back by hand.
       const target = fo.scrollToLine;
       if (target !== undefined) {
         fo.scrollToLine = undefined;
@@ -5161,12 +5141,6 @@ function renderFileOverlay(c: ChatState): Node {
             .querySelector<HTMLElement>(`.ln[data-line="${target}"]`)
             ?.scrollIntoView({ block: "center" });
         });
-        setTimeout(() => {
-          if (fo.highlightLine !== target) return;
-          fo.highlightLine = undefined;
-          fo.highlightLineEnd = undefined;
-          render();
-        }, LINE_HIGHLIGHT_MS);
       }
     }
     body = el(
