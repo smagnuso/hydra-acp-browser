@@ -3468,6 +3468,12 @@ function renderChat(c: ChatState): HTMLElement {
       insertAtCaret(t, "\n");
       return;
     }
+    // On touch devices the virtual keyboard's return key is easy to hit
+    // by accident (autocorrect, swipe-typing) and there's no modifier
+    // key available to ask for a newline instead, so bare Enter just
+    // inserts one there, same as Shift+Enter on desktop. Submitting is
+    // the Send/Enqueue button's job on those devices.
+    if (!isDesktopPointer()) return;
     e.preventDefault();
     sendPrompt();
   };
