@@ -208,6 +208,46 @@ document.addEventListener(
 // otherwise land moments later and clear it anyway. Picks back up
 // automatically once the selection is gone, whether that's the user
 // clicking elsewhere or copying it out.
+// The Files overlay's scrollers, which are rebuilt from scratch on every
+// render because an open overlay makes tryPatchChat bail to the full
+// teardown path. That path samples scrollTop, replaces the node, and
+// writes the sample back — so anything the scroller did between the
+// sample and the write is discarded, and on iOS writing scrollTop into
+// a live fling kills it outright.
+//
+// Renders are already held while a finger is down, so a drag survives.
+// The damage lands at release, exactly when momentum takes over: the
+// pointerup flush tears the preview down and pins it back to wherever
+// the finger left off. During a turn that repeats several times a
+// second and the preview is essentially unscrollable.
+//
+// So treat the overlay's scrollers the way the chat body's pins already
+// treat their own scroller: quiet for SCROLL_QUIET_MS is the ground
+// truth for settled (see views.ts's lastScrollAt — momentum and the
+// rubber-band keep emitting scroll events the whole time they're
+// physically moving, which a fixed post-release delay can't capture).
+// Deliberately NOT applied to .chat-body: its auto-pin emits scroll
+// events of its own, so holding on those would stall streaming.
+const OVERLAY_SCROLL_SELECTOR = ".files .preview, .files .body";
+const SCROLL_QUIET_MS = 250;
+let lastOverlayScrollAt = 0;
+let overlayScrollFlushTimer: ReturnType<typeof setTimeout> | undefined;
+// Capture phase, because scroll events don't bubble.
+document.addEventListener(
+  "scroll",
+  (e) => {
+    const target = e.target;
+    if (!(target instanceof Element) || !target.matches(OVERLAY_SCROLL_SELECTOR)) return;
+    lastOverlayScrollAt = performance.now();
+  },
+  true,
+);
+
+function overlayScrollUnsettled(): number {
+  const since = performance.now() - lastOverlayScrollAt;
+  return since < SCROLL_QUIET_MS ? SCROLL_QUIET_MS - since : 0;
+}
+
 let renderHeldBySelection = false;
 document.addEventListener("selectionchange", () => {
   if (!renderHeldBySelection || hasActiveSelection()) return;
@@ -333,6 +373,18 @@ export function render(): void {
       // comment), just without a gesture in flight to hang the gate off
       // of. selectionchange (above) flushes this once it's gone.
       renderHeldBySelection = true;
+      return;
+    }
+    const unsettled = overlayScrollUnsettled();
+    if (unsettled > 0) {
+      // Still physically moving. Retry once it's had time to settle
+      // rather than latching a flag, since the only thing that reliably
+      // signals "done" here is the absence of further scroll events.
+      if (overlayScrollFlushTimer !== undefined) clearTimeout(overlayScrollFlushTimer);
+      overlayScrollFlushTimer = setTimeout(() => {
+        overlayScrollFlushTimer = undefined;
+        render();
+      }, unsettled);
       return;
     }
     lastRenderAt = performance.now();

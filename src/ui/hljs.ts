@@ -90,13 +90,24 @@ const EXT_MAP: Record<string, string> = {
 
 // Returns highlighted HTML for the body of a <code> element, or null if the
 // file extension is not recognised (caller should fall back to escapeHtml).
+// One entry is enough: the only caller is the file preview, which shows
+// a single file at a time. Worth having because an open Files overlay
+// forces every render onto the full-teardown path, so without this the
+// whole file is re-highlighted on each one — several times a second
+// while a turn streams, for a file that hasn't changed at all.
+let lastHighlight: { code: string; filename: string; html: string | null } | undefined;
+
 export function highlightCode(code: string, filename: string): string | null {
+  if (lastHighlight && lastHighlight.code === code && lastHighlight.filename === filename) {
+    return lastHighlight.html;
+  }
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   const lang =
     EXT_MAP[ext] ??
     (filename.toLowerCase() === "dockerfile" ? "dockerfile" : null);
-  if (!lang) return null;
-  return hljs.highlight(code, { language: lang }).value;
+  const html = lang ? hljs.highlight(code, { language: lang }).value : null;
+  lastHighlight = { code, filename, html };
+  return html;
 }
 
 const REGISTERED_LANG_IDS = new Set([
