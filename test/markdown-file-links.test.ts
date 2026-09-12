@@ -86,13 +86,21 @@ test("an empty mention map is a no-op", () => {
 });
 
 // ---- Authored markdown links (the file-links skill's mandated form) ----
-// These are NOT stat-verified: an authored link is a deliberate
-// assertion, so they render without any entry in the mention map.
+// These only render once the server has confirmed the path, same as
+// prose. The map is keyed by the URL exactly as written, which is the
+// token the server scans out of the message text.
 
-const noMentions = new Map<string, { relPath: string; line?: number; lineEnd?: number }>();
+const confirmed = new Map<string, { relPath: string; line?: number; lineEnd?: number }>([
+  ["src/foo.ts#L42", { relPath: "src/foo.ts", line: 42 }],
+  ["src/foo.ts#L42-L50", { relPath: "src/foo.ts", line: 42, lineEnd: 50 }],
+  ["src/foo.ts#L42-50", { relPath: "src/foo.ts", line: 42, lineEnd: 50 }],
+  ["src/foo.ts", { relPath: "src/foo.ts" }],
+  ["./src/foo.ts#L42", { relPath: "src/foo.ts", line: 42 }],
+  ["/abs/foo.ts#L7", { relPath: "/abs/foo.ts", line: 7 }],
+]);
 
 function md(src: string): string {
-  return linkifyFilePaths(renderMarkdown(src), noMentions);
+  return linkifyFilePaths(renderMarkdown(src, confirmed), confirmed);
 }
 
 test("the skill's single-line form renders as a file link", () => {
@@ -101,7 +109,6 @@ test("the skill's single-line form renders as a file link", () => {
     html,
     /<a class="file-link" href="#" data-path="src\/foo\.ts" data-line="42">src\/foo\.ts:42<\/a>/,
   );
-  // No leftover markdown punctuation around it.
   assert.doesNotMatch(html, /\[src\/foo\.ts:42\]/);
 });
 
@@ -129,12 +136,28 @@ test("a ./-prefixed path no longer escapes the SPA", () => {
   assert.match(html, /data-path="src\/foo\.ts" data-line="42"/);
 });
 
-test("an absolute path is left absolute for the server to scope-check", () => {
+test("an absolute confirmed path stays absolute", () => {
   assert.match(md("[x](/abs/foo.ts#L7)"), /data-path="\/abs\/foo\.ts" data-line="7"/);
 });
 
-test("a file:// URL is stripped to its path", () => {
-  assert.match(md("[x](file:///abs/foo.ts#L7)"), /data-path="\/abs\/foo\.ts" data-line="7"/);
+test("an unconfirmed authored link is not clickable", () => {
+  // The bug this exists for: an agent wrote
+  // [pre-app.ts:182-192](packages/nrdjs/clients/pre-app/pre-app.ts#L182-L192)
+  // in a session rooted at ~, where that path resolves to nothing. It
+  // rendered as a link and opened the viewer onto an error.
+  const html = md("[pre-app.ts:182-192](packages/nrdjs/clients/pre-app/pre-app.ts#L182-L192)");
+  assert.doesNotMatch(html, /file-link/);
+  assert.doesNotMatch(html, /target="_blank"/);
+});
+
+test("a confirmed path is still not linked inside a fenced block", () => {
+  assert.doesNotMatch(md("```\n[x](src/foo.ts#L42)\n```"), /file-link/);
+});
+
+test("a file:// URL is not confirmable, so it does not link", () => {
+  // The server's tokenizer splits on ":", so a file:// URL never matches
+  // a mention key. Known gap; agents emitting these get plain text.
+  assert.doesNotMatch(md("[x](file:///abs/foo.ts#L7)"), /file-link/);
 });
 
 test("real web links are untouched, #L fragment or not", () => {
@@ -152,14 +175,9 @@ test("a hydra session link still wins over file-ref parsing", () => {
 });
 
 test("a non-#L fragment is not a file reference", () => {
-  const html = md("[x](guide.md#installation)");
-  assert.doesNotMatch(html, /file-link/);
+  assert.doesNotMatch(md("[x](guide.md#installation)"), /file-link/);
 });
 
 test("an ordinary relative link with no path shape stays as it was", () => {
   assert.doesNotMatch(md("[click](somewhere)"), /file-link/);
-});
-
-test("an authored link inside a fenced block is still left alone", () => {
-  assert.doesNotMatch(md("```\n[x](src/foo.ts#L42)\n```"), /file-link/);
 });

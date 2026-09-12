@@ -3857,20 +3857,23 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
         );
       }
       const body = el("div", { class: item.synthetic ? "body raw" : "body" });
+      // Mentions feed both link sources: renderMarkdown consults them to
+      // confirm an authored [text](path#L42) link, linkifyFilePaths uses
+      // them to link bare prose. Neither ever links an unconfirmed path.
       const withFileLinks = (html: string): string =>
         linkifyFilePaths(html, c.fileMentions);
       if (item.synthetic) {
         body.innerHTML = cachedMarkdown(
           item,
           item.text,
-          (s) => withFileLinks(renderInlineMarkdown(s)),
+          (s) => withFileLinks(renderInlineMarkdown(s, c.fileMentions)),
           c.fileMentionsVersion,
         );
       } else {
         body.innerHTML = cachedMarkdown(
           item,
           item.text,
-          (s) => withFileLinks(renderMarkdown(s)),
+          (s) => withFileLinks(renderMarkdown(s, c.fileMentions)),
           c.fileMentionsVersion,
         );
       }

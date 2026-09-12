@@ -195,7 +195,7 @@ export function linkifyFilePaths(html: string, mentions: Map<string, FileMention
 }
 
 // Apply inline markdown to a chunk of *already-escaped* HTML.
-function inlineMd(s: string): string {
+function inlineMd(s: string, mentions?: Map<string, FileMention>): string {
   // Code spans first so their content isn't further transformed.
   s = s.replace(/`([^`\n]+)`/g, (_m, c: string) => `<code>${c}</code>`);
   // Bold + italic.
@@ -214,16 +214,25 @@ function inlineMd(s: string): string {
       const sid = hydraMatch[1]!;
       return `<a href="#/session/${escapeHtml(sid)}">${text}</a>`;
     }
-    // An authored file link is a deliberate assertion, so unlike prose
-    // scanning it isn't stat-verified here: the click goes through
-    // /api/files/read, which still enforces the cwd boundary and shows
-    // the overlay's error state for a path that isn't there. Bonus, it
-    // renders on first paint instead of waiting for the turn-end scan.
-    const fileRef = parseFileRefUrl(url);
-    if (fileRef) {
-      // url arrived already escaped (see this function's contract), so
-      // re-escaping the path would double-encode it.
-      return fileLinkHtml(fileRef, text, false);
+    // An authored file link still has to be confirmed by the server
+    // before it becomes clickable. Trusting it as a "deliberate
+    // assertion" was tempting and wrong: agents habitually write paths
+    // relative to a project root that isn't the session cwd, e.g.
+    // [pre-app.ts:182-192](packages/nrdjs/clients/pre-app/pre-app.ts#L182-L192)
+    // in a session rooted at ~, which resolves to nothing and produced a
+    // link that opened the viewer onto an error. Unconfirmed URLs fall
+    // through to the plain-text handling below, same as before.
+    if (parseFileRefUrl(url)) {
+      const hit = mentions?.get(url);
+      if (hit) {
+        // relPath is the server's resolved answer, and it arrives off
+        // the wire unescaped unlike this function's other input.
+        return fileLinkHtml(
+          { path: hit.relPath, line: hit.line, lineEnd: hit.lineEnd },
+          text,
+          true,
+        );
+      }
     }
     if (!/^(https?:\/\/|\/|\.)/i.test(url)) {
       return `[${text}](${url})`;
@@ -279,18 +288,19 @@ function renderTableRow(
   cells: string[],
   aligns: Array<"left" | "center" | "right" | null>,
   tag: "th" | "td",
+  mentions?: Map<string, FileMention>,
 ): string {
   let out = "<tr>";
   for (let i = 0; i < cells.length; i++) {
     const align = aligns[i] ?? null;
     const styleAttr = align ? ` style="text-align:${align}"` : "";
-    out += `<${tag}${styleAttr}>${inlineMd(escapeHtml(cells[i]!))}</${tag}>`;
+    out += `<${tag}${styleAttr}>${inlineMd(escapeHtml(cells[i]!), mentions)}</${tag}>`;
   }
   out += "</tr>";
   return out;
 }
 
-export function renderMarkdown(src: unknown): string {
+export function renderMarkdown(src: unknown, mentions?: Map<string, FileMention>): string {
   if (typeof src !== "string") {
     src = String(src ?? "");
   }
@@ -309,12 +319,12 @@ export function renderMarkdown(src: unknown): string {
 
   function flushPara(): void {
     if (para.length === 0) return;
-    out += `<p>${inlineMd(para.join(" "))}</p>`;
+    out += `<p>${inlineMd(para.join(" "), mentions)}</p>`;
     para = [];
   }
   function flushListItem(): void {
     if (listItemLines.length === 0) return;
-    out += `<li>${inlineMd(listItemLines.join(" "))}</li>`;
+    out += `<li>${inlineMd(listItemLines.join(" "), mentions)}</li>`;
     listItemLines = [];
   }
   function closeList(): void {
@@ -368,13 +378,13 @@ export function renderMarkdown(src: unknown): string {
         const paddedAligns: Array<"left" | "center" | "right" | null> = [];
         for (let c = 0; c < cols; c++) paddedAligns.push(aligns[c] ?? null);
         out += "<table><thead>";
-        out += renderTableRow(headerCells, paddedAligns, "th");
+        out += renderTableRow(headerCells, paddedAligns, "th", mentions);
         out += "</thead><tbody>";
         let j = i + 2;
         while (j < lines.length) {
           const rowCells = parseTableRow(lines[j]!);
           if (!rowCells) break;
-          out += renderTableRow(rowCells, paddedAligns, "td");
+          out += renderTableRow(rowCells, paddedAligns, "td", mentions);
           j++;
         }
         out += "</tbody></table>";
@@ -393,7 +403,7 @@ export function renderMarkdown(src: unknown): string {
       flushPara();
       closeList();
       const level = m[1]!.length;
-      out += `<h${level}>${inlineMd(escapeHtml(m[2]!))}</h${level}>`;
+      out += `<h${level}>${inlineMd(escapeHtml(m[2]!), mentions)}</h${level}>`;
       i++;
       continue;
     }
@@ -426,7 +436,7 @@ export function renderMarkdown(src: unknown): string {
     if ((m = raw.match(/^\s*>\s?(.*)$/))) {
       flushPara();
       closeList();
-      out += `<blockquote>${inlineMd(escapeHtml(m[1]!))}</blockquote>`;
+      out += `<blockquote>${inlineMd(escapeHtml(m[1]!), mentions)}</blockquote>`;
       i++;
       continue;
     }
@@ -453,9 +463,9 @@ export function renderMarkdown(src: unknown): string {
 // links (including hydra:// session links), code spans, bold/italic, and
 // bare-URL autolinking, but no block-level parsing — so the literal line
 // breaks and indentation that make it "raw" still survive.
-export function renderInlineMarkdown(src: unknown): string {
+export function renderInlineMarkdown(src: unknown, mentions?: Map<string, FileMention>): string {
   const s = typeof src === "string" ? src : String(src ?? "");
-  return inlineMd(escapeHtml(s));
+  return inlineMd(escapeHtml(s), mentions);
 }
 
 // Best-effort flatten of an ACP content blob (string | array | object)
