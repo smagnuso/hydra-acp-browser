@@ -4591,7 +4591,7 @@ function openFiles(): void {
     entries: [],
     preview: null,
     err: null,
-    maximized: saved?.maximized ?? false,
+    maximized: saved?.maximized ?? defaultMaximized(),
     previewRaw: saved?.previewRaw ?? false,
   };
   render();
@@ -4697,12 +4697,23 @@ export function openFileAtLine(
     entries: [],
     preview: null,
     err: null,
-    maximized: c.fileOverlay?.maximized ?? c.savedFileView?.maximized ?? false,
+    maximized: c.fileOverlay?.maximized ?? c.savedFileView?.maximized ?? defaultMaximized(),
     previewRaw,
   };
   render();
   void restoreFileView(c, dirPath, path, previewRaw, line, lineEnd, locate);
 
+}
+
+// Unmaximized is 80vw x 80vh inside a padded backdrop (index.html's
+// .file-modal), which on a phone leaves about 300px of usable width to
+// read code in. Width-based rather than pointer-based on purpose: what
+// makes the windowed size unusable is the room available, so a narrow
+// desktop window wants the same treatment a phone does. Only the
+// starting state — an explicit toggle is remembered in savedFileView
+// and takes precedence on reopen.
+function defaultMaximized(): boolean {
+  return !isWideLayout();
 }
 
 function toggleMaximizeFiles(): void {

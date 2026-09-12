@@ -230,7 +230,16 @@ document.addEventListener(
 // events of its own, so holding on those would stall streaming.
 const OVERLAY_SCROLL_SELECTOR = ".files .preview, .files .body";
 const SCROLL_QUIET_MS = 250;
+// Past the last touch release, on top of scroll-quiet. The chat body's
+// pins carry the same pair of guards for the same reason (views.ts's
+// lastTouchEndAt): a release near an edge overscrolls into the
+// rubber-band, and a programmatic scroll landing while that bounce
+// animates can leave the scroller somewhere neither the finger nor the
+// fling was heading — or wedge it outright on WebKit. Scroll-quiet
+// alone doesn't cover it, because the bounce can settle between events.
+const TOUCH_HOLDOFF_MS = 450;
 let lastOverlayScrollAt = 0;
+let lastOverlayTouchEndAt = 0;
 let overlayScrollFlushTimer: ReturnType<typeof setTimeout> | undefined;
 // Capture phase, because scroll events don't bubble.
 document.addEventListener(
@@ -242,10 +251,24 @@ document.addEventListener(
   },
   true,
 );
+document.addEventListener(
+  "touchend",
+  (e) => {
+    const target = e.target;
+    if (!(target instanceof Element) || !target.closest(OVERLAY_SCROLL_SELECTOR)) return;
+    lastOverlayTouchEndAt = performance.now();
+  },
+  true,
+);
 
 function overlayScrollUnsettled(): number {
-  const since = performance.now() - lastOverlayScrollAt;
-  return since < SCROLL_QUIET_MS ? SCROLL_QUIET_MS - since : 0;
+  const now = performance.now();
+  const sinceScroll = now - lastOverlayScrollAt;
+  const sinceTouch = now - lastOverlayTouchEndAt;
+  return Math.max(
+    sinceScroll < SCROLL_QUIET_MS ? SCROLL_QUIET_MS - sinceScroll : 0,
+    sinceTouch < TOUCH_HOLDOFF_MS ? TOUCH_HOLDOFF_MS - sinceTouch : 0,
+  );
 }
 
 let renderHeldBySelection = false;
