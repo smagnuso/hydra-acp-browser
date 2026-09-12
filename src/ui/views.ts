@@ -1007,6 +1007,30 @@ interface SessionGroup {
 
 // Collapse a leading home directory into "~" so the session list has
 // room to actually show the rest of the path instead of truncating it.
+function baseName(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash === -1 ? path : path.slice(slash + 1);
+}
+
+// The directory to show beside the filename. Kept as short as it can be
+// while still locating the file: in-project paths show their directory
+// relative to the cwd ("src/server"), which is the part the reader
+// doesn't already know, and anything outside falls back to the absolute
+// directory with $HOME collapsed. A file at the cwd root has no
+// directory of its own, so the cwd stands in rather than leaving it
+// blank.
+//
+// Matters because this pill is the one thing in the header allowed to
+// shrink (index.html's .file-modal .topbar .pill), and it ellipsizes at
+// the end — so a long absolute path would show the useless head and cut
+// the part that tells you where you are.
+function dirName(path: string, cwd: string): string {
+  const slash = path.lastIndexOf("/");
+  if (slash === -1) return shortenCwd(cwd);
+  const dir = path.slice(0, slash);
+  return dir.startsWith("/") ? shortenCwd(dir) : dir;
+}
+
 function relativeToCwd(cwd: string, path: string): string {
   if (!cwd || !path.startsWith("/")) return path;
   const base = cwd.endsWith("/") ? cwd : cwd + "/";
@@ -5207,8 +5231,13 @@ function renderFileOverlay(c: ChatState): Node {
       el(
         "div",
         { class: "topbar", style: "border-bottom:1px solid var(--border)" },
-        el("span", { class: "title" }, "Files"),
-        el("span", { class: "pill" }, c.cwd),
+        // Naming the file you're actually looking at, not just "Files".
+        // The header used to read "Files" plus the cwd, so the most
+        // prominent line told you the project while the filename only
+        // appeared in the smaller crumb row underneath — with a whole
+        // desktop-width header to spend on it.
+        el("span", { class: "title" }, fo.preview ? baseName(fo.preview.path) : "Files"),
+        el("span", { class: "pill" }, fo.preview ? dirName(fo.preview.path, c.cwd) : c.cwd),
         el("span", { class: "spacer" }),
         el(
           "button",
