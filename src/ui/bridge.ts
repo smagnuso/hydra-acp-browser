@@ -285,9 +285,16 @@ export function handleFrame(frame: JsonRpcFrame): void {
         ensureSpinner();
       }
     }
+    // The daemon omits `queue` when empty, and an empty queue is exactly
+    // what proves a still-"queued" local entry has run while we were
+    // away, so hydrate against [] rather than skipping. Only when the
+    // daemon speaks the _meta dialect at all: a daemon that never sends
+    // a snapshot can't have its silence read as an empty queue.
     const snapshot = hydraMeta?.queue;
     if (Array.isArray(snapshot)) {
       hydrateQueueFromSnapshot(snapshot);
+    } else if (hydraMeta !== undefined) {
+      hydrateQueueFromSnapshot([]);
     }
     // Gate the Amend button on the daemon advertising support. Without
     // it the composer falls back to a single Send button (the chord
@@ -472,9 +479,17 @@ export function handleFrame(frame: JsonRpcFrame): void {
         // stopReason), so a failed turn read as a completed one until a
         // reload replayed the daemon's turn_complete.
         finalizeTurn("error", undefined, true);
-      } else if (entry.status !== "amended") {
-        // Terminal, but not the live turn's end: settle it so the queue
-        // math stops counting a dead prompt as active.
+      }
+      // Terminal for this entry either way: settle it so the queue math
+      // stops counting a dead prompt as active. finalizeTurn only flips
+      // "processing", which misses an entry still "queued" from a lost
+      // prompt_queue/removed{started}.
+      if (
+        entry !== undefined &&
+        entry.status !== "done" &&
+        entry.status !== "cancelled" &&
+        entry.status !== "amended"
+      ) {
         entry.status = "done";
       }
       render();
@@ -488,8 +503,18 @@ export function handleFrame(frame: JsonRpcFrame): void {
       // started, and the daemon sends us no turn_complete for it — see
       // finalizeTurn.
       finalizeTurn(stopReason, undefined, true);
-    } else if (stopReason === "cancelled" && entry.status !== "amended") {
-      entry.status = "cancelled";
+    }
+    // Whatever the turn bookkeeping decided, this response is terminal
+    // for THIS entry. finalizeTurn only settles "processing" entries, so
+    // one that never saw its prompt_queue/removed{started} would stay
+    // "queued" past its own completion and pin the queued boundary.
+    if (
+      entry !== undefined &&
+      entry.status !== "done" &&
+      entry.status !== "cancelled" &&
+      entry.status !== "amended"
+    ) {
+      entry.status = stopReason === "cancelled" ? "cancelled" : "done";
     }
     render();
     return;

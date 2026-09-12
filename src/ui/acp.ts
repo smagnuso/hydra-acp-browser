@@ -931,7 +931,18 @@ function onPromptReceived(update: AnyRecord, recordedAt?: number): void {
   // which also opens the turn's spinner.
   const messageId =
     typeof update.messageId === "string" ? update.messageId : undefined;
-  if (messageId && state.current.queueByMessageId.has(messageId)) {
+  const bound = messageId ? state.current.queueByMessageId.get(messageId) : undefined;
+  if (bound) {
+    // A bound entry still waiting when its own prompt_received lands has
+    // missed its prompt_queue/removed{started}. Queue notifications are
+    // fan-out only, never recorded, so a reconnect delta replays this
+    // frame but can never replay that one. Left "queued", the bubble
+    // pins the queued boundary: every later turn's content splices in
+    // above it and any bubble sent after it strands below its own reply.
+    if (isAwaitingStart(bound)) {
+      closeOpenStream();
+      promoteToProcessing(bound, messageId!, recordedAt);
+    }
     return;
   }
   // Same replay-dedup as pushChunk's: a reconnect delta can redeliver a
@@ -1013,6 +1024,7 @@ function onPromptReceived(update: AnyRecord, recordedAt?: number): void {
 // originator's local FIFO is gone, can't bind anything to them).
 export function hydrateQueueFromSnapshot(snapshot: unknown[]): void {
   if (!state.current) return;
+  settleEntriesMissingFromSnapshot(snapshot);
   for (const raw of snapshot) {
     if (!raw || typeof raw !== "object") continue;
     const e = raw as AnyRecord;
@@ -1105,6 +1117,34 @@ export function hydrateQueueFromSnapshot(snapshot: unknown[]): void {
       queueEntry: entry,
       attachments: extractImageAttachments(e.prompt),
     });
+  }
+}
+
+// The snapshot is the daemon's whole queue, head included. A bound local
+// entry it doesn't list has left that queue while we weren't connected:
+// it ran to completion, or was cancelled by a peer. Either way its
+// prompt_queue/removed was fan-out only and is gone for good, and if the
+// replay's cursor also skipped its prompt_received (see bridge.ts's
+// bridge/ready note on the after_message cursor) nothing else will ever
+// settle it. "done" is the closer guess: a peer cancel is rare, and the
+// cost of a wrong "done" is a missing strikethrough, while a wrong
+// "queued" pins the queued boundary for the rest of the session.
+function settleEntriesMissingFromSnapshot(snapshot: unknown[]): void {
+  if (!state.current) return;
+  const listed = new Set<string>();
+  for (const raw of snapshot) {
+    if (!raw || typeof raw !== "object") continue;
+    const messageId = (raw as AnyRecord).messageId;
+    if (typeof messageId === "string") {
+      listed.add(messageId);
+    }
+  }
+  for (const entry of state.current.promptQueue) {
+    if (entry.messageId === undefined || listed.has(entry.messageId)) continue;
+    if (isAwaitingStart(entry) || entry.status === "processing") {
+      entry.status = "done";
+      entry.held = false;
+    }
   }
 }
 
@@ -1480,38 +1520,7 @@ function onPromptQueueRemoved(params: AnyRecord): void {
   const entry = state.current.queueByMessageId.get(messageId);
   if (!entry) return;
   if (reason === "started") {
-    entry.status = "processing";
-    // Its own turn is starting, so any deferred re-seat is moot. Clear
-    // it rather than acting on it: this notification can arrive after
-    // the agent has already begun replying, and re-seating at that
-    // point drops the bubble below its own answer.
-    entry.reseatAfterCurrentTurn = undefined;
-    // This prompt's turn is now the live one — open its spinner
-    // (freeze-then-new; see startTurnSpinner). Skip when this very
-    // prompt already opened the live spinner at dispatch time
-    // (immediate own sends go out "pending" and open it there), or
-    // freeze-then-new would stamp a seconds-old block and mint a
-    // duplicate. The status flip above moved the queued boundary past
-    // this bubble, so the fresh spinner anchors directly under it.
-    const owns =
-      state.current.spinnerOwner !== undefined &&
-      (state.current.spinnerOwner === entry.id ||
-        state.current.spinnerOwner === messageId);
-    if (!owns) {
-      startTurnSpinner(undefined, messageId);
-    } else {
-      // Prefer the messageId form — the turn_complete stale-completion
-      // guard compares owner against completing messageIds.
-      state.current.spinnerOwner = messageId;
-      // This is prompt_queue/removed{started} — a universal signal that
-      // reaches the originator too (unlike prompt_received), so it's
-      // the authoritative confirmation that our own optimistically-
-      // opened spinner's turn is genuinely under way.
-      if (state.current.spinner) {
-        state.current.spinner.sending = false;
-      }
-    }
-    markActive();
+    promoteToProcessing(entry, messageId);
   } else if (reason === "cancelled" || reason === "abandoned") {
     // If we already flagged this entry as amended (via prompt_amended
     // or the M2's _meta.amending hint) the bubble should render as
@@ -1524,6 +1533,61 @@ function onPromptQueueRemoved(params: AnyRecord): void {
     }
     state.current.queueByMessageId.delete(messageId);
   }
+}
+
+// True while the entry sits in the daemon's queue ahead of its own turn:
+// the states a prompt_queue/removed{started} would move it out of.
+function isAwaitingStart(entry: QueueEntry): boolean {
+  return (
+    entry.status === "queued" ||
+    entry.status === "pending" ||
+    entry.status === "editing"
+  );
+}
+
+// The entry's turn is now the live one. Shared by
+// prompt_queue/removed{started} (the normal signal) and a replayed
+// prompt_received for a still-waiting bound entry (the signal's stand-in
+// after a reconnect ate the original).
+function promoteToProcessing(
+  entry: QueueEntry,
+  messageId: string,
+  startedAt?: number,
+): void {
+  if (!state.current) return;
+  state.current.currentHeadMessageId = messageId;
+  entry.status = "processing";
+  entry.held = false;
+  // Its own turn is starting, so any deferred re-seat is moot. Clear
+  // it rather than acting on it: this notification can arrive after
+  // the agent has already begun replying, and re-seating at that
+  // point drops the bubble below its own answer.
+  entry.reseatAfterCurrentTurn = undefined;
+  // Open its spinner (freeze-then-new; see startTurnSpinner). Skip when
+  // this very prompt already opened the live spinner at dispatch time
+  // (immediate own sends go out "pending" and open it there), or
+  // freeze-then-new would stamp a seconds-old block and mint a
+  // duplicate. The status flip above moved the queued boundary past
+  // this bubble, so the fresh spinner anchors directly under it.
+  const owns =
+    state.current.spinnerOwner !== undefined &&
+    (state.current.spinnerOwner === entry.id ||
+      state.current.spinnerOwner === messageId);
+  if (!owns) {
+    startTurnSpinner(startedAt, messageId);
+  } else {
+    // Prefer the messageId form — the turn_complete stale-completion
+    // guard compares owner against completing messageIds.
+    state.current.spinnerOwner = messageId;
+    // Both callers are daemon-sent signals that reach the originator
+    // too (unlike a live prompt_received), so this is the authoritative
+    // confirmation that our own optimistically-opened spinner's turn is
+    // genuinely under way.
+    if (state.current.spinner) {
+      state.current.spinner.sending = false;
+    }
+  }
+  markActive();
 }
 
 // hydra-acp/prompt_queue/held: the daemon is holding this entry at the
