@@ -640,6 +640,31 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
 .ln { display: block; padding: 0 0.75rem; line-height: 1.45; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 0.88em; color: var(--muted); cursor: pointer; text-align: right; min-width: 2.5rem; }
 .ln:hover { color: var(--fg); background: var(--panel-2); }
 .ln.ln-target { color: var(--accent); background: var(--panel-2); font-weight: 600; }
+
+/* Touch only: hand horizontal panning to an inner element so the
+   preview itself scrolls on one axis, exactly like .chat-body.
+   swipe-nav's dismiss gesture can only suppress native scrolling by
+   calling preventDefault() after its 12px direction lock, and a
+   two-axis scroller has already latched the touch by then — so the
+   code panned under the finger for the whole swipe. The chat never had
+   this problem because .chat-body is vertical-only and its horizontal
+   overflow lives in inner pre/table elements; this gives the preview
+   the same shape. A rightward drag at scrollLeft 0 then has nowhere to
+   go, so nothing latches and the gesture is still cancelable.
+
+   Desktop deliberately keeps the two-axis preview: moving the
+   scrollport inward there would put the horizontal scrollbar at the
+   bottom of an element as tall as the entire file, i.e. out of reach.
+
+   overscroll-behavior-x: none rather than contain — contain still
+   permits the local rubber-band, and a bounce is itself something
+   WebKit can latch a touch onto. */
+@media (hover: none) and (pointer: coarse) {
+  .files .preview { overflow-x: hidden; }
+  .code-view { min-width: 0; width: 100%; overflow-x: auto; overscroll-behavior-x: none; }
+  /* The thing that overflows now, so .code-view has something to pan. */
+  .code-view pre { min-width: max-content; }
+}
 .code-view pre { flex: 1; margin: 0; border: none; border-radius: 0; overflow: visible; }
 
 /* highlight.js — github-dark, background removed (pre supplies it) */
