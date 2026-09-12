@@ -60,7 +60,7 @@ import {
   reopenClosedChat,
 } from "./routing.js";
 import { hasActiveSelection, isFormControl, isWideLayout } from "./dom.js";
-import { buildChatPreviewPane, buildListPreviewPane, peekChatViewRoot } from "./views.js";
+import { buildChatPreviewPane, buildListPreviewPane, closeFiles, peekChatViewRoot } from "./views.js";
 import { beginExternalRenderHold, endExternalRenderHold } from "./renderer.js";
 import type { ChatState } from "./types.js";
 
@@ -82,7 +82,13 @@ function hasScrollableLeftAncestor(target: EventTarget | null): boolean {
   return false;
 }
 
-type Mode = "toChat" | "toList";
+// "closeFiles" dismisses the maximized Files overlay back to the chat
+// underneath. Much simpler than the other two: the chat is real, live,
+// still-attached DOM sitting right there behind the overlay (renderer's
+// patch path leaves it alone while the overlay is open), so there is no
+// preview pane to synthesise and no ChatState to resume — just slide
+// the overlay off and call closeFiles().
+type Mode = "toChat" | "toList" | "closeFiles";
 
 let startX: number | null = null;
 let startY: number | null = null;
@@ -170,6 +176,17 @@ function buildRevealPane(m: Mode): HTMLElement | null {
 function armDrag(m: Mode): boolean {
   const app = document.getElementById("app");
   if (!app) return false;
+  if (m === "closeFiles") {
+    // The overlay is a direct child of #app (renderApp appends it
+    // alongside the chat). Nothing else to build: the chat behind it is
+    // already on screen, and the overlay's own backdrop is the only
+    // thing that needs to move.
+    const overlay = app.querySelector<HTMLElement>(":scope > .modal-bg");
+    if (!overlay) return false;
+    frontNodes = [overlay];
+    beginExternalRenderHold();
+    return true;
+  }
   const pane = buildRevealPane(m);
   if (!pane) return false;
   frontNodes = Array.from(app.children) as HTMLElement[];
@@ -227,6 +244,14 @@ function armDrag(m: Mode): boolean {
 // it, fading out as chat reveals it) is its only motion cue, driven by
 // progress (0 at rest, 1 at/past the threshold).
 function paint(dx: number, m: Mode): void {
+  if (m === "closeFiles") {
+    // Clamped at 0 so the overlay can't be dragged left of its resting
+    // position; the chat is simply uncovered as it slides away.
+    for (const node of frontNodes) {
+      node.style.transform = `translateX(${Math.max(0, dx)}px)`;
+    }
+    return;
+  }
   if (!revealContent || !revealScrim) return;
   const progress = Math.min(Math.abs(dx) / THRESHOLD_PX, 1);
   if (m === "toList") {
@@ -264,7 +289,12 @@ function cleanup(): void {
 // reads as an interrupted gesture, not a completed one.
 function commit(m: Mode): void {
   const w = window.innerWidth;
-  if (m === "toList") {
+  if (m === "closeFiles") {
+    for (const node of frontNodes) {
+      node.style.transition = `transform ${SETTLE_MS}ms ease-out`;
+      node.style.transform = `translateX(${w}px)`;
+    }
+  } else if (m === "toList") {
     // Chat (frontNodes) finishes sliding off-screen; list never moved,
     // nothing to settle beyond its scrim clearing.
     for (const node of frontNodes) {
@@ -300,6 +330,13 @@ function commit(m: Mode): void {
     // this path. reopenClosedChat's ChatState survives that teardown
     // regardless (ensureChatView/views.ts reuses its existing view by
     // identity), which is the whole point: no rebuilt-from-empty flash.
+    if (m === "closeFiles") {
+      // Saves savedFileView and drops the overlay; the render that
+      // follows discards the node we were dragging, inline styles and
+      // all, same as the other two paths.
+      closeFiles();
+      return;
+    }
     if (m === "toList") {
       closeChat();
       return;
@@ -352,7 +389,22 @@ function onTouchStart(e: TouchEvent): void {
   // more-vertical drag as an undecided candidate fighting the handle for
   // the same touch, which is what makes handles hard to grab.
   if (hasActiveSelection()) return;
-  if (state.view === "list" && state.lastSessionId) {
+  const fileOverlay = state.view === "chat" ? state.current?.fileOverlay : null;
+  if (fileOverlay) {
+    // Only when it fills the screen. Windowed, the backdrop is right
+    // there to tap and already closes it. Note this also stops the
+    // chat's own back swipe arming underneath an open overlay, which
+    // used to send a rightward drag on the file viewer all the way out
+    // to the session list.
+    if (
+      !fileOverlay.maximized ||
+      isFormControl(touch.target) ||
+      hasScrollableLeftAncestor(touch.target)
+    ) {
+      return;
+    }
+    mode = "closeFiles";
+  } else if (state.view === "list" && state.lastSessionId) {
     mode = "toChat";
   } else if (
     state.view === "chat" &&

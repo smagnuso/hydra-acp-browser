@@ -4847,7 +4847,7 @@ async function readFile(p: string): Promise<void> {
   }
 }
 
-function closeFiles(): void {
+export function closeFiles(): void {
   const c = state.current;
   if (!c) return;
   const fo = c.fileOverlay;
