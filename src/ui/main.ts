@@ -22,6 +22,7 @@ import {
   scrollToTurn,
   openFileAtLine,
   editAnchorForToolCall,
+  closeFiles,
 } from "./views.js";
 import { state } from "./state.js";
 import { applyFontScale, initTheme } from "./theme.js";
@@ -203,6 +204,20 @@ window.addEventListener("keydown", (e) => {
   // the modal closes.
   e.stopImmediatePropagation();
   closeModal();
+});
+
+// Escape closes the Files overlay. Order is the whole design here: the
+// modal handler above runs first and stops immediate propagation
+// whenever state.modal is set, so a modal stacked on top of the overlay
+// still wins; registering before handleListKeydown below keeps the
+// list's own unrelated Escape behavior from firing on the same keypress.
+// Not gated on being a desktop — Escape implies a keyboard either way,
+// and gating it would only break a tablet with one attached.
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !state.current?.fileOverlay) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  closeFiles();
 });
 
 // Up/Down to move a cursor over the session list, Enter to open it —

@@ -4612,9 +4612,37 @@ function renderPlan(plan: unknown): Node {
 
 // ---- File overlay -----------------------------------------------
 
+// Opening the viewer over a focused composer left the caret in the
+// prompt behind it: keystrokes went to a textarea the reader could no
+// longer see, and on a phone the virtual keyboard stayed up and ate the
+// screen the viewer had just been maximized to fill.
+//
+// Done here rather than in the render because render() is rAF-deferred
+// and the renderer samples document.activeElement at that point — blur
+// after it, and it would dutifully restore the composer (it keys off
+// data-focus-key, which the composer carries). Blurring first means the
+// sample sees nothing focused and there is nothing to put back.
+function blurForOverlay(): void {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && isFormControl(active)) {
+    active.blur();
+  }
+}
+
+// Moves the caret into the viewer once it exists. Deferred a frame
+// because the node isn't built until the render this is called
+// alongside. Safe on a phone: it's a div, so nothing summons the
+// keyboard.
+function focusOverlay(): void {
+  requestAnimationFrame(() => {
+    document.querySelector<HTMLElement>(".file-modal")?.focus();
+  });
+}
+
 function openFiles(): void {
   const c = state.current;
   if (!c) return;
+  blurForOverlay();
   const saved = c.savedFileView;
   c.fileOverlay = {
     path: "",
@@ -4625,6 +4653,7 @@ function openFiles(): void {
     previewRaw: saved?.previewRaw ?? false,
   };
   render();
+  focusOverlay();
   if (saved?.previewPath) {
     // Fetch the directory listing and the remembered file's content
     // together and settle into a single render, rather than listFiles
@@ -4708,6 +4737,7 @@ export function openFileAtLine(
   // it's folded to a relative one, because the breadcrumb and
   // savedFileView elsewhere in the overlay are cwd-relative and an
   // absolute path eats the whole width of a phone.
+  blurForOverlay();
   const path = relativeToCwd(c.cwd, rawPath);
   const outsideCwd = path.startsWith("/");
   // A file outside the cwd is readable only because this session edited
@@ -4731,6 +4761,7 @@ export function openFileAtLine(
     previewRaw,
   };
   render();
+  focusOverlay();
   void restoreFileView(c, dirPath, path, previewRaw, line, lineEnd, locate);
 
 }
@@ -5176,6 +5207,15 @@ function renderFileOverlay(c: ChatState): Node {
       "div",
       {
         class: fo.maximized ? "modal file-modal maximized" : "modal file-modal",
+        // Focused when the overlay opens (see focusOverlay). tabindex -1
+        // so it can hold focus without joining the tab order itself,
+        // which is the ordinary way to move the caret into a modal:
+        // without it, focus stays on whatever was clicked behind the
+        // viewer and Tab walks the chat underneath instead of the
+        // viewer. data-focus-key so a teardown render (a banner
+        // appearing, say) restores it rather than dropping to body.
+        tabindex: "-1",
+        "data-focus-key": "file-modal",
       },
       el(
         "div",
