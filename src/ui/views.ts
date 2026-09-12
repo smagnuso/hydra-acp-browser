@@ -4891,6 +4891,19 @@ export function closeFiles(): void {
     };
   }
   c.fileOverlay = null;
+  // Hand the caret back to the prompt so typing resumes where it left
+  // off. Desktop only: on touch this would summon the keyboard the
+  // viewer just dismissed (see blurForOverlay).
+  //
+  // Focused BEFORE render() on purpose. The composer node on screen
+  // right now is about to be torn down, but the renderer samples
+  // document.activeElement at the start of a render and restores it by
+  // data-focus-key afterwards — so setting it here rides that existing
+  // machinery across the rebuild, instead of racing a rAF of our own
+  // against a render that may itself be throttled behind a timeout.
+  if (isDesktopPointer()) {
+    document.querySelector<HTMLElement>('[data-focus-key="composer"]')?.focus();
+  }
   render();
 }
 
