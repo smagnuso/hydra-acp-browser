@@ -176,6 +176,88 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
   };
 }
 
+// tapHandler for elements this module didn't create. Markdown bodies are
+// assigned as innerHTML, so a link inside one has no place to hang the
+// per-element handlers above, and re-binding after every render() would
+// mean leaking a listener per repaint. Registered once at boot instead.
+//
+// Capture phase, on document, is load-bearing: in the bubble phase a
+// document-level listener runs LAST, so an ancestor's own click handler
+// (a thought bubble's collapse toggle, say) would already have fired by
+// the time we could stop it. Capturing at the top lets stopPropagation
+// actually mean something.
+//
+// Acts on pointerup for the same reason tapHandler does, but without its
+// preventDefault on pointerdown: these are inline words inside
+// selectable prose, and suppressing the native gesture would break
+// selecting a sentence that happens to start on a linked path. The
+// compatibility click that touch then still delivers is absorbed by the
+// firedViaPointer guard, which is per-handler rather than per-element,
+// so a late click landing on a *different* matching element after a
+// render() teardown is swallowed too.
+export function delegatedTap(
+  selector: string,
+  fn: (target: HTMLElement, e: Event) => void,
+): void {
+  let firedViaPointer = false;
+  let startX = 0;
+  let startY = 0;
+  const match = (e: Event): HTMLElement | null => {
+    const t = e.target;
+    if (!(t instanceof Element)) return null;
+    return t.closest<HTMLElement>(selector);
+  };
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (!match(e)) return;
+      const pe = e as PointerEvent;
+      if (pe.pointerType === "mouse" && pe.button !== 0) return;
+      firedViaPointer = false;
+      startX = pe.clientX;
+      startY = pe.clientY;
+    },
+    true,
+  );
+  document.addEventListener(
+    "pointerup",
+    (e) => {
+      const target = match(e);
+      if (!target) return;
+      const pe = e as PointerEvent;
+      if (pe.pointerType === "mouse" && pe.button !== 0) return;
+      if (Math.hypot(pe.clientX - startX, pe.clientY - startY) > TAP_MOVE_THRESHOLD) return;
+      if (hasActiveSelection()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      firedViaPointer = true;
+      fn(target, e);
+    },
+    true,
+  );
+  document.addEventListener(
+    "click",
+    (e) => {
+      const target = match(e);
+      if (!target) return;
+      // Kill the href default whichever path got here, so a file link
+      // never writes "#" into the URL.
+      e.preventDefault();
+      e.stopPropagation();
+      if (firedViaPointer) {
+        firedViaPointer = false;
+        return;
+      }
+      // Keyboard activation only, same detail === 0 reasoning as
+      // tapHandler's onclick.
+      if ((e as MouseEvent).detail !== 0) return;
+      if (hasActiveSelection()) return;
+      fn(target, e);
+    },
+    true,
+  );
+}
+
 function appendChild(parent: Node, c: Child): void {
   if (c == null || c === false) return;
   if (c instanceof Node) {

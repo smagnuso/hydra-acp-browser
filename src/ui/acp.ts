@@ -435,6 +435,33 @@ export function closeOpenStream(): void {
   }
 }
 
+// Verified file mentions from the bridge's turn-end scan. Merged into a
+// session-wide map keyed by the exact matched substring, which is all
+// linkifyFilePaths needs — the mention doesn't have to be tied back to a
+// particular bubble. Re-delivered on every attach replay, so nothing
+// here needs persisting across a reload.
+function onFileMentions(update: AnyRecord): void {
+  const c = state.current;
+  if (!c) return;
+  const mentions = update.mentions;
+  if (!Array.isArray(mentions)) return;
+  let added = 0;
+  for (const m of mentions) {
+    if (!m || typeof m !== "object") continue;
+    const { raw, relPath, line } = m as AnyRecord;
+    if (typeof raw !== "string" || typeof relPath !== "string") continue;
+    if (c.fileMentions.has(raw)) continue;
+    c.fileMentions.set(
+      raw,
+      typeof line === "number" ? { relPath, line } : { relPath },
+    );
+    added += 1;
+  }
+  if (added === 0) return;
+  c.fileMentionsVersion += 1;
+  render();
+}
+
 // Called when a reattach came back as an after_message delta (bridge.ts).
 // The cursor we sent names the last message group we saw the END of, so
 // the delta necessarily restarts at the first frame of the group that was
@@ -1864,6 +1891,15 @@ export function handleNotification(frame: JsonRpcFrame, fromCache = false): void
     }
     case "agent_message_chunk":
       pushChunk("agent", update.content, isSyntheticChunk, updateMessageId);
+      break;
+    // Browser-bridge-only kind (ws-bridge.ts's turn-end scan), never
+    // emitted by the daemon: file paths in the finished message that it
+    // confirmed are real files in the session's cwd. Deliberately does
+    // not touch any log item's text — one messageId can span several
+    // bubbles when a reply continues after a tool call, so the linking
+    // happens per-substring at render time instead.
+    case "agent_message_links":
+      onFileMentions(update);
       break;
     case "agent_thought_chunk":
       pushChunk("thought", update.content, false, updateMessageId);

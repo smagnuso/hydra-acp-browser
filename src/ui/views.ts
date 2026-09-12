@@ -13,7 +13,7 @@ import {
   isWideLayout,
   TAP_MOVE_THRESHOLD,
 } from "./dom.js";
-import { renderMarkdown, renderInlineMarkdown, escapeHtml } from "./markdown.js";
+import { renderMarkdown, renderInlineMarkdown, escapeHtml, linkifyFilePaths } from "./markdown.js";
 import { highlightCode } from "./hljs.js";
 import {
   api,
@@ -59,6 +59,7 @@ import type {
   EditDiff,
   EditDiffLogItem,
   FileEntry,
+  FileOverlayState,
   PermissionEntry,
   QueueEntry,
   SessionInfo,
@@ -2770,11 +2771,14 @@ function ensureChatView(c: ChatState): ChatView {
 // external state — they rebuild every render and get swapped in place.
 const logNodeCache = new WeakMap<object, { node: Node; sig: unknown[] }>();
 
-function logItemSig(item: ChatState["log"][number]): unknown[] | null {
+function logItemSig(c: ChatState, item: ChatState["log"][number]): unknown[] | null {
   if (item.kind === "stream") {
     const qe = item.queueEntry;
     return [
       item.text,
+      // Mentions land after the text is final, so without this the node
+      // cache would hold the pre-link markup forever.
+      c.fileMentionsVersion,
       item.role,
       item.synthetic ?? false,
       item.closed ?? false,
@@ -2828,10 +2832,10 @@ function carryScrollAcross(oldNode: Node, newNode: Node): void {
   });
 }
 
-function cachedLogNode(item: ChatState["log"][number]): Node {
-  const sig = logItemSig(item);
+function cachedLogNode(c: ChatState, item: ChatState["log"][number]): Node {
+  const sig = logItemSig(c, item);
   if (sig === null) {
-    return renderLogItem(item);
+    return renderLogItem(c, item);
   }
   const hit = logNodeCache.get(item);
   if (hit && hit.sig.length === sig.length && hit.sig.every((v, i) => v === sig[i])) {
@@ -2839,7 +2843,7 @@ function cachedLogNode(item: ChatState["log"][number]): Node {
     return hit.node;
   }
   bump(hit ? "node-resig" : "node-new");
-  const node = renderLogItem(item);
+  const node = renderLogItem(c, item);
   // A rebuilt node starts scrolled to 0, which is right for its content
   // and wrong for the user: the bubble still streaming is exactly the one
   // being rebuilt every chunk, so a horizontally-scrolled code block
@@ -2960,7 +2964,7 @@ function reconcileChatBody(c: ChatState, view: ChatView): void {
     if (state.hideThoughts && item.kind === "stream" && item.role === "thought") {
       continue;
     }
-    desired.push(cachedLogNode(item));
+    desired.push(cachedLogNode(c, item));
   }
   desired.push(view.jump);
   syncChildren(body, desired);
@@ -3711,19 +3715,28 @@ function renderChat(c: ChatState): HTMLElement {
 // text can never change again. Keyed by the log item, validated by text:
 // a streaming bubble whose text grew misses and re-parses (correct), an
 // unchanged one hits.
-const markdownHtmlCache = new WeakMap<object, { text: string; html: string }>();
+const markdownHtmlCache = new WeakMap<object, { text: string; html: string; version: number }>();
 
-function cachedMarkdown(key: object, text: string, render: (s: string) => string = renderMarkdown): string {
+// `version` is the caller's fileMentionsVersion (0 where mentions don't
+// apply). Message text is already final by the time the server confirms
+// a file mention, so text equality alone would serve the pre-link markup
+// forever.
+function cachedMarkdown(
+  key: object,
+  text: string,
+  render: (s: string) => string = renderMarkdown,
+  version = 0,
+): string {
   const hit = markdownHtmlCache.get(key);
-  if (hit && hit.text === text) {
+  if (hit && hit.text === text && hit.version === version) {
     return hit.html;
   }
   const html = render(text);
-  markdownHtmlCache.set(key, { text, html });
+  markdownHtmlCache.set(key, { text, html, version });
   return html;
 }
 
-function renderLogItem(item: ChatState["log"][number]): Node {
+function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
   if (item.kind === "stream") {
     const isThought = item.role === "thought";
     const cls =
@@ -3838,10 +3851,22 @@ function renderLogItem(item: ChatState["log"][number]): Node {
         );
       }
       const body = el("div", { class: item.synthetic ? "body raw" : "body" });
+      const withFileLinks = (html: string): string =>
+        linkifyFilePaths(html, c.fileMentions);
       if (item.synthetic) {
-        body.innerHTML = cachedMarkdown(item, item.text, renderInlineMarkdown);
+        body.innerHTML = cachedMarkdown(
+          item,
+          item.text,
+          (s) => withFileLinks(renderInlineMarkdown(s)),
+          c.fileMentionsVersion,
+        );
       } else {
-        body.innerHTML = cachedMarkdown(item, item.text);
+        body.innerHTML = cachedMarkdown(
+          item,
+          item.text,
+          (s) => withFileLinks(renderMarkdown(s)),
+          c.fileMentionsVersion,
+        );
       }
       if (qe && qe.status === "cancelled") {
         body.style.textDecoration = "line-through";
@@ -4559,6 +4584,8 @@ async function restoreFileView(
   dirPath: string,
   previewPath: string,
   previewRaw: boolean,
+  scrollToLine?: number,
+  scrollToLineEnd?: number,
 ): Promise<void> {
   const [listResult, readResult] = await Promise.allSettled([
     api<{ path: string; entries?: FileEntry[] }>("/api/files/list", {
@@ -4584,8 +4611,43 @@ async function restoreFileView(
     err: readErr ?? listErr,
     maximized,
     previewRaw,
+    // highlightLine is set here rather than where the scroll is consumed
+    // below: the gutter is built earlier in that same render pass, so
+    // setting it there would only tint on some later, incidental render.
+    ...(scrollToLine === undefined
+      ? {}
+      : { scrollToLine, highlightLine: scrollToLine }),
+    ...(scrollToLineEnd === undefined ? {} : { highlightLineEnd: scrollToLineEnd }),
   };
   render();
+}
+
+// Entry point for a file-mention link in the transcript. Goes straight
+// to the file rather than making the user walk the directory tree, and
+// carries the target line through to renderFileOverlay.
+export function openFileAtLine(
+  c: ChatState,
+  path: string,
+  line?: number,
+  lineEnd?: number,
+): void {
+  const slash = path.lastIndexOf("/");
+  const dirPath = slash === -1 ? "" : path.slice(0, slash);
+  // A markdown file renders as prose by default, and that view has no
+  // line gutter at all — so a line request has to force source view or
+  // it would silently fail to scroll.
+  const previewRaw = line !== undefined && isMarkdownPath(path);
+  c.fileOverlay = {
+    path: dirPath,
+    entries: [],
+    preview: null,
+    err: null,
+    maximized: c.fileOverlay?.maximized ?? c.savedFileView?.maximized ?? false,
+    previewRaw,
+  };
+  render();
+  void restoreFileView(c, dirPath, path, previewRaw, line, lineEnd);
+
 }
 
 function toggleMaximizeFiles(): void {
@@ -4593,6 +4655,16 @@ function toggleMaximizeFiles(): void {
   if (!fo) return;
   fo.maximized = !fo.maximized;
   render();
+}
+
+// Long enough to find the line after the scroll lands, short enough not
+// to linger as a permanent-looking selection.
+const LINE_HIGHLIGHT_MS = 2500;
+
+function inHighlight(fo: FileOverlayState, ln: number): boolean {
+  const from = fo.highlightLine;
+  if (from === undefined) return false;
+  return ln >= from && ln <= (fo.highlightLineEnd ?? from);
 }
 
 function isMarkdownPath(path: string): boolean {
@@ -4837,7 +4909,12 @@ function renderFileOverlay(c: ChatState): Node {
         const ln = i;
         const lnEl: HTMLElement = el(
           "div",
-          { class: "ln", title: "Copy path:line", ...tapHandler(() => copyLineRef(c.cwd, path, ln, lnEl)) },
+          {
+            class: inHighlight(fo, ln) ? "ln ln-target" : "ln",
+            "data-line": String(ln),
+            title: "Copy path:line",
+            ...tapHandler(() => copyLineRef(c.cwd, path, ln, lnEl)),
+          },
           String(ln),
         );
         gutter.appendChild(lnEl);
@@ -4848,6 +4925,25 @@ function renderFileOverlay(c: ChatState): Node {
         gutter,
         el("pre", {}, el("code", { class: "hljs", html: highlighted })),
       );
+      // One-shot scroll for a file-mention link. Cleared immediately so
+      // an unrelated later render doesn't drag the view back; a line
+      // past EOF simply finds no row and does nothing. The tint is
+      // separate because it has to outlive this node (see highlightLine).
+      const target = fo.scrollToLine;
+      if (target !== undefined) {
+        fo.scrollToLine = undefined;
+        requestAnimationFrame(() => {
+          gutter
+            .querySelector<HTMLElement>(`.ln[data-line="${target}"]`)
+            ?.scrollIntoView({ block: "center" });
+        });
+        setTimeout(() => {
+          if (fo.highlightLine !== target) return;
+          fo.highlightLine = undefined;
+          fo.highlightLineEnd = undefined;
+          render();
+        }, LINE_HIGHLIGHT_MS);
+      }
     }
     body = el(
       "div",

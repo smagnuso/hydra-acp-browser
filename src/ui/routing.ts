@@ -216,6 +216,8 @@ export function openChat(sessionId: string, load: boolean): void {
     cost: null,
     fileOverlay: null,
     savedFileView: null,
+    fileMentions: new Map(),
+    fileMentionsVersion: 0,
     composerValue: loadDraft(sessionId),
     attachments: [],
     busy: false,

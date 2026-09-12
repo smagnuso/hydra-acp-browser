@@ -156,6 +156,10 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
+/* Confirmed file mention in a message body — dashed to read as an
+   in-app action rather than a link off to the web. */
+a.file-link { border-bottom: 1px dashed currentColor; }
+a.file-link:hover { text-decoration: none; border-bottom-style: solid; }
 code { background: var(--panel-2); padding: 0.1rem 0.4rem; border-radius: 4px; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 0.9em; }
 pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; overflow-x: auto; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 0.88em; line-height: 1.45; margin: 0.5rem 0; }
 pre code { background: transparent; padding: 0; }
@@ -629,6 +633,7 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
 .code-gutter { position: sticky; left: 0; z-index: 1; background: var(--code-bg); border-right: 1px solid var(--border); padding: 0.75rem 0; user-select: none; flex-shrink: 0; }
 .ln { display: block; padding: 0 0.75rem; line-height: 1.45; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 0.88em; color: var(--muted); cursor: pointer; text-align: right; min-width: 2.5rem; }
 .ln:hover { color: var(--fg); background: var(--panel-2); }
+.ln.ln-target { color: var(--accent); background: var(--panel-2); font-weight: 600; }
 .code-view pre { flex: 1; margin: 0; border: none; border-radius: 0; overflow: visible; }
 
 /* highlight.js — github-dark, background removed (pre supplies it) */

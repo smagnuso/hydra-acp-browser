@@ -19,6 +19,7 @@ import {
 import { checkStateChanging } from "../util/csrf.js";
 import type { ServerContext } from "./http.js";
 import { HydraRestClient } from "../hydra/client.js";
+import { contentToText, findFileMentions } from "./file-mentions.js";
 import { hasSubscriptions, sendPushToEndpoint } from "./push-store.js";
 import { registerForPush } from "./turn-notify-callback.js";
 import { clearConnection, isSessionVisible, setConnectionVisible } from "./session-visibility.js";
@@ -290,6 +291,78 @@ function handleConnection(
   // needs to hold the upstream connection open a little longer.
   let pendingOwnPrompts = 0;
 
+  // Agent message text assembled per messageId purely to scan it for
+  // file mentions once the turn ends (see scanForFileMentions). Chunks
+  // still forward verbatim and immediately; this is bookkeeping
+  // alongside the relay, not a buffer in front of it.
+  const agentText = new Map<string, string>();
+  // Request ids of session/prompt frames this connection forwarded. The
+  // daemon excludes the originator from turn_complete fan-out, so for
+  // our own turns the prompt's *response* is the only turn-end signal
+  // that reaches us.
+  const ownPromptRequestIds = new Set<string>();
+  let cwdLookup: Promise<string | null> | undefined;
+
+  // The session's project root, as the Files API sees it — same `cwd`
+  // field routes-files.ts resolves against, so a mention we linkify is
+  // always openable in the preview. Fetched once per connection; a
+  // failure (daemon restarting underneath us) just disables mention
+  // scanning for this connection rather than breaking the bridge.
+  function sessionCwd(): Promise<string | null> {
+    if (cwdLookup === undefined) {
+      cwdLookup = HydraRestClient.forRequest(
+        ctx.config.hydraDaemonUrl,
+        ctx.config.hydraToken,
+      )
+        .getSession(sessionId)
+        .then((info) => info.cwd || null)
+        .catch(() => null);
+    }
+    return cwdLookup;
+  }
+
+  // Turn-end scan. Emits one browser-only session/update per messageId
+  // listing the mentions that resolved to real files, leaving the
+  // message text itself untouched: one messageId can span several chat
+  // bubbles (a reply that continues after a tool call), so the client
+  // links matching substrings at render time instead of us trying to
+  // say which bubble a mention belongs to.
+  async function scanForFileMentions(): Promise<void> {
+    if (agentText.size === 0) {
+      return;
+    }
+    const pending = [...agentText];
+    agentText.clear();
+    const cwd = await sessionCwd();
+    if (cwd === null) {
+      return;
+    }
+    for (const [messageId, text] of pending) {
+      let mentions;
+      try {
+        mentions = await findFileMentions(cwd, text);
+      } catch (err) {
+        log.debug(`file mention scan failed session=${sessionId}: ${(err as Error).message}`);
+        continue;
+      }
+      if (mentions.length === 0) {
+        continue;
+      }
+      sendBrowserFrame({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_links",
+            messageId,
+            mentions,
+          },
+        },
+      });
+    }
+  }
+
   async function fetchSessionTitle(): Promise<string> {
     try {
       const info = await HydraRestClient.forRequest(
@@ -421,8 +494,27 @@ function handleConnection(
     if (n.method === "session/update") {
       const params = (n.params ?? {}) as { update?: unknown };
       const update = params.update as
-        | { sessionUpdate?: unknown; toolCallId?: unknown; messageId?: unknown }
+        | {
+            sessionUpdate?: unknown;
+            toolCallId?: unknown;
+            messageId?: unknown;
+            content?: unknown;
+          }
         | undefined;
+      // Accumulate agent message text for the turn-end file-mention
+      // scan. Thought chunks are deliberately excluded (v1 scope).
+      if (
+        update?.sessionUpdate === "agent_message_chunk" &&
+        typeof update.messageId === "string"
+      ) {
+        const chunk = contentToText(update.content);
+        if (chunk) {
+          agentText.set(update.messageId, (agentText.get(update.messageId) ?? "") + chunk);
+        }
+      }
+      if (update?.sessionUpdate === "stop" || update?.sessionUpdate === "turn_complete") {
+        void scanForFileMentions();
+      }
       if (
         update?.sessionUpdate === "permission_resolved" &&
         typeof update.toolCallId === "string"
@@ -502,6 +594,12 @@ function handleConnection(
 
   upstream.on("response", (r) => {
     sendBrowserFrame(r);
+    // Our own turns never get a turn_complete notification (the daemon
+    // excludes the originator), so the prompt response is where they
+    // end as far as this connection can tell.
+    if (ownPromptRequestIds.delete(String(r.id))) {
+      void scanForFileMentions();
+    }
   });
 
   upstream.on("close", ({ code, reason }) => {
@@ -604,6 +702,7 @@ function handleConnection(
           : { sessionId };
       if (msg.method === "session/prompt") {
         pendingOwnPrompts += 1;
+        ownPromptRequestIds.add(String(msg.id));
       }
       upstream.sendRaw({
         jsonrpc: "2.0",
@@ -838,6 +937,8 @@ function handleConnection(
       clearTimeout(timer);
     }
     pendingPermissionFrames.clear();
+    // An abandoned turn's half-assembled text has nowhere to go.
+    agentText.clear();
     maybeStopUpstream();
     if (browserWs.readyState === WebSocket.OPEN) {
       try {

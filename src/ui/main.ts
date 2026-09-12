@@ -12,10 +12,16 @@ import { render, renderNow } from "./renderer.js";
 import { initPullToRefresh } from "./pull-refresh.js";
 import { initSwipeBack } from "./swipe-nav.js";
 import { initViewportHeight } from "./viewport.js";
-import { initWideLayoutWatcher, isWideLayout } from "./dom.js";
+import { delegatedTap, initWideLayoutWatcher, isWideLayout } from "./dom.js";
 import { ensureServiceWorker, subscribeForPush } from "./notifications.js";
 import { reportPushEndpoint, reportVisibility } from "./bridge.js";
-import { handleListKeydown, focusListRail, closeModal, scrollToTurn } from "./views.js";
+import {
+  handleListKeydown,
+  focusListRail,
+  closeModal,
+  scrollToTurn,
+  openFileAtLine,
+} from "./views.js";
 import { state } from "./state.js";
 import { applyFontScale, initTheme } from "./theme.js";
 import { initPerfObserver } from "./perf.js";
@@ -66,6 +72,17 @@ window.addEventListener("DOMContentLoaded", async () => {
   render();
   initPullToRefresh();
   initSwipeBack();
+  // File mentions the bridge confirmed, rendered as links inside message
+  // bodies (innerHTML, so they can't carry their own tapHandler).
+  delegatedTap(".file-link", (target) => {
+    const path = target.dataset.path;
+    if (!path || !state.current) return;
+    const rawLine = target.dataset.line;
+    const rawEnd = target.dataset.lineEnd;
+    const line = rawLine === undefined ? undefined : Number(rawLine);
+    const lineEnd = rawEnd === undefined ? undefined : Number(rawEnd);
+    openFileAtLine(state.current, path, line, lineEnd);
+  });
 });
 
 window.addEventListener("hashchange", () => {

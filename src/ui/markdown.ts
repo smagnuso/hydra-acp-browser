@@ -67,6 +67,133 @@ function autolink(s: string): string {
   return out + linkifyPlain(s.slice(last));
 }
 
+export interface FileMention {
+  relPath: string;
+  line?: number;
+  lineEnd?: number;
+}
+
+export interface FileRef {
+  path: string;
+  line?: number;
+  lineEnd?: number;
+}
+
+// Matching is identical to the TUI's fragment parser (cli's
+// screen.ts:5096 and :5404, `/^(.*?)#L(\d+)(?:-L?\d+)?$/`) so the two
+// clients can't drift on what counts as a line reference: #L42,
+// #L42-L50 and the lenient #L42-50 all parse. The only difference is
+// that we capture the range end instead of discarding it — the TUI
+// drops it because it's launching an editor at a single line, while we
+// have a gutter to shade.
+const LINE_FRAGMENT_RE = /^(.*?)#L(\d+)(?:-L?(\d+))?$/;
+
+// Either a path separator or a dot-extension, mirroring the server's
+// own qualifies() heuristic (file-mentions.ts) so prose scanning and
+// authored links agree on what's path-shaped.
+function pathShaped(path: string): boolean {
+  return path.includes("/") || /\.[A-Za-z][A-Za-z0-9]*$/.test(path);
+}
+
+// A markdown link URL that points at a file in the session's project
+// rather than out at the web: scheme-less (or file://), optionally with
+// a GitHub-style #L fragment. This is the form the file-links skill
+// tells agents to emit, and the convention the TUI already follows —
+// there is no hydra:// file scheme to match.
+export function parseFileRefUrl(url: string): FileRef | null {
+  let raw = url;
+  if (/^file:\/\//i.test(raw)) {
+    // Strip scheme and any host, as the TUI does before parsing.
+    raw = raw.slice(7).replace(/^[^/]*/, "");
+  } else if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) {
+    // http(s), mailto, hydra://… — not ours.
+    return null;
+  }
+  if (raw === "" || raw.startsWith("//") || raw.startsWith("#")) {
+    return null;
+  }
+  const frag = LINE_FRAGMENT_RE.exec(raw);
+  const path = (frag ? frag[1]! : raw).replace(/^\.\//, "");
+  if (!path) return null;
+  // Some other kind of fragment (#section) isn't a file reference.
+  if (!frag && raw.includes("#")) return null;
+  // An explicit #L fragment is signal enough on its own; without one we
+  // fall back to shape, so an ordinary relative link like [x](somewhere)
+  // keeps rendering the way it does today.
+  if (!frag && !pathShaped(path)) return null;
+  const line = frag ? Number(frag[2]) : undefined;
+  const endRaw = frag?.[3];
+  const lineEnd = endRaw === undefined ? undefined : Number(endRaw);
+  return {
+    path,
+    ...(line === undefined ? {} : { line }),
+    ...(lineEnd === undefined ? {} : { lineEnd }),
+  };
+}
+
+// Shared by both link sources (authored markdown links and confirmed
+// prose mentions) so they produce byte-identical markup, and so the one
+// delegated tap handler in main.ts covers both.
+function fileLinkHtml(ref: FileRef, label: string, escapePath: boolean): string {
+  const path = escapePath ? escapeHtml(ref.path) : ref.path;
+  const lineAttr = ref.line === undefined ? "" : ` data-line="${ref.line}"`;
+  const endAttr = ref.lineEnd === undefined ? "" : ` data-line-end="${ref.lineEnd}"`;
+  return `<a class="file-link" href="#" data-path="${path}"${lineAttr}${endAttr}>${label}</a>`;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Turn server-confirmed file mentions into links into the Files preview.
+// Runs over finished HTML (after renderMarkdown), so it has to skip
+// anything that isn't plain text content: tags themselves, so a mention
+// can't be spliced into an attribute; <pre> blocks wholesale, since a
+// path inside example code or a diff isn't a reference to follow; and
+// existing <a>s, which can't nest. The one <code> exception mirrors
+// autolink's: agents habitually wrap a lone path in backticks, and
+// treating that as literal makes the common case unclickable, while a
+// code span holding a command stays verbatim.
+//
+// `mentions` is keyed by the exact substring the server matched, so this
+// pass never decides for itself what looks like a path — an entry only
+// exists if the server statted a real file for it.
+export function linkifyFilePaths(html: string, mentions: Map<string, FileMention>): string {
+  if (mentions.size === 0) {
+    return html;
+  }
+  // Longest first so "src/a.ts:42" wins over its own "src/a.ts" prefix.
+  const alternation = [...mentions.keys()]
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegExp)
+    .join("|");
+  // Leading boundary is a consumed character rather than a lookbehind:
+  // iOS Safari only grew lookbehind in 16.4 and this is a phone-first UI.
+  const mentionRe = new RegExp(`(^|[^\\w/.-])(${alternation})(?![\\w/-])`, "g");
+  const linkify = (text: string): string =>
+    text.replace(mentionRe, (_m, before: string, raw: string) => {
+      const hit = mentions.get(raw);
+      if (!hit) return _m;
+      // relPath comes off the wire unescaped, unlike inlineMd's input.
+      const ref = { path: hit.relPath, line: hit.line, lineEnd: hit.lineEnd };
+      return `${before}${fileLinkHtml(ref, raw, true)}`;
+    });
+  const skip = /<pre\b[\s\S]*?<\/pre>|<code\b[^>]*>([\s\S]*?)<\/code>|<a\b[^>]*>[\s\S]*?<\/a>|<[^>]+>/g;
+  let out = "";
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = skip.exec(html)) !== null) {
+    out += linkify(html.slice(last, m.index));
+    const codeInner = m[1];
+    out +=
+      codeInner !== undefined && mentions.has(codeInner.trim())
+        ? m[0].replace(codeInner, linkify(codeInner))
+        : m[0];
+    last = m.index + m[0].length;
+  }
+  return out + linkify(html.slice(last));
+}
+
 // Apply inline markdown to a chunk of *already-escaped* HTML.
 function inlineMd(s: string): string {
   // Code spans first so their content isn't further transformed.
@@ -86,6 +213,17 @@ function inlineMd(s: string): string {
     if (hydraMatch) {
       const sid = hydraMatch[1]!;
       return `<a href="#/session/${escapeHtml(sid)}">${text}</a>`;
+    }
+    // An authored file link is a deliberate assertion, so unlike prose
+    // scanning it isn't stat-verified here: the click goes through
+    // /api/files/read, which still enforces the cwd boundary and shows
+    // the overlay's error state for a path that isn't there. Bonus, it
+    // renders on first paint instead of waiting for the turn-end scan.
+    const fileRef = parseFileRefUrl(url);
+    if (fileRef) {
+      // url arrived already escaped (see this function's contract), so
+      // re-escaping the path would double-encode it.
+      return fileLinkHtml(fileRef, text, false);
     }
     if (!/^(https?:\/\/|\/|\.)/i.test(url)) {
       return `[${text}](${url})`;

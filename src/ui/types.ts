@@ -346,6 +346,19 @@ export interface FileOverlayState {
   // Markdown files default to a rendered preview; this forces the raw,
   // syntax-highlighted source view instead. Ignored for non-markdown files.
   previewRaw: boolean;
+  // Set when a file-mention link asked for a specific line. One-shot:
+  // renderFileOverlay clears it once it has scrolled, so an unrelated
+  // later re-render doesn't yank the view back.
+  scrollToLine?: number;
+  // The line to tint while the reader's eye lands on it. Unlike the
+  // scroll above this has to live in state rather than be poked onto the
+  // node: render() is a full teardown, so in a streaming session a
+  // class set directly on the gutter row is gone within a frame or two.
+  // Cleared by a timer, which re-renders.
+  highlightLine?: number;
+  // End of an inclusive range to tint, for a #L42-L50 style reference.
+  // Absent for a single-line target.
+  highlightLineEnd?: number;
 }
 
 export interface ChatState {
@@ -406,6 +419,15 @@ export interface ChatState {
     previewRaw: boolean;
     maximized: boolean;
   } | null;
+  // File mentions the server confirmed are real files in this session's
+  // cwd, keyed by the exact text substring that was matched. Nothing is
+  // ever linkified without an entry here, so the client never guesses at
+  // what is or isn't a path.
+  fileMentions: Map<string, { relPath: string; line?: number; lineEnd?: number }>;
+  // Bumped whenever fileMentions grows. Message text doesn't change when
+  // mentions land, so this is what invalidates the render memos — see
+  // logItemSig and cachedMarkdown in views.ts.
+  fileMentionsVersion: number;
   composerValue: string;
   // Images pasted into the composer, waiting to go out with the next send.
   // Cleared on submit; restored by rollbackAmend if an amend is rejected.
