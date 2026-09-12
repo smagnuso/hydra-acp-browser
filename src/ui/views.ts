@@ -275,7 +275,7 @@ export function renderApp(root: HTMLElement, s: AppState): void {
   } else if (s.view === "chat" && s.current) {
     root.appendChild(renderChat(s.current));
     if (s.current.fileOverlay) {
-      root.appendChild(renderFileOverlay(s.current));
+      root.appendChild(cachedFileOverlay(s.current));
     }
   }
   if (s.modal) {
@@ -499,7 +499,7 @@ function renderSplitLayout(s: AppState): HTMLElement {
   if (s.current) {
     detail.appendChild(renderChat(s.current));
     if (s.current.fileOverlay) {
-      detail.appendChild(renderFileOverlay(s.current));
+      detail.appendChild(cachedFileOverlay(s.current));
     }
   } else {
     detail.appendChild(
@@ -3019,13 +3019,24 @@ export function tryPatchChat(root: HTMLElement, s: AppState): boolean {
   if (s.view !== "chat" || !s.current) {
     return false;
   }
-  if (s.banner || s.modal || s.current.fileOverlay) {
+  if (s.banner || s.modal) {
     return false;
   }
   const view = chatViews.get(s.current);
   if (!view) {
     return false;
   }
+  // An open Files overlay used to bail to the full-teardown path, which
+  // meant the preview was destroyed and rebuilt on every render — several
+  // times a second while a turn streams. Its scroll position only
+  // survived via the renderer's sample-rebuild-restore, and that loses
+  // whatever the scroller did in between and kills an in-flight fling.
+  // The overlay is a *sibling* of the chat's subtree, so patching the
+  // chat can leave it alone entirely, exactly as it already leaves the
+  // rail alone. Its own content is dirty-gated (cachedFileOverlay), so
+  // an unchanged overlay is not even re-created, let alone re-attached.
+  const wantsOverlay = s.current.fileOverlay !== null;
+  const expectedChildren = wantsOverlay ? 2 : 1;
   if (isWideLayout()) {
     // Split layout: root -> .split -> [.rail, .split-detail -> view.root].
     // The rail is a sibling of the chat's own subtree, so patching the
@@ -3043,20 +3054,39 @@ export function tryPatchChat(root: HTMLElement, s: AppState): boolean {
     if (!rail || !detail) {
       return false;
     }
-    if (detail.childNodes.length !== 1 || detail.firstChild !== view.root) {
+    if (detail.childNodes.length !== expectedChildren || detail.firstChild !== view.root) {
       return false;
     }
     refreshRailInPlace(rail);
     renderChat(s.current);
+    if (wantsOverlay) {
+      patchFileOverlayInPlace(detail, s.current);
+    }
     tryRestoreScrollAnchor(view.body);
     return true;
   }
-  if (root.childNodes.length !== 1 || root.firstChild !== view.root) {
+  if (root.childNodes.length !== expectedChildren || root.firstChild !== view.root) {
     return false;
   }
   renderChat(s.current);
+  if (wantsOverlay) {
+    patchFileOverlayInPlace(root, s.current);
+  }
   tryRestoreScrollAnchor(view.body);
   return true;
+}
+
+// Swaps the overlay node only when its own inputs changed. When they
+// haven't, cachedFileOverlay hands back the identical node and this is a
+// no-op — which is the whole point, since detaching a scroller resets
+// its scroll position even if you re-attach it immediately.
+function patchFileOverlayInPlace(parent: HTMLElement, c: ChatState): void {
+  const existing = parent.childNodes[1];
+  if (!existing) return;
+  const next = cachedFileOverlay(c);
+  if (existing !== next) {
+    parent.replaceChild(next, existing);
+  }
 }
 
 // Called by renderer.ts's teardown path (banner/modal/file-overlay cases,
@@ -4952,6 +4982,54 @@ function closeFilePreview(): void {
   if (!state.current?.fileOverlay) return;
   state.current.fileOverlay.preview = null;
   render();
+}
+
+// Keeps the overlay's DOM identical across renders that didn't change
+// it, so the preview's scroll position is never disturbed. The fields
+// are compared by reference, which works because the async loaders
+// (listFiles/readFile/restoreFileView) replace `entries` and `preview`
+// wholesale rather than mutating them — the same property the log
+// item's node cache relies on.
+//
+// scrollToLine is deliberately absent: renderFileOverlay consumes it
+// during the render that sees it, and it is only ever set alongside a
+// fresh `preview` object, which already forces a rebuild. Including it
+// would schedule a second rebuild immediately after the scroll landed,
+// undoing it.
+let overlayCache: { chat: ChatState; sig: unknown[]; node: Node } | null = null;
+
+function fileOverlaySig(c: ChatState, fo: FileOverlayState): unknown[] {
+  return [
+    fo.path,
+    fo.entries,
+    fo.preview,
+    fo.err,
+    fo.maximized,
+    fo.previewRaw,
+    fo.highlightLine,
+    fo.highlightLineEnd,
+    // Read by copyablePathNode/copyLineRef, and backfilled after the
+    // first session poll (see api.ts), so it can change under us.
+    c.cwd,
+  ];
+}
+
+function cachedFileOverlay(c: ChatState): Node {
+  const fo = c.fileOverlay;
+  if (!fo) return document.createTextNode("");
+  const sig = fileOverlaySig(c, fo);
+  const hit = overlayCache;
+  if (
+    hit &&
+    hit.chat === c &&
+    hit.sig.length === sig.length &&
+    hit.sig.every((v, i) => v === sig[i])
+  ) {
+    return hit.node;
+  }
+  const node = renderFileOverlay(c);
+  overlayCache = { chat: c, sig, node };
+  return node;
 }
 
 function renderFileOverlay(c: ChatState): Node {
