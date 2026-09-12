@@ -4996,6 +4996,13 @@ function closeFilePreview(): void {
 // fresh `preview` object, which already forces a rebuild. Including it
 // would schedule a second rebuild immediately after the scroll landed,
 // undoing it.
+//
+// The highlight fields are absent for a sharper reason. They were in
+// here, and it meant the tint expiring counted as a content change: you
+// would open a file at a line, scroll somewhere, and 2.5s later the
+// timer that clears the tint rebuilt the overlay and dropped you back at
+// the top. A tint is decoration — applyLineHighlight toggles the class
+// on the rows in place instead, so the node survives.
 let overlayCache: { chat: ChatState; sig: unknown[]; node: Node } | null = null;
 
 function fileOverlaySig(c: ChatState, fo: FileOverlayState): unknown[] {
@@ -5006,8 +5013,6 @@ function fileOverlaySig(c: ChatState, fo: FileOverlayState): unknown[] {
     fo.err,
     fo.maximized,
     fo.previewRaw,
-    fo.highlightLine,
-    fo.highlightLineEnd,
     // Read by copyablePathNode/copyLineRef, and backfilled after the
     // first session poll (see api.ts), so it can change under us.
     c.cwd,
@@ -5025,11 +5030,31 @@ function cachedFileOverlay(c: ChatState): Node {
     hit.sig.length === sig.length &&
     hit.sig.every((v, i) => v === sig[i])
   ) {
+    applyLineHighlight(hit.node, fo);
     return hit.node;
   }
   const node = renderFileOverlay(c);
   overlayCache = { chat: c, sig, node };
   return node;
+}
+
+// Syncs the tinted rows on an already-built overlay, so the highlight
+// coming and going never costs a rebuild. Cost is proportional to the
+// rows involved, not the file: the clear pass only visits rows that are
+// currently tinted, and the set pass only the requested range.
+function applyLineHighlight(node: Node, fo: FileOverlayState): void {
+  if (!(node instanceof HTMLElement)) return;
+  for (const row of node.querySelectorAll<HTMLElement>(".ln.ln-target")) {
+    if (!inHighlight(fo, Number(row.dataset.line))) {
+      row.classList.remove("ln-target");
+    }
+  }
+  const from = fo.highlightLine;
+  if (from === undefined) return;
+  const to = fo.highlightLineEnd ?? from;
+  for (let ln = from; ln <= to; ln++) {
+    node.querySelector<HTMLElement>(`.ln[data-line="${ln}"]`)?.classList.add("ln-target");
+  }
 }
 
 function renderFileOverlay(c: ChatState): Node {
