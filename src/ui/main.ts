@@ -21,6 +21,7 @@ import {
   closeModal,
   scrollToTurn,
   openFileAtLine,
+  editAnchorForToolCall,
 } from "./views.js";
 import { state } from "./state.js";
 import { applyFontScale, initTheme } from "./theme.js";
@@ -81,7 +82,13 @@ window.addEventListener("DOMContentLoaded", async () => {
     const rawEnd = target.dataset.lineEnd;
     const line = rawLine === undefined ? undefined : Number(rawLine);
     const lineEnd = rawEnd === undefined ? undefined : Number(rawEnd);
-    openFileAtLine(state.current, path, line, lineEnd);
+    // An edit block with no locations[0].line points back at its tool
+    // call instead, so the anchor is derived from the diff still held in
+    // the log rather than stuffed into a data attribute.
+    const locateTool = target.dataset.locateTool;
+    const locate =
+      locateTool === undefined ? undefined : editAnchorForToolCall(state.current, locateTool);
+    openFileAtLine(state.current, path, line, lineEnd, locate);
   });
 });
 

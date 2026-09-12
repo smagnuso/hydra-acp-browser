@@ -274,6 +274,10 @@ export interface EditDiffLogItem {
   diff: EditDiff;
   status?: string;
   expanded: boolean;
+  // locations[0].line off the tool call, when the agent sent one (only
+  // about a fifth do). Absent means the header link falls back to
+  // anchoring the patch text in the file — see editAnchor.
+  line?: number;
 }
 
 export type LogItem =

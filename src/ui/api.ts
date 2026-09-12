@@ -287,6 +287,16 @@ async function pollAllSessions(): Promise<void> {
         (s) => s.sessionId === state.current!.sessionId,
       );
       if (live) {
+        // openChat can only read cwd out of whatever session list was
+        // already loaded, so a deep link (or any load that opens a chat
+        // before the first poll lands) leaves it empty for the life of
+        // that ChatState — nothing else ever set it. Everything building
+        // an absolute path off it was quietly wrong in that state:
+        // "copy path" yielded /src/foo.ts, and a file link couldn't tell
+        // an in-project path from an outside one.
+        if (!state.current.cwd && live.cwd) {
+          state.current.cwd = live.cwd;
+        }
         reattachIfWarmedElsewhere(live);
       }
     }

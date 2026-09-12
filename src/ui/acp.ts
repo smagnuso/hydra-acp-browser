@@ -717,9 +717,12 @@ function applyEditDiffUpdate(update: AnyRecord): boolean {
   const diff = extractEditDiff(update);
   const status =
     typeof update.status === "string" ? update.status : undefined;
+  const line = extractToolCallLine(update);
   if (existing) {
     if (diff !== null) existing.item.diff = diff;
     if (status !== undefined) existing.item.status = status;
+    // A later tool_call_update can be the one that carries locations.
+    if (line !== undefined) existing.item.line = line;
     return true;
   }
   if (diff === null) return false;
@@ -731,8 +734,21 @@ function applyEditDiffUpdate(update: AnyRecord): boolean {
     expanded: false,
   };
   if (status !== undefined) item.status = status;
+  if (line !== undefined) item.line = line;
   insertAboveQueued(item);
   return true;
+}
+
+// locations[0].line off an ACP tool call. Same rules the daemon applies
+// (cli's extractToolCallLocations): a line below 1 counts as absent.
+function extractToolCallLine(update: AnyRecord): number | undefined {
+  const locations = update.locations;
+  if (!Array.isArray(locations) || locations.length === 0) return undefined;
+  const first = locations[0];
+  if (!first || typeof first !== "object") return undefined;
+  const line = (first as AnyRecord).line;
+  if (typeof line !== "number" || !Number.isFinite(line) || line < 1) return undefined;
+  return Math.floor(line);
 }
 
 // Claude Code's `parentToolUseId` (raw `_meta.claudeCode`), set on a tool

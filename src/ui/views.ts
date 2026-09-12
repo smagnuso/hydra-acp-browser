@@ -44,12 +44,12 @@ import {
   subscribeForPush,
   unsubscribeFromPush,
 } from "./notifications.js";
-import { buildDiffDisplayLines, countDiffChanges } from "./edit-diff.js";
+import { buildDiffDisplayLines, countDiffChanges, editAnchor, findAnchorLine } from "./edit-diff.js";
 import { applyFontScale, applyTheme } from "./theme.js";
 import { describeCachedSession } from "./history-cache.js";
 import { bump, describeSlow, describeCounts } from "./perf.js";
 import { compareSessions } from "./session-sort.js";
-import type { DiffDisplayLine } from "./edit-diff.js";
+import type { DiffDisplayLine, EditAnchor } from "./edit-diff.js";
 import type {
   AppState,
   ArmedTask,
@@ -1007,6 +1007,12 @@ interface SessionGroup {
 
 // Collapse a leading home directory into "~" so the session list has
 // room to actually show the rest of the path instead of truncating it.
+function relativeToCwd(cwd: string, path: string): string {
+  if (!cwd || !path.startsWith("/")) return path;
+  const base = cwd.endsWith("/") ? cwd : cwd + "/";
+  return path.startsWith(base) ? path.slice(base.length) : path;
+}
+
 function shortenCwd(cwd: string): string {
   return cwd.replace(/^\/(home|Users)\/[^/]+/, "~");
 }
@@ -2799,7 +2805,7 @@ function logItemSig(c: ChatState, item: ChatState["log"][number]): unknown[] | n
     return [item.text];
   }
   if (item.kind === "edit-diff") {
-    return [item.diff, item.expanded, item.status];
+    return [item.diff, item.expanded, item.status, item.line];
   }
   if (item.kind === "exit-plan-mode") {
     return [item.plan, item.status];
@@ -3962,14 +3968,34 @@ function diffCacheFor(diff: EditDiff): {
 // edge, so whatever follows starts a sliver too far right. Keeping the
 // ellipsized run last hides that sliver in the padding before the diff
 // summary, where nobody can see it.
-function editedTitleEl(shownPath: string): HTMLElement {
+// `item` is absent for the legacy/no-path case, where the title is just
+// text. When present the filename becomes a file link into the viewer:
+// the raw diff.path is handed over unnormalized (the server resolves
+// relatives against cwd and scope-checks absolutes), with an explicit
+// line when the tool call gave us one and otherwise a pointer back to
+// this tool call so the click can anchor the patch text itself.
+function editedTitleEl(shownPath: string, item?: EditDiffLogItem): HTMLElement {
   const slashIdx = shownPath.lastIndexOf("/");
   const name = slashIdx >= 0 ? shownPath.slice(slashIdx + 1) : shownPath;
   const dir = slashIdx >= 0 ? shownPath.slice(0, slashIdx) : "";
+  const path = item?.diff.path;
+  const nameEl = path
+    ? el(
+        "a",
+        {
+          class: "edit-name file-link",
+          href: "#",
+          "data-path": path,
+          ...(item?.line !== undefined ? { "data-line": String(item.line) } : {}),
+          ...(item?.line === undefined ? { "data-locate-tool": item!.toolCallId } : {}),
+        },
+        `Edited ${name}`,
+      )
+    : el("span", { class: "edit-name" }, `Edited ${name}`);
   return el(
     "span",
     { class: "title" },
-    el("span", { class: "edit-name" }, `Edited ${name}`),
+    nameEl,
     dir.length > 0 ? el("span", { class: "edit-dir" }, dir) : null,
   );
 }
@@ -3995,7 +4021,7 @@ function renderEditDiff(item: EditDiffLogItem): HTMLElement {
       }),
     },
     el("span", null, item.expanded ? "▾" : "▸"),
-    editedTitleEl(shownPath),
+    editedTitleEl(shownPath, item),
     summary.length > 0 ? el("span", { class: "kind edit-summary" }, summary) : null,
   );
   const node = el(
@@ -4586,6 +4612,12 @@ async function restoreFileView(
   previewRaw: boolean,
   scrollToLine?: number,
   scrollToLineEnd?: number,
+  // Set instead of an explicit line when the target has to be recovered
+  // from the file's own content (an edit block whose tool call carried no
+  // locations[0].line). Resolved here, once, against the content we were
+  // already fetching to display — so it costs no extra read, and nothing
+  // is computed for edits nobody clicks.
+  locate?: EditAnchor,
 ): Promise<void> {
   const [listResult, readResult] = await Promise.allSettled([
     api<{ path: string; entries?: FileEntry[] }>("/api/files/list", {
@@ -4599,6 +4631,15 @@ async function restoreFileView(
   ]);
   if (state.current !== c || !c.fileOverlay) return;
   const maximized = c.fileOverlay.maximized;
+  let from = scrollToLine;
+  let to = scrollToLineEnd;
+  if (from === undefined && locate && readResult.status === "fulfilled") {
+    const found = findAnchorLine(readResult.value.content, locate.anchor);
+    if (found !== null) {
+      from = found;
+      to = found + locate.span - 1;
+    }
+  }
   const listErr = listResult.status === "rejected" ? (listResult.reason as Error).message : null;
   const readErr = readResult.status === "rejected" ? (readResult.reason as Error).message : null;
   c.fileOverlay = {
@@ -4614,10 +4655,8 @@ async function restoreFileView(
     // highlightLine is set here rather than where the scroll is consumed
     // below: the gutter is built earlier in that same render pass, so
     // setting it there would only tint on some later, incidental render.
-    ...(scrollToLine === undefined
-      ? {}
-      : { scrollToLine, highlightLine: scrollToLine }),
-    ...(scrollToLineEnd === undefined ? {} : { highlightLineEnd: scrollToLineEnd }),
+    ...(from === undefined ? {} : { scrollToLine: from, highlightLine: from }),
+    ...(to === undefined ? {} : { highlightLineEnd: to }),
   };
   render();
 }
@@ -4627,16 +4666,23 @@ async function restoreFileView(
 // carries the target line through to renderFileOverlay.
 export function openFileAtLine(
   c: ChatState,
-  path: string,
+  rawPath: string,
   line?: number,
   lineEnd?: number,
+  locate?: EditAnchor,
 ): void {
+  // An edit block's path is always absolute in practice, and the Files
+  // API would happily resolve it — but the breadcrumb and savedFileView
+  // elsewhere in the overlay are cwd-relative, and an absolute path eats
+  // the whole width of a phone. Anything outside the cwd is left alone
+  // for the server to scope-reject as usual.
+  const path = relativeToCwd(c.cwd, rawPath);
   const slash = path.lastIndexOf("/");
   const dirPath = slash === -1 ? "" : path.slice(0, slash);
   // A markdown file renders as prose by default, and that view has no
   // line gutter at all — so a line request has to force source view or
   // it would silently fail to scroll.
-  const previewRaw = line !== undefined && isMarkdownPath(path);
+  const previewRaw = (line !== undefined || locate !== undefined) && isMarkdownPath(path);
   c.fileOverlay = {
     path: dirPath,
     entries: [],
@@ -4646,7 +4692,7 @@ export function openFileAtLine(
     previewRaw,
   };
   render();
-  void restoreFileView(c, dirPath, path, previewRaw, line, lineEnd);
+  void restoreFileView(c, dirPath, path, previewRaw, line, lineEnd, locate);
 
 }
 
@@ -4660,6 +4706,17 @@ function toggleMaximizeFiles(): void {
 // Long enough to find the line after the scroll lands, short enough not
 // to linger as a permanent-looking selection.
 const LINE_HIGHLIGHT_MS = 2500;
+
+// Anchor for an edit block's header link, looked up at click time so the
+// diff text never has to ride along in the DOM.
+export function editAnchorForToolCall(c: ChatState, toolCallId: string): EditAnchor | undefined {
+  for (const entry of c.log) {
+    if (entry.kind === "edit-diff" && entry.toolCallId === toolCallId) {
+      return editAnchor(entry.diff) ?? undefined;
+    }
+  }
+  return undefined;
+}
 
 function inHighlight(fo: FileOverlayState, ln: number): boolean {
   const from = fo.highlightLine;

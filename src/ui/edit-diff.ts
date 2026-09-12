@@ -269,3 +269,63 @@ export function buildDiffDisplayLines(
   }
   return rendered;
 }
+
+// Where in the post-edit file this patch landed. The ACP payload carries
+// no line number for a diff (verified across 740 real diff blocks: the
+// keys are exactly type/path/oldText/newText), and only about a fifth of
+// tool calls bother with locations[0].line — so for the rest the line has
+// to be recovered by finding the patched text in the file itself.
+//
+// Same anchoring strategy the TUI uses (cli's firstChangedFileLine,
+// app.ts:9340): take the first line of newText that differs from oldText
+// and look for a line equal to it. Deliberately NOT a computed diff
+// offset, since oldText/newText are just the replaced region and carry no
+// information about where in the file that region sits.
+export interface EditAnchor {
+  // The line to search for. Full-line equality, as the TUI does.
+  anchor: string;
+  // How many lines the changed region spans, so the viewer can shade the
+  // whole patch rather than just its first line.
+  span: number;
+}
+
+export function editAnchor(diff: EditDiff): EditAnchor | null {
+  const { oldLines, newLines } = diffLinePair(diff);
+  let start = 0;
+  while (
+    start < oldLines.length &&
+    start < newLines.length &&
+    oldLines[start] === newLines[start]
+  ) {
+    start++;
+  }
+  if (start >= newLines.length) return null;
+  // Trim the matching tail too, so the span covers just the changed run.
+  let endOld = oldLines.length - 1;
+  let endNew = newLines.length - 1;
+  while (endOld >= start && endNew >= start && oldLines[endOld] === newLines[endNew]) {
+    endOld--;
+    endNew--;
+  }
+  const anchor = newLines[start]!;
+  // Median real patch spans 4 lines, but they run to several hundred
+  // (measured across 1441 recorded diffs). Shading that much fills a
+  // phone screen edge to edge and reads as a rendering fault rather than
+  // a highlight, so the tint is capped; the scroll target is unaffected.
+  const MAX_SPAN = 40;
+  // A blank anchor would match the first empty line in the file, which is
+  // worse than not linking to a line at all.
+  if (anchor.trim() === "") return null;
+  return { anchor, span: Math.min(MAX_SPAN, Math.max(1, endNew - start + 1)) };
+}
+
+// 1-based line of the first full-line match, or null. First match wins,
+// same as the TUI — ambiguous when the anchor also appears earlier in the
+// file, which is accepted there and here.
+export function findAnchorLine(content: string, anchor: string): number | null {
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] === anchor) return i + 1;
+  }
+  return null;
+}
