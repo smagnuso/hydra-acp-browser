@@ -469,6 +469,61 @@ function connectChatSocket(chat: ChatState): void {
   });
 }
 
+// The banner is the fourth surface CONNECTING_GRACE_MS governs, and the
+// one that was left out: a reconnect landing inside the window leaves
+// the header pill, the composer placeholder and the offline-queue chip
+// all still reading "ready", so painting "Reconnecting…" full-width
+// across the top of them is the very blip those three exist to
+// suppress, just louder.
+//
+// Timed from the drop rather than off reconnectAttempt: the first
+// backoff delay is 1s, so a second failed attempt still lands inside the
+// window and "attempt >= 1" would paint at 1s instead of 2s. Measuring
+// the outage directly is what actually makes one constant govern all
+// four surfaces.
+function armReconnectBanner(chat: ChatState): void {
+  const since = chat.disconnectedSince ?? performance.now();
+  chat.disconnectedSince = since;
+  const remaining = CONNECTING_GRACE_MS - (performance.now() - since);
+  if (remaining <= 0) {
+    showReconnectBanner(chat);
+    return;
+  }
+  // A later attempt inside the window rides the timer the first drop
+  // already armed, which is due at the right moment.
+  if (chat.reconnectBannerTimer) return;
+  chat.reconnectBannerTimer = setTimeout(() => {
+    chat.reconnectBannerTimer = undefined;
+    if (state.current === chat && !chat.ready) {
+      showReconnectBanner(chat);
+    }
+  }, remaining);
+}
+
+function showReconnectBanner(chat: ChatState): void {
+  const escalate = (chat.reconnectAttempt ?? 0) >= RECONNECT_BANNER_ESCALATE_AT;
+  setState({
+    banner: escalate
+      ? { kind: "bad", text: "Still disconnected — retrying…", sticky: true }
+      : { kind: "warn", text: "Reconnecting…", sticky: true },
+  });
+}
+
+// Cancels a pending reveal and takes down a banner the socket put up.
+// Sticky means the poll won't expire it (see types.ts's Banner), so
+// every exit from the reconnect loop has to come through here: attach
+// success (bridge.ts) and navigating away (closeChatSocket).
+export function cancelReconnectBanner(chat: ChatState): void {
+  chat.disconnectedSince = undefined;
+  if (chat.reconnectBannerTimer) {
+    clearTimeout(chat.reconnectBannerTimer);
+    chat.reconnectBannerTimer = undefined;
+  }
+  if (state.banner?.sticky) {
+    state.banner = null;
+  }
+}
+
 function scheduleReconnect(chat: ChatState): void {
   chat.ready = false;
   // Drop only prompts the daemon never acknowledged — the ones it did
@@ -480,12 +535,7 @@ function scheduleReconnect(chat: ChatState): void {
   const attempt = chat.reconnectAttempt ?? 0;
   const delay =
     RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)]!;
-  const escalate = attempt >= RECONNECT_BANNER_ESCALATE_AT;
-  setState({
-    banner: escalate
-      ? { kind: "bad", text: "Still disconnected — retrying…" }
-      : { kind: "warn", text: "Reconnecting…" },
-  });
+  armReconnectBanner(chat);
 
   chat.reconnectTimer = setTimeout(() => {
     // Bail if the chat was closed or replaced while we were waiting.
@@ -678,6 +728,7 @@ function closeChatSocket(): void {
     clearTimeout(state.current.reconnectTimer);
     state.current.reconnectTimer = undefined;
   }
+  cancelReconnectBanner(state.current);
   stopHeartbeat(state.current);
   if (state.current.ws) {
     try {

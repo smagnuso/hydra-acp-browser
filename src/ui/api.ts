@@ -275,10 +275,19 @@ async function pollAllSessions(): Promise<void> {
     if (page.removed.length > 0 || page.sessions.some((s) => s.status === "cold")) {
       queueSessionCacheWrite(newSessions as SessionInfo[], sessionCursor);
     }
-    const hadBanner = state.banner !== null;
+    // This blanket clear is the only expiry a transient banner has
+    // (compaction notices, import results, steer failures all just wait
+    // for the next poll), so it stays. What it must not sweep is a
+    // banner whose owner is still in the state it describes: a poll can
+    // succeed over HTTP while the chat socket is down, and clearing
+    // "Reconnecting…" here made it blink out and back on every failed
+    // attempt. Those are marked sticky and cleared by their owner.
+    const clearedBanner = state.banner !== null && !state.banner.sticky;
     const sessionsChanged = !sameValue(state.sessions, newSessions);
     state.sessions = newSessions;
-    state.banner = null;
+    if (clearedBanner) {
+      state.banner = null;
+    }
     // Wide layout keeps the rail (and this full-list poll) active even
     // while a chat is open — see reattachIfWarmedElsewhere for why a
     // cold chat needs this nudge.
@@ -305,18 +314,18 @@ async function pollAllSessions(): Promise<void> {
     if (sessionsChanged) {
       markRailDirty();
     }
-    if (!sessionsChanged && !hadBanner) {
+    if (!sessionsChanged && !clearedBanner) {
       return;
     }
     // Don't disrupt the user mid-selection. Skip this cycle; the next
     // poll re-checks. Banner changes still render so errors surface.
-    if (!hadBanner && hasActiveSelection()) {
+    if (!clearedBanner && hasActiveSelection()) {
       return;
     }
     // While a modal is open the list is hidden behind a backdrop and
     // the user is focused on the form. Re-rendering blows away native
     // <select> popups (and any other transient UI the browser owns).
-    if (!hadBanner && state.modal) {
+    if (!clearedBanner && state.modal) {
       return;
     }
     render();

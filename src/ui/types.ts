@@ -486,6 +486,13 @@ export interface ChatState {
   // Active backoff timer for reconnect, or undefined when not pending.
   // Cleared by closeChat / openChat so navigation cancels the loop.
   reconnectTimer?: ReturnType<typeof setTimeout>;
+  // Pending reveal of the reconnect banner, armed on the first drop and
+  // fired only if the socket is still down CONNECTING_GRACE_MS later.
+  // Cleared alongside reconnectTimer. See armReconnectBanner.
+  reconnectBannerTimer?: ReturnType<typeof setTimeout>;
+  // When the current outage began: the first drop since the last
+  // successful attach, not the latest retry. Undefined while connected.
+  disconnectedSince?: number;
   // Count of consecutive failed reconnect attempts; reset to 0 by
   // bridge.ts when bridge/ready arrives. Drives backoff and the
   // "still disconnected" banner threshold.
@@ -658,7 +665,18 @@ export type ModalState =
   | { kind: "options" }
   | null;
 
-export type Banner = { kind: "good" | "warn" | "bad"; text: string } | null;
+export type Banner = {
+  kind: "good" | "warn" | "bad";
+  text: string;
+  // Owned by a subsystem that is still in the state the text describes,
+  // and that clears the banner itself. The /api/sessions poll's blanket
+  // clear (api.ts) is the only expiry every *transient* notice has
+  // (compaction, import, steer failures), but applying it to an owned
+  // one makes the banner blink: a poll can succeed over HTTP while the
+  // chat socket is still down, erasing "Reconnecting…" until the next
+  // failed attempt puts it back.
+  sticky?: boolean;
+} | null;
 
 export interface AppState {
   view: "list" | "chat";

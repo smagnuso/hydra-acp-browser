@@ -21,6 +21,7 @@ import {
   dropPendingCursorGroup,
   resetChatHistoryState,
 } from "./acp.js";
+import { cancelReconnectBanner } from "./routing.js";
 import { resetCachedSession } from "./history-cache.js";
 import { cancelAllQueued, flushOfflineQueue } from "./queue.js";
 import { parseArmedTaskList } from "./acp.js";
@@ -215,6 +216,9 @@ export function handleFrame(frame: JsonRpcFrame): void {
     // the resurrect intact.
     state.current.loadOnConnect = false;
     state.banner = null;
+    // Also disarms a reveal still pending from the drop this attach just
+    // ended, so a reconnect inside the grace window never paints one.
+    cancelReconnectBanner(state.current);
     state.current.reconnectAttempt = 0;
     // Capture the server-side bridge's clientId so we can recognize
     // our own hydra-acp/prompt_queue/added events. The bridge passes
