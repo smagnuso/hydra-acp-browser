@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { HydraRestClient } from "../hydra/client.js";
 import type { ServerContext } from "./http.js";
 import { isEditedPath } from "./session-files.js";
+import { readFileWindow } from "./file-window.js";
 
 interface ListBody {
   sessionId?: string;
@@ -13,7 +14,13 @@ interface ListBody {
 interface ReadBody {
   sessionId?: string;
   path?: string;
-  maxBytes?: number;
+  // 1-based first line of the window. Defaults to the top.
+  fromLine?: number;
+  lineCount?: number;
+  // Full-line text to centre the window on, used by an edit-block link
+  // whose tool call carried no line number. Searched here because the
+  // client no longer holds the file to search it.
+  locate?: string;
 }
 
 export interface FileEntry {
@@ -211,29 +218,42 @@ export function registerFileRoutes(
       reply.code(400).send({ error: "not a file" });
       return;
     }
-    const max = Math.min(
-      body.maxBytes ?? ctx.config.fileMaxBytes,
-      ctx.config.fileMaxBytes,
-    );
-    if (stat.size > max) {
-      reply.code(413).send({ error: `file larger than ${max} bytes` });
-      return;
-    }
-    const buf = await fsp.readFile(target);
-    if (containsBinary(buf)) {
+    // Probe for binary content without reading the file in: the whole
+    // reason this route is windowed is that some of the files being
+    // linked run to hundreds of KiB, and a 413 on a link that names a
+    // line is a worse answer than showing the lines around it.
+    if (await looksBinary(target)) {
       reply.code(415).send({ error: "binary file" });
       return;
     }
-    reply.send({
-      path: body.path,
-      size: stat.size,
-      mtimeMs: stat.mtimeMs,
-      content: buf.toString("utf8"),
-    });
+    let window;
+    try {
+      window = await readFileWindow(target, {
+        ...(typeof body.fromLine === "number" ? { fromLine: body.fromLine } : {}),
+        ...(typeof body.lineCount === "number" ? { lineCount: body.lineCount } : {}),
+        ...(typeof body.locate === "string" ? { locate: body.locate } : {}),
+      });
+    } catch (err) {
+      reply.code(500).send({ error: (err as Error).message });
+      return;
+    }
+    reply.send({ path: body.path, ...window });
   });
 }
 
-// Heuristic: presence of a NUL byte in the first 8 KiB indicates binary.
+// Heuristic: a NUL byte in the first 8 KiB means binary. Reads only
+// those bytes, so the check costs the same whatever the file's size.
+async function looksBinary(path: string): Promise<boolean> {
+  const handle = await fsp.open(path, "r");
+  try {
+    const buf = Buffer.alloc(8192);
+    const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+    return containsBinary(buf.subarray(0, bytesRead));
+  } finally {
+    await handle.close();
+  }
+}
+
 function containsBinary(buf: Buffer): boolean {
   const limit = Math.min(buf.length, 8192);
   for (let i = 0; i < limit; i++) {

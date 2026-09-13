@@ -19,7 +19,6 @@ export interface Config {
   // enough; it doesn't also need to appear in BROWSER_ALLOWED_HOSTS.
   preferredHost: string | undefined;
   allowedHosts: string[];
-  fileMaxBytes: number;
   hydraDaemonUrl: string;
   hydraWsUrl: string;
   // Service token (the long-lived daemon master bearer, injected by hydra
@@ -171,7 +170,6 @@ export function loadConfig(
     linkFile: expandHome(map.get("BROWSER_LINK_FILE") ?? paths.linkFile()),
     preferredHost: map.get("BROWSER_PREFERRED_HOST") || undefined,
     allowedHosts: commaList(map, "BROWSER_ALLOWED_HOSTS"),
-    fileMaxBytes: intVal(map, "BROWSER_FILE_MAX_BYTES", 256 * 1024),
     hydraDaemonUrl,
     hydraWsUrl,
     hydraToken,

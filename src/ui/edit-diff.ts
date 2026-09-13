@@ -318,14 +318,3 @@ export function editAnchor(diff: EditDiff): EditAnchor | null {
   if (anchor.trim() === "") return null;
   return { anchor, span: Math.min(MAX_SPAN, Math.max(1, endNew - start + 1)) };
 }
-
-// 1-based line of the first full-line match, or null. First match wins,
-// same as the TUI — ambiguous when the anchor also appears earlier in the
-// file, which is accepted there and here.
-export function findAnchorLine(content: string, anchor: string): number | null {
-  const lines = content.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i] === anchor) return i + 1;
-  }
-  return null;
-}

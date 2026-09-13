@@ -635,6 +635,10 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
 .files .md-view th, .files .md-view td { border: 1px solid var(--border); padding: 0.3rem 0.55rem; vertical-align: top; }
 .files .md-view th { background: var(--panel-2); font-weight: 600; text-align: left; }
 .files .md-view pre { margin: 0.4rem 0; padding: 0.6rem 0.75rem; overflow-x: auto; background: var(--panel-2); border-radius: 6px; }
+/* Wraps the code view plus its paging pills, so the pills scroll with
+   the content rather than floating over it. */
+.code-window { display: flex; flex-direction: column; align-items: stretch; min-width: max-content; }
+.code-window > .show-earlier { margin: 0.5rem auto; }
 .code-view { display: flex; align-items: flex-start; min-width: max-content; }
 .code-gutter { position: sticky; left: 0; z-index: 1; background: var(--code-bg); border-right: 1px solid var(--border); padding: 0.75rem 0; user-select: none; flex-shrink: 0; }
 .ln { display: block; padding: 0 0.75rem; line-height: 1.45; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 0.88em; color: var(--muted); cursor: pointer; text-align: right; min-width: 2.5rem; }

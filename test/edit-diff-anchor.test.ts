@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { editAnchor, findAnchorLine } = await import("../src/ui/edit-diff.js");
+const { editAnchor } = await import("../src/ui/edit-diff.js");
 
 test("the anchor is the first line of newText that differs", () => {
   const a = editAnchor({
@@ -38,24 +38,6 @@ test("a pure deletion yields no anchor", () => {
 
 test("identical texts yield no anchor", () => {
   assert.equal(editAnchor({ path: "a.ts", oldText: "same\n", newText: "same\n" }), null);
-});
-
-test("findAnchorLine returns a 1-based line", () => {
-  assert.equal(findAnchorLine("one\ntwo\nthree\n", "two"), 2);
-  assert.equal(findAnchorLine("one\ntwo\n", "nope"), null);
-});
-
-test("findAnchorLine requires a full-line match, like the TUI", () => {
-  // Substring matches would land on the wrong line constantly, and the
-  // comparison is whitespace-exact: indentation is part of the line. Safe
-  // because the anchor came from the edit that was actually applied.
-  assert.equal(findAnchorLine("prefix const x = 1;\n", "const x = 1;"), null);
-  assert.equal(findAnchorLine("const x = 1;\n  x\n", "x"), null);
-  assert.equal(findAnchorLine("const x = 1;\n  x\n", "  x"), 2);
-});
-
-test("findAnchorLine takes the first of several matches", () => {
-  assert.equal(findAnchorLine("dup\nmid\ndup\n", "dup"), 1);
 });
 
 test("a huge patch's tint span is capped", () => {

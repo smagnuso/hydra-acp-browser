@@ -265,7 +265,6 @@ HTTPS won't be sent over plain HTTP — clear cookies for the site (or hit
 | `BROWSER_LINK_FILE`          | `~/.hydra-acp/browser/link`            | URL written for convenience. |
 | `BROWSER_PREFERRED_HOST`     | (none)                                 | Hostname shown in the link file/logs and `hydra-acp-browser url` instead of `BROWSER_HOST` (set by `tailscale setup` to your MagicDNS name). Always implicitly allowed for the Host-header check — no need to also list it in `BROWSER_ALLOWED_HOSTS`. |
 | `BROWSER_ALLOWED_HOSTS`      | empty                                  | Comma-sep extra Host values for DNS-rebind allowlist (e.g. Tailscale name). |
-| `BROWSER_FILE_MAX_BYTES`     | `262144`                               | Upper bound for `/api/files/read`. |
 | `HYDRA_DAEMON_URL`           | from env / `http://127.0.0.1:55514`    | `HYDRA_ACP_DAEMON_URL` env wins. |
 | `HYDRA_WS_URL`               | derived                                | `HYDRA_ACP_WS_URL` env wins. |
 | `HYDRA_TOKEN`                | (required)                             | Same precedence as the slack ext. |

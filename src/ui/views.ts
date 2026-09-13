@@ -44,7 +44,7 @@ import {
   subscribeForPush,
   unsubscribeFromPush,
 } from "./notifications.js";
-import { buildDiffDisplayLines, countDiffChanges, editAnchor, findAnchorLine } from "./edit-diff.js";
+import { buildDiffDisplayLines, countDiffChanges, editAnchor } from "./edit-diff.js";
 import { applyFontScale, applyTheme } from "./theme.js";
 import { describeCachedSession } from "./history-cache.js";
 import { bump, describeSlow, describeCounts } from "./perf.js";
@@ -1039,6 +1039,18 @@ function dirName(path: string, cwd: string): string {
 // work.
 function isFederatedSession(sessionId: string): boolean {
   return !!state.sessions.find((s) => s.sessionId === sessionId)?.remote;
+}
+
+// Start a window a little above the line being aimed at, so the target
+// has context above it rather than sitting on the top edge. Mirrors the
+// server's own locate behaviour.
+const WINDOW_LEAD_LINES = 200;
+// How far a paging pill moves. Smaller than the server's window so the
+// new slice overlaps the old one and you don't lose your place.
+const WINDOW_PAGE_LINES = 800;
+
+function windowStartFor(line: number): number {
+  return Math.max(1, line - WINDOW_LEAD_LINES);
 }
 
 function relativeToCwd(cwd: string, path: string): string {
@@ -4713,6 +4725,13 @@ function openFiles(): void {
   }
 }
 
+type ReadWindow = {
+  content: string;
+  fromLine?: number;
+  hasMore?: boolean;
+  matchedLine?: number;
+};
+
 async function restoreFileView(
   c: ChatState,
   dirPath: string,
@@ -4732,20 +4751,30 @@ async function restoreFileView(
       method: "POST",
       body: JSON.stringify({ sessionId: c.sessionId, path: dirPath }),
     }),
-    api<{ content: string }>("/api/files/read", {
+    api<ReadWindow>("/api/files/read", {
       method: "POST",
-      body: JSON.stringify({ sessionId: c.sessionId, path: previewPath }),
+      body: JSON.stringify({
+        sessionId: c.sessionId,
+        path: previewPath,
+        // Centre the window on whatever we're aiming at, so a link into
+        // a large file lands on its lines rather than its first page.
+        ...(locate ? { locate: locate.anchor } : {}),
+        ...(locate || scrollToLine === undefined ? {} : { fromLine: windowStartFor(scrollToLine) }),
+      }),
     }),
   ]);
   if (state.current !== c || !c.fileOverlay) return;
   const maximized = c.fileOverlay.maximized;
   let from = scrollToLine;
   let to = scrollToLineEnd;
+  // The server resolves the anchor now and reports which line it hit,
+  // because the client only holds a window of the file and can no longer
+  // search it.
   if (from === undefined && locate && readResult.status === "fulfilled") {
-    const found = findAnchorLine(readResult.value.content, locate.anchor);
-    if (found !== null) {
-      from = found;
-      to = found + locate.span - 1;
+    const matched = readResult.value.matchedLine;
+    if (typeof matched === "number") {
+      from = matched;
+      to = matched + locate.span - 1;
     }
   }
   const listErr = listResult.status === "rejected" ? (listResult.reason as Error).message : null;
@@ -4755,7 +4784,12 @@ async function restoreFileView(
     entries: listResult.status === "fulfilled" ? listResult.value.entries ?? [] : [],
     preview:
       readResult.status === "fulfilled"
-        ? { path: previewPath, content: readResult.value.content }
+        ? {
+            path: previewPath,
+            content: readResult.value.content,
+            fromLine: readResult.value.fromLine ?? 1,
+            hasMore: readResult.value.hasMore ?? false,
+          }
         : null,
     err: readErr ?? listErr,
     maximized,
@@ -4892,10 +4926,50 @@ async function listFiles(p: string): Promise<void> {
   }
 }
 
+// Fetches the window adjacent to the one on screen. Replaces rather
+// than appends: appending would grow the DOM without bound on a long
+// scroll through a large file, which is the cost windowing exists to
+// avoid in the first place.
+async function loadWindow(
+  path: string,
+  edge: number,
+  direction: "up" | "down",
+): Promise<void> {
+  const c = state.current;
+  if (!c?.fileOverlay) return;
+  const fromLine =
+    direction === "up" ? Math.max(1, edge - WINDOW_PAGE_LINES) : edge;
+  try {
+    const data = await api<ReadWindow>("/api/files/read", {
+      method: "POST",
+      body: JSON.stringify({ sessionId: c.sessionId, path, fromLine }),
+    });
+    if (state.current !== c || !c.fileOverlay) return;
+    c.fileOverlay.preview = {
+      path,
+      content: data.content,
+      fromLine: data.fromLine ?? fromLine,
+      hasMore: data.hasMore ?? false,
+    };
+    c.fileOverlay.err = null;
+    // Land on the line you were already looking at. The renderer
+    // restores the preview's scrollTop across renders, which after a
+    // window shift points at different content entirely — so without
+    // this, paging jumps you somewhere arbitrary. Deliberately not
+    // touching highlightLine: the tint marks what you came for, not
+    // where you happen to be paging.
+    c.fileOverlay.scrollToLine = edge;
+  } catch (err) {
+    if (state.current !== c || !c.fileOverlay) return;
+    c.fileOverlay.err = (err as Error).message;
+  }
+  render();
+}
+
 async function readFile(p: string): Promise<void> {
   if (!state.current) return;
   try {
-    const data = await api<{ content: string }>("/api/files/read", {
+    const data = await api<ReadWindow>("/api/files/read", {
       method: "POST",
       body: JSON.stringify({ sessionId: state.current.sessionId, path: p }),
     });
@@ -4903,7 +4977,12 @@ async function readFile(p: string): Promise<void> {
     state.current.fileOverlay = {
       path: fo.path,
       entries: fo.entries,
-      preview: { path: p, content: data.content },
+      preview: {
+        path: p,
+        content: data.content,
+        fromLine: data.fromLine ?? 1,
+        hasMore: data.hasMore ?? false,
+      },
       err: null,
       maximized: fo.maximized,
       previewRaw: false,
@@ -5129,9 +5208,14 @@ function renderFileOverlay(c: ChatState): Node {
   if (!fo) return document.createTextNode("");
   let body: HTMLElement;
   if (fo.preview) {
-    const { path, content } = fo.preview;
+    const { path, content, fromLine, hasMore } = fo.preview;
     const isMarkdown = isMarkdownPath(path);
-    const showRendered = isMarkdown && !fo.previewRaw;
+    // Prose only when the whole file is in hand. A markdown render of a
+    // window is a fragment: a half-open code fence or list renders as
+    // garbage, and there's no line gutter to tell you what you're
+    // missing. Source view degrades honestly instead.
+    const windowed = fromLine > 1 || hasMore;
+    const showRendered = isMarkdown && !fo.previewRaw && !windowed;
     const actionChildren: Node[] = [
       el("span", { class: "crumb", ...tapHandler(() => closeFilePreview()) }, "← back to listing"),
     ];
@@ -5152,8 +5236,11 @@ function renderFileOverlay(c: ChatState): Node {
       const highlighted = highlightCode(content, path) ?? escapeHtml(content);
       const lineCount = content.split("\n").length;
       const gutter = el("div", { class: "code-gutter" });
-      for (let i = 1; i <= lineCount; i++) {
-        const ln = i;
+      for (let i = 0; i < lineCount; i++) {
+        // Absolute, not 1-based within the window — the numbers have to
+        // match the file so a copied path:line, the tint and the scroll
+        // target all mean the same thing as they did before windowing.
+        const ln = fromLine + i;
         const lnEl: HTMLElement = el(
           "div",
           {
@@ -5166,11 +5253,33 @@ function renderFileOverlay(c: ChatState): Node {
         );
         gutter.appendChild(lnEl);
       }
-      contentEl = el(
+      const codeEl = el(
         "div",
         { class: "code-view" },
         gutter,
         el("pre", {}, el("code", { class: "hljs", html: highlighted })),
+      );
+      // Paging pills, same control the transcript uses to reach older
+      // messages. Only rendered on the side that has more to show.
+      const lastLine = fromLine + lineCount - 1;
+      contentEl = el(
+        "div",
+        { class: "code-window" },
+        fromLine > 1
+          ? el(
+              "button",
+              { class: "show-earlier", ...tapHandler(() => void loadWindow(path, fromLine, "up")) },
+              `↑ earlier lines (from ${fromLine})`,
+            )
+          : null,
+        codeEl,
+        hasMore
+          ? el(
+              "button",
+              { class: "show-earlier", ...tapHandler(() => void loadWindow(path, lastLine, "down")) },
+              `↓ later lines (from ${lastLine})`,
+            )
+          : null,
       );
       // One-shot scroll for a file-mention link. Cleared immediately so
       // an unrelated later render doesn't drag the view back; a line

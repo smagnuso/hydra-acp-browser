@@ -344,7 +344,17 @@ export interface FileEntry {
 export interface FileOverlayState {
   path: string;
   entries: FileEntry[];
-  preview: { path: string; content: string } | null;
+  // A window of the file, not necessarily the whole thing — large files
+  // are read in slices (see server/file-window.ts) so a link into a
+  // 300KiB file lands on its lines instead of an error. fromLine is the
+  // 1-based line `content` starts at, and hasMore says whether the file
+  // continues past its end.
+  preview: {
+    path: string;
+    content: string;
+    fromLine: number;
+    hasMore: boolean;
+  } | null;
   err: string | null;
   maximized: boolean;
   // Markdown files default to a rendered preview; this forces the raw,
