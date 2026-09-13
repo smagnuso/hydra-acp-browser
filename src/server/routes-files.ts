@@ -4,7 +4,6 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { HydraRestClient } from "../hydra/client.js";
 import type { ServerContext } from "./http.js";
 import { isEditedPath } from "./session-files.js";
-import { federatedRemoteName, isFederatedSessionId } from "../util/federation.js";
 
 interface ListBody {
   sessionId?: string;
@@ -56,16 +55,21 @@ export class PathScopeError extends Error {
   }
 }
 
-async function lookupSessionCwd(
+// Both the cwd and whether the session is federated, from the one list
+// call. GET /v1/sessions is the only place `remote` appears: the
+// single-session route is forwarded to the peer, which answers about its
+// own session and so never reports itself as remote.
+async function lookupSession(
   ctx: ServerContext,
   request: FastifyRequest,
   sessionId: string,
-): Promise<string | undefined> {
+): Promise<{ cwd: string; remote?: string } | undefined> {
   const token = request.sessionToken ?? ctx.config.hydraToken;
   const client = HydraRestClient.forRequest(ctx.config.hydraDaemonUrl, token);
   const result = await client.listSessions({ all: true });
   const match = result.sessions.find((s) => s.sessionId === sessionId);
-  return match?.cwd;
+  if (!match?.cwd) return undefined;
+  return match.remote ? { cwd: match.cwd, remote: match.remote } : { cwd: match.cwd };
 }
 
 export function registerFileRoutes(
@@ -78,23 +82,24 @@ export function registerFileRoutes(
       reply.code(400).send({ error: "sessionId required" });
       return;
     }
-    // A federated session's files live on the peer, and this server can
-    // only read its own disk. Refusing is not a limitation so much as a
-    // correctness requirement: the same username on both machines means
-    // the peer's cwd usually exists here too, so resolving it locally
-    // succeeds and serves a DIFFERENT machine's file under the remote
-    // session's name. See util/federation.ts.
-    if (isFederatedSessionId(body.sessionId)) {
-      reply.code(400).send({
-        error: `files live on remote "${federatedRemoteName(body.sessionId)}" and cannot be read from here`,
-      });
-      return;
-    }
-    const cwd = await lookupSessionCwd(ctx, request, body.sessionId);
-    if (!cwd) {
+    const session = await lookupSession(ctx, request, body.sessionId);
+    if (!session) {
       reply.code(404).send({ error: "session not found" });
       return;
     }
+    // A federated session's files live on the peer, and this server can
+    // only read its own disk. Refusing is a correctness requirement, not
+    // just a missing feature: the same username on both machines means
+    // the peer's cwd usually exists here too, so resolving it locally
+    // succeeds and serves a DIFFERENT machine's file under the remote
+    // session's name.
+    if (session.remote) {
+      reply.code(400).send({
+        error: `files live on remote "${session.remote}" and cannot be read from here`,
+      });
+      return;
+    }
+    const cwd = session.cwd;
     let target: string;
     try {
       target = await resolveScopedPath(cwd, body.path ?? "");
@@ -159,23 +164,24 @@ export function registerFileRoutes(
       reply.code(400).send({ error: "path required" });
       return;
     }
-    // A federated session's files live on the peer, and this server can
-    // only read its own disk. Refusing is not a limitation so much as a
-    // correctness requirement: the same username on both machines means
-    // the peer's cwd usually exists here too, so resolving it locally
-    // succeeds and serves a DIFFERENT machine's file under the remote
-    // session's name. See util/federation.ts.
-    if (isFederatedSessionId(body.sessionId)) {
-      reply.code(400).send({
-        error: `files live on remote "${federatedRemoteName(body.sessionId)}" and cannot be read from here`,
-      });
-      return;
-    }
-    const cwd = await lookupSessionCwd(ctx, request, body.sessionId);
-    if (!cwd) {
+    const session = await lookupSession(ctx, request, body.sessionId);
+    if (!session) {
       reply.code(404).send({ error: "session not found" });
       return;
     }
+    // A federated session's files live on the peer, and this server can
+    // only read its own disk. Refusing is a correctness requirement, not
+    // just a missing feature: the same username on both machines means
+    // the peer's cwd usually exists here too, so resolving it locally
+    // succeeds and serves a DIFFERENT machine's file under the remote
+    // session's name.
+    if (session.remote) {
+      reply.code(400).send({
+        error: `files live on remote "${session.remote}" and cannot be read from here`,
+      });
+      return;
+    }
+    const cwd = session.cwd;
     let target: string;
     try {
       target = await resolveScopedPath(cwd, body.path);

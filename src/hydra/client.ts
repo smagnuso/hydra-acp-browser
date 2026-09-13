@@ -15,6 +15,12 @@ export interface HydraWorkspaceInfo {
 export interface HydraSessionInfo {
   sessionId: string;
   cwd: string;
+  // Set by the local daemon when this entry was merged in from a
+  // federated peer's session list, naming the remote it lives on (see
+  // cli's ForeignSessionCache). Present on GET /v1/sessions only:
+  // GET /v1/sessions/<id> is forwarded to the peer, which answers about
+  // its own session and so never reports itself as remote.
+  remote?: string;
   agentId: string | undefined;
   title: string | undefined;
   attachedClients: number;

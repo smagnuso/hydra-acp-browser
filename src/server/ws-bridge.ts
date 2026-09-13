@@ -21,7 +21,6 @@ import type { ServerContext } from "./http.js";
 import { HydraRestClient } from "../hydra/client.js";
 import { contentToText, extractEditedPaths, findFileMentions } from "./file-mentions.js";
 import { recordEditedPath } from "./session-files.js";
-import { isFederatedSessionId } from "../util/federation.js";
 import { hasSubscriptions, sendPushToEndpoint } from "./push-store.js";
 import { registerForPush } from "./turn-notify-callback.js";
 import { clearConnection, isSessionVisible, setConnectionVisible } from "./session-visibility.js";
@@ -310,14 +309,24 @@ function handleConnection(
   // always openable in the preview. Fetched once per connection; a
   // failure (daemon restarting underneath us) just disables mention
   // scanning for this connection rather than breaking the bridge.
-  function sessionCwd(): Promise<string | null> {
+  // Listed rather than fetched by id, because the list is the only place
+  // `remote` appears: GET /v1/sessions/<id> is forwarded to the peer,
+  // which answers about its own session and so never reports itself as
+  // remote. Null for a federated session as well as an unknown one —
+  // either way there is no local disk this scan should be touching.
+  // One call per connection, cached in this closure.
+  function localSessionCwd(): Promise<string | null> {
     if (cwdLookup === undefined) {
       cwdLookup = HydraRestClient.forRequest(
         ctx.config.hydraDaemonUrl,
         ctx.config.hydraToken,
       )
-        .getSession(sessionId)
-        .then((info) => info.cwd || null)
+        .listSessions({ all: true })
+        .then((result) => {
+          const match = result.sessions.find((s) => s.sessionId === sessionId);
+          if (!match?.cwd || match.remote) return null;
+          return match.cwd;
+        })
         .catch(() => null);
     }
     return cwdLookup;
@@ -333,18 +342,12 @@ function handleConnection(
     if (agentText.size === 0) {
       return;
     }
-    // A federated session's paths describe the peer's disk. Statting
-    // them here would confirm whichever same-named file happens to exist
-    // locally and link it, so the reader would open a different
-    // machine's copy without being told. Note getSession() does not
-    // report `remote` for these, which is why the id is the test.
-    if (isFederatedSessionId(sessionId)) {
-      agentText.clear();
-      return;
-    }
     const pending = [...agentText];
     agentText.clear();
-    const cwd = await sessionCwd();
+    // Null for a federated session (its paths describe the peer's disk,
+    // where a same-named local file would be confirmed and linked as if
+    // it were the remote one) as well as for a failed lookup.
+    const cwd = await localSessionCwd();
     if (cwd === null) {
       return;
     }
@@ -530,16 +533,22 @@ function handleConnection(
       // file the agent just changed even when it sits outside the
       // session cwd. History replay re-delivers these frames, so a
       // browser reload repopulates the set.
-      // Not for a federated session: those paths were edited on the
-      // peer, and recording them would authorise a LOCAL read of the
-      // same path — local file access granted by remote activity, which
-      // is not what the allowlist is for.
-      if (
-        !isFederatedSessionId(sessionId) &&
-        (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update")
-      ) {
-        for (const edited of extractEditedPaths(update)) {
-          recordEditedPath(sessionId, edited);
+      if (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") {
+        const edited = extractEditedPaths(update);
+        if (edited.length > 0) {
+          // Gated on the same lookup the scan uses, which is null for a
+          // federated session: those paths were edited on the peer, and
+          // recording them would authorise a LOCAL read of the same
+          // path — local file access granted by remote activity, which
+          // is not what the allowlist is for. Deferred by the await
+          // rather than resolved here; nothing reads the allowlist until
+          // someone clicks a link, long after.
+          void localSessionCwd().then((cwd) => {
+            if (cwd === null) return;
+            for (const path of edited) {
+              recordEditedPath(sessionId, path);
+            }
+          });
         }
       }
       if (

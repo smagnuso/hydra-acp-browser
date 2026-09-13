@@ -45,7 +45,6 @@ import {
   unsubscribeFromPush,
 } from "./notifications.js";
 import { buildDiffDisplayLines, countDiffChanges, editAnchor, findAnchorLine } from "./edit-diff.js";
-import { isFederatedSessionId } from "../util/federation.js";
 import { applyFontScale, applyTheme } from "./theme.js";
 import { describeCachedSession } from "./history-cache.js";
 import { bump, describeSlow, describeCounts } from "./perf.js";
@@ -1030,6 +1029,16 @@ function dirName(path: string, cwd: string): string {
   if (slash === -1) return shortenCwd(cwd);
   const dir = path.slice(0, slash);
   return dir.startsWith("/") ? shortenCwd(dir) : dir;
+}
+
+// From the session list's own `remote` field rather than the shape of
+// the id. Undefined before the first poll lands, which reads as local
+// and can leave an edit link rendered for a moment — harmless, because
+// the Files API refuses the read authoritatively and says why. The
+// client's job here is only to avoid offering something that cannot
+// work.
+function isFederatedSession(sessionId: string): boolean {
+  return !!state.sessions.find((s) => s.sessionId === sessionId)?.remote;
 }
 
 function relativeToCwd(cwd: string, path: string): string {
@@ -4047,7 +4056,7 @@ function editedTitleEl(
   const slashIdx = shownPath.lastIndexOf("/");
   const name = slashIdx >= 0 ? shownPath.slice(slashIdx + 1) : shownPath;
   const dir = slashIdx >= 0 ? shownPath.slice(0, slashIdx) : "";
-  const federated = sessionId !== undefined && isFederatedSessionId(sessionId);
+  const federated = sessionId !== undefined && isFederatedSession(sessionId);
   const path = federated ? undefined : item?.diff.path;
   const nameEl = path
     ? el(
