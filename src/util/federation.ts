@@ -14,11 +14,21 @@
 // — so resolving it locally doesn't fail, it quietly serves a different
 // machine's file under the remote session's name.
 export function isFederatedSessionId(sessionId: string): boolean {
-  return sessionId.includes(":");
+  return federatedRemoteName(sessionId) !== null;
 }
 
-// The peer's name, for messages that explain why a file isn't available.
+// The peer's name, for messages explaining why a file isn't available.
+// Same rule as the daemon's own parseForeignSessionId
+// (cli/src/core/foreign-session-id.ts): split on the first colon, and
+// both halves must be non-empty. The split is unambiguous because peer
+// names cannot contain a colon (PEER_NAME_PATTERN) and local ids are
+// alphanumeric (HYDRA_ID_ALPHABET), so the prefix is always exactly the
+// remote's name — formatForeignSessionId builds the id as
+// `${name}:${localId}` and nothing else produces one.
 export function federatedRemoteName(sessionId: string): string | null {
-  const idx = sessionId.indexOf(":");
-  return idx > 0 ? sessionId.slice(0, idx) : null;
+  const colon = sessionId.indexOf(":");
+  if (colon === -1) return null;
+  const name = sessionId.slice(0, colon);
+  const localId = sessionId.slice(colon + 1);
+  return name.length > 0 && localId.length > 0 ? name : null;
 }

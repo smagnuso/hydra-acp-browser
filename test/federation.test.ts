@@ -15,9 +15,13 @@ test("a local id is not federated", () => {
   assert.equal(federatedRemoteName("hydra_session_kHtAPiUCVEzfOte1"), null);
 });
 
-test("a leading colon names no remote", () => {
-  // Still treated as federated, since the safe answer when an id is not
-  // a plain local one is to refuse to touch local disk for it.
-  assert.equal(isFederatedSessionId(":hydra_session_x"), true);
+test("a malformed id is not foreign, matching the daemon's parser", () => {
+  // parseForeignSessionId requires both halves to be non-empty and falls
+  // through to local handling otherwise, so this agrees with it rather
+  // than inventing a third answer. Not reachable from a real id:
+  // formatForeignSessionId always builds `${name}:${localId}`, and
+  // neither half can contain a colon.
+  assert.equal(isFederatedSessionId(":hydra_session_x"), false);
+  assert.equal(isFederatedSessionId("mrclean:"), false);
   assert.equal(federatedRemoteName(":hydra_session_x"), null);
 });
