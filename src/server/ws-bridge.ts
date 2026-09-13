@@ -21,6 +21,7 @@ import type { ServerContext } from "./http.js";
 import { HydraRestClient } from "../hydra/client.js";
 import { contentToText, extractEditedPaths, findFileMentions } from "./file-mentions.js";
 import { recordEditedPath } from "./session-files.js";
+import { isFederatedSessionId } from "../util/federation.js";
 import { hasSubscriptions, sendPushToEndpoint } from "./push-store.js";
 import { registerForPush } from "./turn-notify-callback.js";
 import { clearConnection, isSessionVisible, setConnectionVisible } from "./session-visibility.js";
@@ -332,6 +333,15 @@ function handleConnection(
     if (agentText.size === 0) {
       return;
     }
+    // A federated session's paths describe the peer's disk. Statting
+    // them here would confirm whichever same-named file happens to exist
+    // locally and link it, so the reader would open a different
+    // machine's copy without being told. Note getSession() does not
+    // report `remote` for these, which is why the id is the test.
+    if (isFederatedSessionId(sessionId)) {
+      agentText.clear();
+      return;
+    }
     const pending = [...agentText];
     agentText.clear();
     const cwd = await sessionCwd();
@@ -520,7 +530,14 @@ function handleConnection(
       // file the agent just changed even when it sits outside the
       // session cwd. History replay re-delivers these frames, so a
       // browser reload repopulates the set.
-      if (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") {
+      // Not for a federated session: those paths were edited on the
+      // peer, and recording them would authorise a LOCAL read of the
+      // same path — local file access granted by remote activity, which
+      // is not what the allowlist is for.
+      if (
+        !isFederatedSessionId(sessionId) &&
+        (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update")
+      ) {
         for (const edited of extractEditedPaths(update)) {
           recordEditedPath(sessionId, edited);
         }

@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { HydraRestClient } from "../hydra/client.js";
 import type { ServerContext } from "./http.js";
 import { isEditedPath } from "./session-files.js";
+import { federatedRemoteName, isFederatedSessionId } from "../util/federation.js";
 
 interface ListBody {
   sessionId?: string;
@@ -77,6 +78,18 @@ export function registerFileRoutes(
       reply.code(400).send({ error: "sessionId required" });
       return;
     }
+    // A federated session's files live on the peer, and this server can
+    // only read its own disk. Refusing is not a limitation so much as a
+    // correctness requirement: the same username on both machines means
+    // the peer's cwd usually exists here too, so resolving it locally
+    // succeeds and serves a DIFFERENT machine's file under the remote
+    // session's name. See util/federation.ts.
+    if (isFederatedSessionId(body.sessionId)) {
+      reply.code(400).send({
+        error: `files live on remote "${federatedRemoteName(body.sessionId)}" and cannot be read from here`,
+      });
+      return;
+    }
     const cwd = await lookupSessionCwd(ctx, request, body.sessionId);
     if (!cwd) {
       reply.code(404).send({ error: "session not found" });
@@ -144,6 +157,18 @@ export function registerFileRoutes(
     }
     if (!body.path) {
       reply.code(400).send({ error: "path required" });
+      return;
+    }
+    // A federated session's files live on the peer, and this server can
+    // only read its own disk. Refusing is not a limitation so much as a
+    // correctness requirement: the same username on both machines means
+    // the peer's cwd usually exists here too, so resolving it locally
+    // succeeds and serves a DIFFERENT machine's file under the remote
+    // session's name. See util/federation.ts.
+    if (isFederatedSessionId(body.sessionId)) {
+      reply.code(400).send({
+        error: `files live on remote "${federatedRemoteName(body.sessionId)}" and cannot be read from here`,
+      });
       return;
     }
     const cwd = await lookupSessionCwd(ctx, request, body.sessionId);

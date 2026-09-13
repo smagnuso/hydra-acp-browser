@@ -45,6 +45,7 @@ import {
   unsubscribeFromPush,
 } from "./notifications.js";
 import { buildDiffDisplayLines, countDiffChanges, editAnchor, findAnchorLine } from "./edit-diff.js";
+import { isFederatedSessionId } from "../util/federation.js";
 import { applyFontScale, applyTheme } from "./theme.js";
 import { describeCachedSession } from "./history-cache.js";
 import { bump, describeSlow, describeCounts } from "./perf.js";
@@ -3972,7 +3973,7 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
     return renderExitPlan(item);
   }
   if (item.kind === "edit-diff") {
-    return renderEditDiff(item);
+    return renderEditDiff(c, item);
   }
   return document.createTextNode("");
 }
@@ -4026,16 +4027,28 @@ function diffCacheFor(diff: EditDiff): {
 // ellipsized run last hides that sliver in the padding before the diff
 // summary, where nobody can see it.
 // `item` is absent for the legacy/no-path case, where the title is just
-// text. When present the filename becomes a file link into the viewer:
+// text, and so is `sessionId` for a federated session: its files live on
+// the peer, this server can only read its own disk, and the same path
+// usually exists here too — so a link would silently open a different
+// machine's copy. Unlike prose mentions and authored markdown links,
+// which simply never arrive because the bridge skips the scan, an edit
+// block builds its link purely client-side and has to opt out here.
+//
+// When present the filename becomes a file link into the viewer:
 // the raw diff.path is handed over unnormalized (the server resolves
 // relatives against cwd and scope-checks absolutes), with an explicit
 // line when the tool call gave us one and otherwise a pointer back to
 // this tool call so the click can anchor the patch text itself.
-function editedTitleEl(shownPath: string, item?: EditDiffLogItem): HTMLElement {
+function editedTitleEl(
+  shownPath: string,
+  item?: EditDiffLogItem,
+  sessionId?: string,
+): HTMLElement {
   const slashIdx = shownPath.lastIndexOf("/");
   const name = slashIdx >= 0 ? shownPath.slice(slashIdx + 1) : shownPath;
   const dir = slashIdx >= 0 ? shownPath.slice(0, slashIdx) : "";
-  const path = item?.diff.path;
+  const federated = sessionId !== undefined && isFederatedSessionId(sessionId);
+  const path = federated ? undefined : item?.diff.path;
   const nameEl = path
     ? el(
         "a",
@@ -4057,7 +4070,7 @@ function editedTitleEl(shownPath: string, item?: EditDiffLogItem): HTMLElement {
   );
 }
 
-function renderEditDiff(item: EditDiffLogItem): HTMLElement {
+function renderEditDiff(c: ChatState, item: EditDiffLogItem): HTMLElement {
   const cached = diffCacheFor(item.diff);
   const counts = cached.counts;
   const shownPath = item.diff.path ? shortenCwd(item.diff.path) : "file";
@@ -4078,7 +4091,7 @@ function renderEditDiff(item: EditDiffLogItem): HTMLElement {
       }),
     },
     el("span", null, item.expanded ? "▾" : "▸"),
-    editedTitleEl(shownPath, item),
+    editedTitleEl(shownPath, item, c.sessionId),
     summary.length > 0 ? el("span", { class: "kind edit-summary" }, summary) : null,
   );
   const node = el(
