@@ -24,6 +24,14 @@ interface Candidate {
 // then dropped. ":" is only admitted as a trailing ":line[:col]" so a
 // URL splits into pieces that can never resolve inside the cwd.
 const TOKEN_RE = /[A-Za-z0-9_@./+#-]{2,}(?::\d+){0,2}/g;
+// A Windows absolute path (`C:\...` or `C:/...`) never matches TOKEN_RE
+// above: backslash isn't a token character, and the drive letter's
+// colon isn't a line-suffix colon. Scanned separately, since the server
+// this runs in can itself be the Windows host, so a cwd-relative mention
+// can arrive already in that form. LINE_SUFFIX_RE below still finds a
+// real ":line" suffix on the result, since it matches the LAST eligible
+// colon, never the drive letter's.
+const WINDOWS_ABS_TOKEN_RE = /[A-Za-z]:[\\/][^\s"'<>|]{1,510}/g;
 const LINE_SUFFIX_RE = /^(.+?)(?::(\d+))(?::\d+)?$/;
 // GitHub-style fragment, the form the file-links skill tells agents to
 // emit and the TUI already parses (cli's screen.ts:5096). Matching is
@@ -40,13 +48,18 @@ const MAX_CANDIDATE_LENGTH = 512;
 function qualifies(path: string): boolean {
   if (path.length === 0 || path.length > MAX_CANDIDATE_LENGTH) return false;
   if (/^[./]+$/.test(path)) return false;
-  if (path.includes("/")) return true;
+  if (path.includes("/") || path.includes("\\")) return true;
   return /\.[A-Za-z][A-Za-z0-9]*$/.test(path);
 }
 
 export function extractCandidates(text: string): Candidate[] {
   const out: Candidate[] = [];
   for (const m of text.matchAll(TOKEN_RE)) {
+    const token = m[0].replace(TRAILING_PUNCT_RE, "");
+    const candidate = parseCandidate(token);
+    if (candidate) out.push(candidate);
+  }
+  for (const m of text.matchAll(WINDOWS_ABS_TOKEN_RE)) {
     const token = m[0].replace(TRAILING_PUNCT_RE, "");
     const candidate = parseCandidate(token);
     if (candidate) out.push(candidate);

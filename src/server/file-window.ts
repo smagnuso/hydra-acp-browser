@@ -62,7 +62,7 @@ async function readRange(
   const kept: string[] = [];
   let lineNo = 0;
   let hasMore = false;
-  const rl = lines(path);
+  const { rl, stream } = lines(path);
   try {
     for await (const line of rl) {
       lineNo += 1;
@@ -76,7 +76,7 @@ async function readRange(
       kept.push(line);
     }
   } finally {
-    rl.close();
+    await closeLines(rl, stream);
   }
   return { fromLine, content: kept.join("\n"), hasMore };
 }
@@ -94,7 +94,7 @@ async function readAroundAnchor(
   let matchedLine: number | null = null;
   const kept: string[] = [];
   let hasMore = false;
-  const rl = lines(path);
+  const { rl, stream } = lines(path);
   try {
     for await (const line of rl) {
       lineNo += 1;
@@ -115,7 +115,7 @@ async function readAroundAnchor(
       kept.push(line);
     }
   } finally {
-    rl.close();
+    await closeLines(rl, stream);
   }
   if (matchedLine === null) {
     // Anchor isn't in the file (edited since, or whitespace drift).
@@ -127,11 +127,31 @@ async function readAroundAnchor(
   return { fromLine, content: kept.join("\n"), hasMore, matchedLine };
 }
 
-function lines(path: string): ReturnType<typeof createInterface> {
+function lines(path: string): {
+  rl: ReturnType<typeof createInterface>;
+  stream: ReturnType<typeof createReadStream>;
+} {
   // crlfDelay so a CRLF file doesn't yield a stray empty line between
   // every pair, which would throw the gutter's numbering out.
-  return createInterface({
-    input: createReadStream(path, { encoding: "utf8" }),
-    crlfDelay: Infinity,
+  const stream = createReadStream(path, { encoding: "utf8" });
+  const rl = createInterface({ input: stream, crlfDelay: Infinity });
+  return { rl, stream };
+}
+
+// rl.close() alone stops the Interface but leaves the underlying fd
+// open until the stream itself settles. That's fine on POSIX, where a
+// file can be unlinked out from under an open handle, but on Windows an open
+// handle keeps the file (and its parent directory) undeletable. A
+// window that breaks early, before EOF, is exactly the case where the
+// stream hasn't closed on its own yet, so this waits for it.
+async function closeLines(
+  rl: ReturnType<typeof createInterface>,
+  stream: ReturnType<typeof createReadStream>,
+): Promise<void> {
+  rl.close();
+  if (stream.destroyed || stream.closed) return;
+  await new Promise<void>((resolve) => {
+    stream.once("close", () => resolve());
+    stream.destroy();
   });
 }
