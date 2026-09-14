@@ -1,5 +1,5 @@
 import { stat, realpath } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { relative, resolve, sep } from "node:path";
 import { PathScopeError, resolveScopedPath } from "./routes-files.js";
 import { isEditedPath } from "./session-files.js";
 
@@ -195,7 +195,9 @@ async function resolveForViewer(
   if (!(await isReadableFile(real))) return null;
   const rel = relative(cwdReal, real);
   if (!rel || rel.startsWith("..")) return null;
-  return rel;
+  // relative() uses the platform separator; relPath is a URL-ish path
+  // the client and tests expect in forward-slash form on every OS.
+  return rel.split(sep).join("/");
 }
 
 async function isReadableFile(path: string): Promise<boolean> {

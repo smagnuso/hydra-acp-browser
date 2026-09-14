@@ -15,7 +15,7 @@
 // writes it while routes-files.ts reads it.
 
 import { realpath } from "node:fs/promises";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 
 // Per session, so a long-lived process doesn't accumulate without bound.
 // Sessions that edit more than this lose their oldest entries, which
@@ -25,7 +25,10 @@ const MAX_PATHS_PER_SESSION = 500;
 const editedPaths = new Map<string, Set<string>>();
 
 export function recordEditedPath(sessionId: string, path: string): void {
-  if (!path.startsWith("/")) return;
+  // isAbsolute, not a leading "/": a Windows absolute path is C:\...,
+  // which fails that test, so every edited path was silently dropped
+  // on Windows and isEditedPath never had anything to match against.
+  if (!isAbsolute(path)) return;
   let set = editedPaths.get(sessionId);
   if (!set) {
     set = new Set();
