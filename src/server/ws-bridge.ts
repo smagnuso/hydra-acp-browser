@@ -18,7 +18,7 @@ import {
 } from "./auth.js";
 import { checkStateChanging } from "../util/csrf.js";
 import type { ServerContext } from "./http.js";
-import { HydraRestClient } from "../hydra/client.js";
+import { HydraRestClient, foreignCwdOwner } from "../hydra/client.js";
 import { contentToText, extractEditedPaths, findFileMentions } from "./file-mentions.js";
 import { recordEditedPath } from "./session-files.js";
 import { hasSubscriptions, sendPushToEndpoint } from "./push-store.js";
@@ -312,9 +312,11 @@ function handleConnection(
   // Listed rather than fetched by id, because the list is the only place
   // `remote` appears: GET /v1/sessions/<id> is forwarded to the peer,
   // which answers about its own session and so never reports itself as
-  // remote. Null for a federated session as well as an unknown one —
-  // either way there is no local disk this scan should be touching.
-  // One call per connection, cached in this closure.
+  // remote. Null for a federated session, a dormant bundle import never
+  // forked into a real local cwd (foreignCwdOwner covers both — see
+  // hydra/client.ts), or an unknown session — in every case there is no
+  // local disk this scan should be touching. One call per connection,
+  // cached in this closure.
   function localSessionCwd(): Promise<string | null> {
     if (cwdLookup === undefined) {
       cwdLookup = HydraRestClient.forRequest(
@@ -324,7 +326,7 @@ function handleConnection(
         .listSessions({ all: true })
         .then((result) => {
           const match = result.sessions.find((s) => s.sessionId === sessionId);
-          if (!match?.cwd || match.remote) return null;
+          if (!match?.cwd || foreignCwdOwner(match) !== undefined) return null;
           return match.cwd;
         })
         .catch(() => null);

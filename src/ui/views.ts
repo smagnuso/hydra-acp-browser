@@ -1032,13 +1032,18 @@ function dirName(path: string, cwd: string): string {
 }
 
 // From the session list's own `remote` field rather than the shape of
-// the id. Undefined before the first poll lands, which reads as local
-// and can leave an edit link rendered for a moment — harmless, because
-// the Files API refuses the read authoritatively and says why. The
-// client's job here is only to avoid offering something that cannot
-// work.
+// the id, OR isDormantOnPeer: a bundle import nobody has forked into a
+// real local cwd yet has the identical hazard (import only copies the
+// conversation record, not the project's files, so cwd is still whatever
+// the exporting machine had — see foreignCwdOwner in hydra/client.ts).
+// Undefined/unset before the first poll lands, which reads as local and
+// can leave an edit link rendered for a moment — harmless, because the
+// Files API refuses the read authoritatively and says why. The client's
+// job here is only to avoid offering something that cannot work.
 function isFederatedSession(sessionId: string): boolean {
-  return !!state.sessions.find((s) => s.sessionId === sessionId)?.remote;
+  const session = state.sessions.find((s) => s.sessionId === sessionId);
+  if (session === undefined) return false;
+  return !!session.remote || isDormantOnPeer(session);
 }
 
 // Start a window a little above the line being aimed at, so the target

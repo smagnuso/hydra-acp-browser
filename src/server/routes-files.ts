@@ -1,7 +1,7 @@
 import { promises as fsp } from "node:fs";
 import { resolve, sep } from "node:path";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { HydraRestClient } from "../hydra/client.js";
+import { HydraRestClient, foreignCwdOwner } from "../hydra/client.js";
 import type { ServerContext } from "./http.js";
 import { isEditedPath } from "./session-files.js";
 import { readFileWindow } from "./file-window.js";
@@ -62,10 +62,12 @@ export class PathScopeError extends Error {
   }
 }
 
-// Both the cwd and whether the session is federated, from the one list
-// call. GET /v1/sessions is the only place `remote` appears: the
-// single-session route is forwarded to the peer, which answers about its
-// own session and so never reports itself as remote.
+// Both the cwd and the name of whichever other machine actually owns it
+// (foreignCwdOwner — live federation or a dormant, never-forked bundle
+// import), from the one list call. GET /v1/sessions is the only place
+// `remote` appears: the single-session route is forwarded to the peer,
+// which answers about its own session and so never reports itself as
+// remote.
 async function lookupSession(
   ctx: ServerContext,
   request: FastifyRequest,
@@ -76,7 +78,8 @@ async function lookupSession(
   const result = await client.listSessions({ all: true });
   const match = result.sessions.find((s) => s.sessionId === sessionId);
   if (!match?.cwd) return undefined;
-  return match.remote ? { cwd: match.cwd, remote: match.remote } : { cwd: match.cwd };
+  const remote = foreignCwdOwner(match);
+  return remote !== undefined ? { cwd: match.cwd, remote } : { cwd: match.cwd };
 }
 
 export function registerFileRoutes(
@@ -94,15 +97,15 @@ export function registerFileRoutes(
       reply.code(404).send({ error: "session not found" });
       return;
     }
-    // A federated session's files live on the peer, and this server can
-    // only read its own disk. Refusing is a correctness requirement, not
-    // just a missing feature: the same username on both machines means
-    // the peer's cwd usually exists here too, so resolving it locally
-    // succeeds and serves a DIFFERENT machine's file under the remote
-    // session's name.
+    // A federated (or dormant-import) session's files live on another
+    // machine, and this server can only read its own disk. Refusing is a
+    // correctness requirement, not just a missing feature: the same
+    // username on both machines means the other machine's cwd usually
+    // exists here too, so resolving it locally succeeds and serves a
+    // DIFFERENT machine's file under this session's name.
     if (session.remote) {
       reply.code(400).send({
-        error: `files live on remote "${session.remote}" and cannot be read from here`,
+        error: `files live on "${session.remote}" and cannot be read from here`,
       });
       return;
     }
@@ -176,15 +179,15 @@ export function registerFileRoutes(
       reply.code(404).send({ error: "session not found" });
       return;
     }
-    // A federated session's files live on the peer, and this server can
-    // only read its own disk. Refusing is a correctness requirement, not
-    // just a missing feature: the same username on both machines means
-    // the peer's cwd usually exists here too, so resolving it locally
-    // succeeds and serves a DIFFERENT machine's file under the remote
-    // session's name.
+    // A federated (or dormant-import) session's files live on another
+    // machine, and this server can only read its own disk. Refusing is a
+    // correctness requirement, not just a missing feature: the same
+    // username on both machines means the other machine's cwd usually
+    // exists here too, so resolving it locally succeeds and serves a
+    // DIFFERENT machine's file under this session's name.
     if (session.remote) {
       reply.code(400).send({
-        error: `files live on remote "${session.remote}" and cannot be read from here`,
+        error: `files live on "${session.remote}" and cannot be read from here`,
       });
       return;
     }

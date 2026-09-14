@@ -21,6 +21,13 @@ export interface HydraSessionInfo {
   // GET /v1/sessions/<id> is forwarded to the peer, which answers about
   // its own session and so never reports itself as remote.
   remote?: string;
+  // Hostname of the machine that exported the bundle this session was
+  // imported from. Undefined for sessions created on this host.
+  importedFromMachine?: string;
+  // Local ACP agent's session id once an agent has bound this session
+  // here. An imported session with no upstreamSessionId is a passive
+  // mirror never attached locally — see foreignCwdOwner below.
+  upstreamSessionId?: string;
   agentId: string | undefined;
   title: string | undefined;
   attachedClients: number;
@@ -39,6 +46,32 @@ export interface HydraSessionInfo {
   // Present when isolation was requested and fell back to the source
   // tree. Live-only.
   workspaceError?: string;
+}
+
+// Name of the machine whose files a session's cwd actually belongs to, or
+// undefined when the cwd is trustworthy as local. Two independent ways a
+// session's cwd can point at another machine, both producing the same
+// hazard for this server (it can only read its own disk): a live
+// federated peer (remote set), or a bundle import nobody has forked into
+// a real local cwd yet (importedFromMachine set, upstreamSessionId
+// unset — importing a bundle only copies the conversation record, not
+// the project's files, so cwd is still whatever the exporting machine
+// had). Once the user forks it locally, upstreamSessionId gets set and
+// cwd is a freshly-chosen real local path, correctly falling out of this
+// check. Mirrors cli's own foreignCwdOwner (src/tui/bar/types.ts) and
+// this file's own isDormantOnPeer-shaped check the UI already uses for
+// picker labeling/host filtering (src/ui/views.ts) — same signal, reused
+// here for the surfaces that actually touch disk.
+export function foreignCwdOwner(
+  s: Pick<HydraSessionInfo, "remote" | "importedFromMachine" | "upstreamSessionId">,
+): string | undefined {
+  if (s.remote !== undefined) {
+    return s.remote;
+  }
+  if (s.importedFromMachine !== undefined && !s.upstreamSessionId) {
+    return s.importedFromMachine;
+  }
+  return undefined;
 }
 
 // See cli's PROTOCOL.md "Remotes" section — a federated peer daemon
