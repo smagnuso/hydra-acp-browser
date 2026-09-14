@@ -367,6 +367,16 @@ export function handleFrame(frame: JsonRpcFrame): void {
       kind: "error",
       text: `Bridge error: ${(frame.params?.["message"] as string | undefined) ?? "?"}`,
     });
+    // terminal (ws-bridge.ts) means the sessionId itself is gone on the
+    // daemon — the close that follows this frame would otherwise send
+    // scheduleReconnect (routing.ts) into a permanent retry loop, since
+    // every attach attempt hits the same SessionNotFound. Mark it so that
+    // handler gives up instead, and drop any "Reconnecting…" banner that's
+    // already up since it would keep implying this resolves on its own.
+    if (frame.params?.["terminal"] === true && state.current) {
+      state.current.sessionGone = true;
+      cancelReconnectBanner(state.current);
+    }
     render();
     return;
   }

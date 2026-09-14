@@ -532,6 +532,15 @@ function scheduleReconnect(chat: ChatState): void {
   // will report their true status. See cancelUnboundQueued.
   cancelUnboundQueued(chat);
 
+  // Set by bridge.ts on a terminal bridge/error (SessionNotFound) — the
+  // daemon has no record of this sessionId at all, so every future attach
+  // attempt hits the same error. Retrying would just loop the
+  // "Reconnecting…" banner forever instead of telling the user the truth.
+  if (chat.sessionGone) {
+    render();
+    return;
+  }
+
   const attempt = chat.reconnectAttempt ?? 0;
   const delay =
     RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)]!;

@@ -52,6 +52,18 @@ export function isResponse(m: JsonRpcMessage): m is JsonRpcResponse {
   return !("method" in m) && "id" in m;
 }
 
+// SessionNotFound per PROTOCOL.md's reserved RFD #533 range.
+export const JSON_RPC_SESSION_NOT_FOUND = -32001;
+
+export class JsonRpcRequestError extends Error {
+  constructor(
+    readonly code: number,
+    rpcMessage: string,
+  ) {
+    super(`${code}: ${rpcMessage}`);
+  }
+}
+
 export interface UpstreamOptions {
   daemonWsUrl: string;
   token: string;
@@ -173,7 +185,10 @@ export class UpstreamConnection extends EventEmitter<UpstreamEvents> {
       this.pending.set(id, {
         resolve: (resp) => {
           if (resp.error) {
-            reject(new Error(`${resp.error.code}: ${resp.error.message}`));
+            // .code carries the structured JSON-RPC error code (e.g.
+            // SessionNotFound = -32001, PROTOCOL.md) so callers can branch
+            // on it instead of string-matching the message.
+            reject(new JsonRpcRequestError(resp.error.code, resp.error.message));
           } else {
             resolve(resp.result as R);
           }

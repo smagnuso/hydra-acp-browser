@@ -7,6 +7,8 @@ import {
   isRequest,
   isResponse,
   runInitialize,
+  JsonRpcRequestError,
+  JSON_RPC_SESSION_NOT_FOUND,
   type JsonRpcMessage,
   type JsonRpcRequest,
   type JsonRpcResponse,
@@ -452,7 +454,12 @@ function handleConnection(
       log.warn(
         `handshake failed for ${sessionId}: ${(err as Error).message}`,
       );
-      sendBrowserError("handshake_failed", (err as Error).message);
+      // SessionNotFound means the daemon has no record of this session at
+      // all — reconnecting will only get the same error forever. Tell the
+      // browser this is terminal so it stops retrying instead of looping.
+      const terminal =
+        err instanceof JsonRpcRequestError && err.code === JSON_RPC_SESSION_NOT_FOUND;
+      sendBrowserError("handshake_failed", (err as Error).message, terminal);
       cleanup();
     });
   });
@@ -787,11 +794,11 @@ function handleConnection(
     browserWs.send(JSON.stringify(msg));
   }
 
-  function sendBrowserError(code: string, message: string): void {
+  function sendBrowserError(code: string, message: string, terminal = false): void {
     sendBrowserFrame({
       jsonrpc: "2.0",
       method: "bridge/error",
-      params: { code, message },
+      params: { code, message, ...(terminal ? { terminal: true } : {}) },
     });
   }
 

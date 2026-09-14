@@ -3382,7 +3382,17 @@ function renderChat(c: ChatState): HTMLElement {
           title: "Click for session details",
           ...tapHandler(toggleDetails),
         },
-      !c.ready && c.cold && !withinConnectingGrace
+      !c.ready && c.sessionGone
+        ? el(
+            "span",
+            {
+              class: "pill gone clickable",
+              title: "This session no longer exists on the daemon",
+              ...tapHandler(toggleDetails),
+            },
+            "gone",
+          )
+        : !c.ready && c.cold && !withinConnectingGrace
         ? el(
             "span",
             {
@@ -3637,6 +3647,8 @@ function renderChat(c: ChatState): HTMLElement {
       "data-focus-key": "composer",
       placeholder: c.ready || withinConnectingGrace
         ? "Message…"
+        : c.sessionGone
+        ? "Session no longer exists…"
         : c.cold
         ? "Message… (wakes the session)"
         : "Connecting…",
@@ -3718,6 +3730,8 @@ function renderChat(c: ChatState): HTMLElement {
   }
   textarea.placeholder = c.ready || withinConnectingGrace
     ? "Message…"
+    : c.sessionGone
+    ? "Session no longer exists…"
     : c.cold
     ? "Message… (wakes the session)"
     : "Connecting…";

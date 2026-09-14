@@ -411,6 +411,12 @@ export interface ChatState {
   // "connecting…". Cleared once bridge/ready lands again (warm reattach
   // or a resurrecting prompt).
   cold?: boolean;
+  // Set when the daemon told us via a terminal bridge/error that this
+  // sessionId doesn't exist at all (SessionNotFound, PROTOCOL.md) — as
+  // opposed to a session that exists but is cold. Unlike a dropped
+  // connection, reconnecting can't ever succeed, so scheduleReconnect
+  // (routing.ts) checks this and gives up instead of looping forever.
+  sessionGone?: boolean;
   log: LogItem[];
   toolCalls: Map<string, ToolCallState>;
   pendingPermissions: Map<string, PermissionEntry>;
