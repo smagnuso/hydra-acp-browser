@@ -4931,44 +4931,118 @@ async function listFiles(p: string): Promise<void> {
   }
 }
 
-// Fetches the window adjacent to the one on screen. Replaces rather
-// than appends: appending would grow the DOM without bound on a long
-// scroll through a large file, which is the cost windowing exists to
-// avoid in the first place.
-async function loadWindow(
-  path: string,
-  edge: number,
-  direction: "up" | "down",
-): Promise<void> {
+// Total lines allowed in the DOM at once. Extending past this trims the
+// far end, so a long scroll through a 300k-line file costs a bounded
+// number of gutter rows rather than all of them.
+const MAX_RENDERED_LINES = 4000;
+// How close to an edge counts as "about to need more". Two screens, so
+// the fetch is usually finished before the reader arrives.
+const PREFETCH_SCREENS = 2;
+
+// The visible row to hold still across a content change, and where on
+// screen it currently sits. Rows are uniform height here (monospace, no
+// wrapping — .code-view is min-width: max-content), so one measurement
+// converts between pixels and lines.
+function captureAnchor(
+  scroller: HTMLElement,
+  fromLine: number,
+): { line: number; viewportOffset: number } | null {
+  const row = scroller.querySelector<HTMLElement>(".ln");
+  if (!row) return null;
+  const h = row.getBoundingClientRect().height;
+  if (h <= 0) return null;
+  const index = Math.floor(scroller.scrollTop / h);
+  return { line: fromLine + index, viewportOffset: index * h - scroller.scrollTop };
+}
+
+let windowLoadInFlight = false;
+
+// Grows the on-screen window in one direction. Appending downward needs
+// no correction — content below the reader doesn't move them — but
+// prepending does, which is what keepLine is for.
+async function extendWindow(direction: "up" | "down"): Promise<void> {
   const c = state.current;
-  if (!c?.fileOverlay) return;
+  const fo = c?.fileOverlay;
+  const preview = fo?.preview;
+  if (!c || !fo || !preview || windowLoadInFlight) return;
+  const lines = preview.content.split("\n");
+  const firstLine = preview.fromLine;
+  const lastLine = firstLine + lines.length - 1;
+  if (direction === "up" && firstLine <= 1) return;
+  if (direction === "down" && !preview.hasMore) return;
+
+  const scroller = document.querySelector<HTMLElement>(".files .preview");
+  const anchor = scroller ? captureAnchor(scroller, firstLine) : null;
+
   const fromLine =
-    direction === "up" ? Math.max(1, edge - WINDOW_PAGE_LINES) : edge;
+    direction === "up" ? Math.max(1, firstLine - WINDOW_PAGE_LINES) : lastLine + 1;
+  // Upward asks for exactly the gap, so the slices abut without overlap.
+  const lineCount = direction === "up" ? firstLine - fromLine : WINDOW_PAGE_LINES;
+  windowLoadInFlight = true;
   try {
     const data = await api<ReadWindow>("/api/files/read", {
       method: "POST",
-      body: JSON.stringify({ sessionId: c.sessionId, path, fromLine }),
+      body: JSON.stringify({ sessionId: c.sessionId, path: preview.path, fromLine, lineCount }),
     });
-    if (state.current !== c || !c.fileOverlay) return;
-    c.fileOverlay.preview = {
-      path,
-      content: data.content,
-      fromLine: data.fromLine ?? fromLine,
-      hasMore: data.hasMore ?? false,
+    if (state.current !== c || c.fileOverlay !== fo || fo.preview !== preview) return;
+    const added = data.content.split("\n");
+    let merged = direction === "up" ? [...added, ...lines] : [...lines, ...added];
+    let newFrom = direction === "up" ? (data.fromLine ?? fromLine) : firstLine;
+    if (merged.length > MAX_RENDERED_LINES) {
+      // Trim the end the reader is moving away from.
+      if (direction === "down") {
+        const drop = merged.length - MAX_RENDERED_LINES;
+        merged = merged.slice(drop);
+        newFrom += drop;
+      } else {
+        merged = merged.slice(0, MAX_RENDERED_LINES);
+      }
+    }
+    fo.preview = {
+      path: preview.path,
+      content: merged.join("\n"),
+      fromLine: newFrom,
+      hasMore: direction === "down" ? (data.hasMore ?? false) : preview.hasMore,
     };
-    c.fileOverlay.err = null;
-    // Land on the line you were already looking at. The renderer
-    // restores the preview's scrollTop across renders, which after a
-    // window shift points at different content entirely — so without
-    // this, paging jumps you somewhere arbitrary. Deliberately not
-    // touching highlightLine: the tint marks what you came for, not
-    // where you happen to be paging.
-    c.fileOverlay.scrollToLine = edge;
+    fo.err = null;
+    // Only meaningful if the anchor survived the trim; otherwise the
+    // reader was nowhere near the part that moved.
+    if (anchor && anchor.line >= newFrom && anchor.line < newFrom + merged.length) {
+      fo.keepLine = anchor;
+    }
   } catch (err) {
-    if (state.current !== c || !c.fileOverlay) return;
-    c.fileOverlay.err = (err as Error).message;
+    if (state.current !== c || c.fileOverlay !== fo) return;
+    fo.err = (err as Error).message;
+  } finally {
+    windowLoadInFlight = false;
   }
   render();
+}
+
+// Scroll-driven, on the same document-level capture listener pattern the
+// renderer uses for the overlay's scrollers (scroll events don't bubble).
+// The preview node is rebuilt whenever its content changes, so a
+// per-element listener would need re-attaching on every extension.
+export function initFileWindowPaging(): void {
+  document.addEventListener(
+    "scroll",
+    (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement) || !target.matches(".files .preview")) return;
+      const preview = state.current?.fileOverlay?.preview;
+      if (!preview) return;
+      const margin = target.clientHeight * PREFETCH_SCREENS;
+      const fromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+      if (fromBottom < margin && preview.hasMore) {
+        void extendWindow("down");
+        return;
+      }
+      if (target.scrollTop < margin && preview.fromLine > 1) {
+        void extendWindow("up");
+      }
+    },
+    true,
+  );
 }
 
 async function readFile(p: string): Promise<void> {
@@ -5264,27 +5338,16 @@ function renderFileOverlay(c: ChatState): Node {
         gutter,
         el("pre", {}, el("code", { class: "hljs", html: highlighted })),
       );
-      // Paging pills, same control the transcript uses to reach older
-      // messages. Only rendered on the side that has more to show.
-      const lastLine = fromLine + lineCount - 1;
+      // No paging control: scrolling near either edge loads the next
+      // window (initFileWindowPaging). These just say the file
+      // continues, so a window boundary doesn't read as the end of the
+      // file while the fetch is in flight.
       contentEl = el(
         "div",
         { class: "code-window" },
-        fromLine > 1
-          ? el(
-              "button",
-              { class: "show-earlier", ...tapHandler(() => void loadWindow(path, fromLine, "up")) },
-              `↑ earlier lines (from ${fromLine})`,
-            )
-          : null,
+        fromLine > 1 ? el("div", { class: "window-edge" }, `⋯ ${fromLine - 1} lines above`) : null,
         codeEl,
-        hasMore
-          ? el(
-              "button",
-              { class: "show-earlier", ...tapHandler(() => void loadWindow(path, lastLine, "down")) },
-              `↓ later lines (from ${lastLine})`,
-            )
-          : null,
+        hasMore ? el("div", { class: "window-edge" }, "⋯ more below") : null,
       );
       // One-shot scroll for a file-mention link. Cleared immediately so
       // an unrelated later render doesn't drag the view back; a line
@@ -5293,6 +5356,21 @@ function renderFileOverlay(c: ChatState): Node {
       // highlightLine): it stays until you open a different file, since
       // it marks the line you came here for and losing it after a few
       // seconds means having to find your way back by hand.
+      // Put the reader back where they were after a window extension.
+      // Runs before the scrollToLine branch below so an explicit jump
+      // still wins if both are somehow pending.
+      const keep = fo.keepLine;
+      if (keep !== undefined) {
+        fo.keepLine = undefined;
+        requestAnimationFrame(() => {
+          const scroller = document.querySelector<HTMLElement>(".files .preview");
+          const row = gutter.querySelector<HTMLElement>(".ln");
+          if (!scroller || !row) return;
+          const h = row.getBoundingClientRect().height;
+          if (h <= 0) return;
+          scroller.scrollTop = (keep.line - fromLine) * h - keep.viewportOffset;
+        });
+      }
       const target = fo.scrollToLine;
       if (target !== undefined) {
         fo.scrollToLine = undefined;

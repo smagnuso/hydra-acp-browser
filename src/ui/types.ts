@@ -373,6 +373,11 @@ export interface FileOverlayState {
   // End of an inclusive range to tint, for a #L42-L50 style reference.
   // Absent for a single-line target.
   highlightLineEnd?: number;
+  // One-shot: put `line` back at `viewportOffset` pixels from the top of
+  // the scroller. Set when a window is extended, because prepending
+  // lines shifts everything below them and the reader would otherwise
+  // be thrown up the file by exactly the amount that was loaded.
+  keepLine?: { line: number; viewportOffset: number };
 }
 
 export interface ChatState {

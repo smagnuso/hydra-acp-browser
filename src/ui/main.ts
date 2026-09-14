@@ -23,6 +23,7 @@ import {
   openFileAtLine,
   editAnchorForToolCall,
   closeFiles,
+  initFileWindowPaging,
 } from "./views.js";
 import { state } from "./state.js";
 import { applyFontScale, initTheme } from "./theme.js";
@@ -74,6 +75,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   render();
   initPullToRefresh();
   initSwipeBack();
+  // Loads the next slice of a large file as the preview nears an edge.
+  initFileWindowPaging();
   // File mentions the bridge confirmed, rendered as links inside message
   // bodies (innerHTML, so they can't carry their own tapHandler).
   delegatedTap(".file-link", (target) => {
