@@ -269,6 +269,9 @@ export function renderApp(root: HTMLElement, s: AppState): void {
   }
   if (isWideLayout()) {
     root.appendChild(renderSplitLayout(s));
+    if (s.view === "chat" && s.current?.fileOverlay) {
+      applyKeepLine(s.current);
+    }
   } else if (s.view === "list") {
     root.appendChild(renderTopbar());
     root.appendChild(renderSessionSearch());
@@ -502,7 +505,9 @@ function renderSplitLayout(s: AppState): HTMLElement {
     detail.appendChild(renderChat(s.current));
     if (s.current.fileOverlay) {
       detail.appendChild(cachedFileOverlay(s.current));
-      applyKeepLine(s.current);
+      // No applyKeepLine here: this subtree is still detached, so the
+      // scroller cannot be measured or scrolled yet. renderApp calls it
+      // once the layout is in the document.
     }
   } else {
     detail.appendChild(
@@ -3150,18 +3155,28 @@ function patchFileOverlayInPlace(parent: HTMLElement, c: ChatState): void {
 // (which is where it used to live) painted one frame at the top of the
 // window and snapped back — a visible jolt on every load, and the
 // reason scroll paging felt broken.
-function applyKeepLine(c: ChatState): void {
+// Returns whether it actually moved the scroller, which actuallyRender
+// uses to decide whether its own blanket scroll restore should stand down.
+function applyKeepLine(c: ChatState): boolean {
   const fo = c.fileOverlay;
   const keep = fo?.keepLine;
-  if (!fo || !keep || !fo.preview) return;
-  fo.keepLine = undefined;
+  if (!fo || !keep || !fo.preview) return false;
   const scroller = document.querySelector<HTMLElement>(".files .preview");
   const metrics = scroller ? gutterMetrics(scroller) : null;
-  if (!scroller || !metrics) return;
+  // Cleared only once it has been applied. Clearing up front instead
+  // threw the correction away on any attempt that came too early to
+  // measure (a detached subtree, a zero-height row), leaving the reader
+  // dumped at the top of the freshly loaded window with nothing left to
+  // restore from. The anchor stays valid while it waits: the line number
+  // is absolute and the offset is re-derived from whatever fromLine is
+  // current when it does land.
+  if (!scroller || !metrics) return false;
+  fo.keepLine = undefined;
   scroller.scrollTop =
     metrics.gutterTop +
     (keep.line - fo.preview.fromLine) * metrics.rowHeight -
     keep.viewportOffset;
+  return true;
 }
 
 // Called by renderer.ts's teardown path (banner/modal/file-overlay cases,
@@ -4979,8 +4994,8 @@ function captureAnchor(
     line: fromLine + index,
     // Distance from the top of the viewport to that row. Measured
     // against the gutter rather than the scroll container so the
-    // "N lines above" marker — which vanishes when a window reaches
-    // line 1 — cannot silently shift the reader by its own height.
+    // "N lines above" marker, which vanishes when a window reaches
+    // line 1, cannot silently shift the reader by its own height.
     viewportOffset: gutterTop + index * rowHeight - scroller.scrollTop,
   };
 }
@@ -5030,6 +5045,15 @@ async function extendWindow(direction: "up" | "down"): Promise<void> {
       body: JSON.stringify({ sessionId: c.sessionId, path: preview.path, fromLine, lineCount }),
     });
     if (state.current !== c || c.fileOverlay !== fo || fo.preview !== preview) return;
+    // "".split("\n") is [""], not [], so an empty slice would append a
+    // phantom numbered line. Reachable when the file shrank between the
+    // two reads: hasMore was true when sampled, and the follow-up
+    // request now lands past the new EOF.
+    if (data.content.length === 0) {
+      fo.preview = { ...preview, hasMore: false };
+      render();
+      return;
+    }
     const added = data.content.split("\n");
     let merged = direction === "up" ? [...added, ...lines] : [...lines, ...added];
     let newFrom = direction === "up" ? (data.fromLine ?? fromLine) : firstLine;

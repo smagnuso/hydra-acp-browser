@@ -423,6 +423,12 @@ function actuallyRender(): void {
   const oldFilesBodyScrollTop = oldFilesBody ? oldFilesBody.scrollTop : null;
   const oldFilesPreview = root.querySelector<HTMLElement>(".files .preview");
   const oldFilesPreviewScrollTop = oldFilesPreview ? oldFilesPreview.scrollTop : null;
+  // A pending keepLine means a window extension just changed which lines
+  // the preview holds, so this sampled scrollTop refers to content that
+  // has moved by up to a page. Restoring it below would both clobber
+  // applyKeepLine's correction and put the reader somewhere they never
+  // scrolled to; the anchor knows the actual line to hold.
+  const keepLinePending = state.current?.fileOverlay?.keepLine != null;
 
   root.replaceChildren();
   renderApp(root, state);
@@ -472,7 +478,7 @@ function actuallyRender(): void {
     newFilesBody.scrollTop = oldFilesBodyScrollTop;
   }
   const newFilesPreview = root.querySelector<HTMLElement>(".files .preview");
-  if (newFilesPreview && oldFilesPreviewScrollTop !== null) {
+  if (newFilesPreview && oldFilesPreviewScrollTop !== null && !keepLinePending) {
     newFilesPreview.scrollTop = oldFilesPreviewScrollTop;
   }
 
