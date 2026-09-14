@@ -133,6 +133,20 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
   let firedViaPointer = false;
   let startX = 0;
   let startY = 0;
+  // Whether this closure actually saw the matching pointerdown. Without
+  // it the move check below compared the release point against (0, 0),
+  // the initial values, which for any real button is hundreds of px and
+  // so ALWAYS exceeded the threshold: a pointerup with no recorded start
+  // was not merely unverified, it was guaranteed to be thrown away. The
+  // fallback onclick cannot rescue it either (a pointer-generated click
+  // has detail >= 1, and for touch the click is suppressed outright by
+  // the preventDefault above), so the tap vanished with the press
+  // highlight still flashing. A closure is created per render and the
+  // composer's button row is rebuilt on every renderChat, so "released
+  // on a node that was swapped in mid-press" is a normal occurrence
+  // here, not a pathological one. No recorded start means no evidence of
+  // a drag, so treat it as a tap rather than as a 500px swipe.
+  let haveStart = false;
   return {
     onpointerdown: (e: Event) => {
       if (isFormControl(e.target)) return;
@@ -140,6 +154,7 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
       if (pe.pointerType === "mouse" && pe.button !== 0) return;
       startX = pe.clientX;
       startY = pe.clientY;
+      haveStart = true;
       e.preventDefault();
       e.stopPropagation();
     },
@@ -148,7 +163,10 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
       const pe = e as PointerEvent;
       if (pe.pointerType === "mouse" && pe.button !== 0) return;
       e.stopPropagation();
-      if (Math.hypot(pe.clientX - startX, pe.clientY - startY) > TAP_MOVE_THRESHOLD) return;
+      const moved =
+        haveStart && Math.hypot(pe.clientX - startX, pe.clientY - startY) > TAP_MOVE_THRESHOLD;
+      haveStart = false;
+      if (moved) return;
       if (hasActiveSelection()) return;
       firedViaPointer = true;
       fn(e);

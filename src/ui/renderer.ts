@@ -158,6 +158,14 @@ document.addEventListener(
   },
   true,
 );
+// Authoritative "is a finger actually down right now", for gesture
+// latches elsewhere that need to tell a live press from their own stale
+// state. This one is tracked on document in the capture phase, so no
+// stopPropagation can hide a release from it, and it self-heals via
+// STUCK_POINTER_MS.
+export function isPointerDownNow(): boolean {
+  return pointerDown;
+}
 document.addEventListener(
   "pointerup",
   (e) => {

@@ -146,8 +146,25 @@ export function initViewportHeight(): void {
   // triggers on release, plus whatever tick settle()'s own rAF loop is
   // already mid-way through.
   let pointerActive = false;
+  let pointerActiveAt = 0;
+  // Don't trust the latch indefinitely. A pointerdown whose pointerup
+  // never arrives (the OS claiming the gesture, a press that ends in a
+  // system sheet) otherwise freezes --app-height, --app-offset-top and
+  // the keyboard-open class for good, and the 1s heartbeat below cannot
+  // repair it because it runs through this same early return. With the
+  // keyboard up that leaves #app sized to the pre-keyboard viewport and
+  // body not compensating for iOS's pan, i.e. the composer is no longer
+  // where it is painted. renderer.ts's equivalent latch already carries
+  // a stuck-pointer escape for exactly this reason; this one did not.
+  const POINTER_FREEZE_MAX_MS = 700;
+  const frozenByPointer = (): boolean => {
+    if (!pointerActive) return false;
+    if (performance.now() - pointerActiveAt < POINTER_FREEZE_MAX_MS) return true;
+    pointerActive = false;
+    return false;
+  };
   const apply = (): void => {
-    if (pointerActive) return;
+    if (frozenByPointer()) return;
     const vv = window.visualViewport;
     const h = (vv?.height ?? window.innerHeight) + topInsetPx();
     const rawOffsetTop = vv?.offsetTop ?? 0;
@@ -211,6 +228,7 @@ export function initViewportHeight(): void {
     "pointerdown",
     () => {
       pointerActive = true;
+      pointerActiveAt = performance.now();
     },
     { capture: true }
   );

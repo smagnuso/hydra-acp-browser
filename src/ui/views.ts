@@ -4,7 +4,7 @@
 // makes UX iteration easier than chasing pieces across files.
 
 import { state, setState, isRailDirty, markRailClean, markRailDirty } from "./state.js";
-import { render, noteTypingActivity } from "./renderer.js";
+import { render, noteTypingActivity, isPointerDownNow } from "./renderer.js";
 import {
   el,
   tapHandler,
@@ -2817,10 +2817,19 @@ function ensureChatView(c: ChatState): ChatView {
   const releaseComposerGesture = (): void => {
     if (!readyView.composerGestureActive) return;
     readyView.composerGestureActive = false;
-    if (readyView.pendingComposer) {
-      readyView.composerSlot.replaceChildren(readyView.pendingComposer);
-      readyView.pendingComposer = null;
-    }
+    if (!readyView.pendingComposer) return;
+    // Deferred out of the event dispatch. This runs in the CAPTURE phase
+    // of the very pointerup that ends the press, i.e. before the event
+    // reaches the button under the finger, so swapping the subtree here
+    // detached the pressed button (and the reused textarea) mid-dispatch:
+    // the exact "node pulled out from under the finger" this whole latch
+    // exists to prevent, just moved one phase earlier. A microtask lands
+    // after dispatch completes and before the next paint.
+    const pending = readyView.pendingComposer;
+    readyView.pendingComposer = null;
+    queueMicrotask(() => {
+      readyView.composerSlot.replaceChildren(pending);
+    });
   };
   composerSlot.addEventListener("pointerup", releaseComposerGesture, { capture: true });
   composerSlot.addEventListener("pointercancel", releaseComposerGesture, { capture: true });
@@ -3825,9 +3834,21 @@ function renderChat(c: ChatState): HTMLElement {
   // down on it — see composerGestureActive on ChatView. Applied on
   // release instead, by the composerSlot pointerup/pointercancel
   // listener in ensureChatView.
-  if (view.composerGestureActive) {
+  // The latch is only trustworthy while a finger is genuinely down. Its
+  // release is scoped to composerSlot, so a press that starts on a
+  // composer button and ends anywhere else (the pointer retargeted, a
+  // pointercancel delivered to an already-detached node, the finger
+  // sliding off the composer) never clears it, and a stuck latch is not
+  // inert: `composer` above reuses the SAME textarea node, so stashing
+  // it MOVES the live, focused textarea out of the document into a
+  // detached subtree, leaving the visible composer stale and without its
+  // input. Cross-check against the renderer's own pointer tracking,
+  // which is document-wide, capture-phase, and self-healing.
+  if (view.composerGestureActive && isPointerDownNow()) {
     view.pendingComposer = composer;
   } else {
+    view.composerGestureActive = false;
+    view.pendingComposer = null;
     view.composerSlot.replaceChildren(composer);
   }
   reconcileChatBody(c, view);
