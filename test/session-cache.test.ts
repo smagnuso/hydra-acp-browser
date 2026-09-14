@@ -47,12 +47,15 @@ test("trimForCache keeps only the fields the session-list card renders", () => {
       updatedAt: "2025-01-01T00:00:00Z",
       // Not rendered by the session-list card — must not survive the trim.
       attachedClients: 3,
+      // Rendered by the session-list card (its cwd cell shows
+      // workspace.sourceCwd for an isolated session): must survive.
       workspace: {
         path: "/ws",
         sourceCwd: "/w",
         label: "feature",
         provider: "git",
       },
+      // Live-only (see SessionInfo.workspaceError): must not survive.
       workspaceError: "fell back to source tree",
     },
   ];
@@ -71,6 +74,12 @@ test("trimForCache keeps only the fields the session-list card renders", () => {
       upstreamSessionId: "u1",
       armedTasks: 0,
       updatedAt: "2025-01-01T00:00:00Z",
+      workspace: {
+        path: "/ws",
+        sourceCwd: "/w",
+        label: "feature",
+        provider: "git",
+      },
     },
   ]);
 });

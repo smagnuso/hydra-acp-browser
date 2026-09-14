@@ -1076,6 +1076,15 @@ function shortenCwd(cwd: string): string {
   return cwd.replace(/^\/(home|Users)\/[^/]+/, "~");
 }
 
+// "Which project is this session working on" rather than "what is its
+// literal working directory". For an isolated session those differ: the
+// literal cwd is a workspace path under ~/.hydra-acp that says nothing
+// about the project, so anywhere the UI shows cwd to a human should show
+// the source tree instead. Mirrors cli's formatCwdCell (session-row.ts).
+function displayCwd(s: SessionInfo): string {
+  return s.workspace?.sourceCwd ?? s.cwd;
+}
+
 function detailRow(label: string, value: string): HTMLElement {
   return el(
     "div",
@@ -1583,7 +1592,7 @@ function groupSessions(sessions: SessionInfo[], mode: "project" | "recent"): Ses
   }
   const map = new Map<string, SessionInfo[]>();
   for (const s of ordered) {
-    const key = s.cwd || "(unknown)";
+    const key = displayCwd(s) || "(unknown)";
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(s);
   }
@@ -1767,7 +1776,7 @@ function renderSessionCard(s: SessionInfo, showCwd: boolean): HTMLElement {
     el(
       "div",
       { class: "row3" },
-      showCwd ? el("span", { class: "cwd" }, s.cwd ? shortenCwd(s.cwd) : "?") : null,
+      showCwd ? el("span", { class: "cwd" }, s.cwd ? shortenCwd(displayCwd(s)) : "?") : null,
       el("span", { class: "age" }, formatRelativeAge(s.updatedAt)),
     ),
     // Pinned to the card's own top-right corner rather than living in
@@ -3318,6 +3327,11 @@ function renderChat(c: ChatState): HTMLElement {
   const live = state.sessions.find((s) => s.sessionId === c.sessionId);
   const title = live?.title || c.title || fallbackTitle(c.sessionId);
   const cwd = live?.cwd || c.cwd;
+  // Purely the "directory" detail-row's display value. Every other use
+  // of `cwd`/`c.cwd` in this file is real path math (relativeToCwd,
+  // absoluteFilePath, …) against the session's literal process cwd,
+  // which for an isolated session genuinely is the workspace path.
+  const displayedCwd = live ? displayCwd(live) : cwd;
   const toggleDetails = (): void => {
     c.headerExpanded = !c.headerExpanded;
     render();
@@ -3505,7 +3519,7 @@ function renderChat(c: ChatState): HTMLElement {
         { class: "chat-details" },
         titleRow(c, title),
         detailRow("session", shortSessionId(c.sessionId)),
-        detailRow("directory", cwd || "?"),
+        detailRow("directory", displayedCwd || "?"),
         priorityRow(c.sessionId, live?.priority),
         workspaceRow(live?.workspace),
         ...c.configOptions.map(configOptionRow),

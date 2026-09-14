@@ -63,6 +63,7 @@ export type CachedSessionInfo = Pick<
   | "upstreamSessionId"
   | "armedTasks"
   | "updatedAt"
+  | "workspace"
 >;
 
 interface CacheRecord {
@@ -110,6 +111,7 @@ export function trimForCache(sessions: SessionInfo[]): CachedSessionInfo[] {
       upstreamSessionId: s.upstreamSessionId,
       armedTasks: s.armedTasks,
       updatedAt: s.updatedAt,
+      workspace: s.workspace,
     });
   }
   return out;
