@@ -3156,11 +3156,12 @@ function applyKeepLine(c: ChatState): void {
   if (!fo || !keep || !fo.preview) return;
   fo.keepLine = undefined;
   const scroller = document.querySelector<HTMLElement>(".files .preview");
-  const row = scroller?.querySelector<HTMLElement>(".ln");
-  if (!scroller || !row) return;
-  const h = row.getBoundingClientRect().height;
-  if (h <= 0) return;
-  scroller.scrollTop = (keep.line - fo.preview.fromLine) * h - keep.viewportOffset;
+  const metrics = scroller ? gutterMetrics(scroller) : null;
+  if (!scroller || !metrics) return;
+  scroller.scrollTop =
+    metrics.gutterTop +
+    (keep.line - fo.preview.fromLine) * metrics.rowHeight -
+    keep.viewportOffset;
 }
 
 // Called by renderer.ts's teardown path (banner/modal/file-overlay cases,
@@ -4970,12 +4971,33 @@ function captureAnchor(
   scroller: HTMLElement,
   fromLine: number,
 ): { line: number; viewportOffset: number } | null {
-  const row = scroller.querySelector<HTMLElement>(".ln");
-  if (!row) return null;
-  const h = row.getBoundingClientRect().height;
-  if (h <= 0) return null;
-  const index = Math.floor(scroller.scrollTop / h);
-  return { line: fromLine + index, viewportOffset: index * h - scroller.scrollTop };
+  const metrics = gutterMetrics(scroller);
+  if (!metrics) return null;
+  const { rowHeight, gutterTop } = metrics;
+  const index = Math.max(0, Math.floor((scroller.scrollTop - gutterTop) / rowHeight));
+  return {
+    line: fromLine + index,
+    // Distance from the top of the viewport to that row. Measured
+    // against the gutter rather than the scroll container so the
+    // "N lines above" marker — which vanishes when a window reaches
+    // line 1 — cannot silently shift the reader by its own height.
+    viewportOffset: gutterTop + index * rowHeight - scroller.scrollTop,
+  };
+}
+
+function gutterMetrics(
+  scroller: HTMLElement,
+): { rowHeight: number; gutterTop: number } | null {
+  const gutter = scroller.querySelector<HTMLElement>(".code-gutter");
+  const row = gutter?.querySelector<HTMLElement>(".ln");
+  if (!gutter || !row) return null;
+  const rowHeight = row.getBoundingClientRect().height;
+  if (rowHeight <= 0) return null;
+  const gutterTop =
+    gutter.getBoundingClientRect().top -
+    scroller.getBoundingClientRect().top +
+    scroller.scrollTop;
+  return { rowHeight, gutterTop };
 }
 
 let windowLoadInFlight = false;
@@ -5011,6 +5033,14 @@ async function extendWindow(direction: "up" | "down"): Promise<void> {
     const added = data.content.split("\n");
     let merged = direction === "up" ? [...added, ...lines] : [...lines, ...added];
     let newFrom = direction === "up" ? (data.fromLine ?? fromLine) : firstLine;
+    // Trimming the bottom puts lines back beyond the window, so it has
+    // to re-arm hasMore. Getting this wrong stranded the tail of the
+    // file: scroll up from the end, the bottom is trimmed, hasMore
+    // stays false from when we really were at EOF, and scrolling back
+    // down does nothing forever. The two directions are asymmetric
+    // because "more above" is derived from fromLine and so is always
+    // right, while "more below" is a carried flag a trim invalidates.
+    let trimmedBottom = false;
     if (merged.length > MAX_RENDERED_LINES) {
       // Trim the end the reader is moving away from.
       if (direction === "down") {
@@ -5019,13 +5049,17 @@ async function extendWindow(direction: "up" | "down"): Promise<void> {
         newFrom += drop;
       } else {
         merged = merged.slice(0, MAX_RENDERED_LINES);
+        trimmedBottom = true;
       }
     }
     fo.preview = {
       path: preview.path,
       content: merged.join("\n"),
       fromLine: newFrom,
-      hasMore: direction === "down" ? (data.hasMore ?? false) : preview.hasMore,
+      hasMore:
+        direction === "down"
+          ? (data.hasMore ?? false)
+          : preview.hasMore || trimmedBottom,
     };
     fo.err = null;
     // Only meaningful if the anchor survived the trim; otherwise the
