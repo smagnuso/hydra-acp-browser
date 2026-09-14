@@ -8,6 +8,7 @@ import { render, noteTypingActivity } from "./renderer.js";
 import {
   el,
   tapHandler,
+  delegatedTap,
   isFormControl,
   isDesktopPointer,
   isWideLayout,
@@ -276,6 +277,7 @@ export function renderApp(root: HTMLElement, s: AppState): void {
     root.appendChild(renderChat(s.current));
     if (s.current.fileOverlay) {
       root.appendChild(cachedFileOverlay(s.current));
+      applyKeepLine(s.current);
     }
   }
   if (s.modal) {
@@ -500,6 +502,7 @@ function renderSplitLayout(s: AppState): HTMLElement {
     detail.appendChild(renderChat(s.current));
     if (s.current.fileOverlay) {
       detail.appendChild(cachedFileOverlay(s.current));
+      applyKeepLine(s.current);
     }
   } else {
     detail.appendChild(
@@ -1052,7 +1055,7 @@ function isFederatedSession(sessionId: string): boolean {
 const WINDOW_LEAD_LINES = 200;
 // How far a paging pill moves. Smaller than the server's window so the
 // new slice overlaps the old one and you don't lose your place.
-const WINDOW_PAGE_LINES = 800;
+const WINDOW_PAGE_LINES = 400;
 
 function windowStartFor(line: number): number {
   return Math.max(1, line - WINDOW_LEAD_LINES);
@@ -3137,7 +3140,27 @@ function patchFileOverlayInPlace(parent: HTMLElement, c: ChatState): void {
   const next = cachedFileOverlay(c);
   if (existing !== next) {
     parent.replaceChild(next, existing);
+    applyKeepLine(c);
   }
+}
+
+// Restores the reader's position after a window extension replaced the
+// preview node. Synchronous, and called immediately after the node is
+// attached: a fresh scroller starts at 0, so doing this a frame later
+// (which is where it used to live) painted one frame at the top of the
+// window and snapped back — a visible jolt on every load, and the
+// reason scroll paging felt broken.
+function applyKeepLine(c: ChatState): void {
+  const fo = c.fileOverlay;
+  const keep = fo?.keepLine;
+  if (!fo || !keep || !fo.preview) return;
+  fo.keepLine = undefined;
+  const scroller = document.querySelector<HTMLElement>(".files .preview");
+  const row = scroller?.querySelector<HTMLElement>(".ln");
+  if (!scroller || !row) return;
+  const h = row.getBoundingClientRect().height;
+  if (h <= 0) return;
+  scroller.scrollTop = (keep.line - fo.preview.fromLine) * h - keep.viewportOffset;
 }
 
 // Called by renderer.ts's teardown path (banner/modal/file-overlay cases,
@@ -4934,7 +4957,7 @@ async function listFiles(p: string): Promise<void> {
 // Total lines allowed in the DOM at once. Extending past this trims the
 // far end, so a long scroll through a 300k-line file costs a bounded
 // number of gutter rows rather than all of them.
-const MAX_RENDERED_LINES = 4000;
+const MAX_RENDERED_LINES = 1500;
 // How close to an edge counts as "about to need more". Two screens, so
 // the fetch is usually finished before the reader arrives.
 const PREFETCH_SCREENS = 2;
@@ -5024,6 +5047,15 @@ async function extendWindow(direction: "up" | "down"): Promise<void> {
 // The preview node is rebuilt whenever its content changes, so a
 // per-element listener would need re-attaching on every extension.
 export function initFileWindowPaging(): void {
+  // Gutter taps copy path:line. Delegated rather than per-row for the
+  // construction cost noted in renderFileOverlay.
+  delegatedTap(".files .code-gutter .ln", (row) => {
+    const c = state.current;
+    const path = c?.fileOverlay?.preview?.path;
+    const line = Number(row.dataset.line);
+    if (!c || !path || !Number.isFinite(line)) return;
+    copyLineRef(c.cwd, path, line, row);
+  });
   document.addEventListener(
     "scroll",
     (e) => {
@@ -5320,17 +5352,22 @@ function renderFileOverlay(c: ChatState): Node {
         // match the file so a copied path:line, the tint and the scroll
         // target all mean the same thing as they did before windowing.
         const ln = fromLine + i;
-        const lnEl: HTMLElement = el(
-          "div",
-          {
-            class: inHighlight(fo, ln) ? "ln ln-target" : "ln",
-            "data-line": String(ln),
-            title: "Copy path:line",
-            ...tapHandler(() => copyLineRef(c.cwd, path, ln, lnEl)),
-          },
-          String(ln),
+        // No per-row tapHandler: that builds three closures per row, and
+        // a window can run to thousands of rows, which showed up as
+        // 65-110ms of blocked main thread per extension (measured in
+        // headless Chrome, so worse on a phone). One delegated listener
+        // covers the lot instead — see initFileWindowPaging.
+        gutter.appendChild(
+          el(
+            "div",
+            {
+              class: inHighlight(fo, ln) ? "ln ln-target" : "ln",
+              "data-line": String(ln),
+              title: "Copy path:line",
+            },
+            String(ln),
+          ),
         );
-        gutter.appendChild(lnEl);
       }
       const codeEl = el(
         "div",
@@ -5356,21 +5393,6 @@ function renderFileOverlay(c: ChatState): Node {
       // highlightLine): it stays until you open a different file, since
       // it marks the line you came here for and losing it after a few
       // seconds means having to find your way back by hand.
-      // Put the reader back where they were after a window extension.
-      // Runs before the scrollToLine branch below so an explicit jump
-      // still wins if both are somehow pending.
-      const keep = fo.keepLine;
-      if (keep !== undefined) {
-        fo.keepLine = undefined;
-        requestAnimationFrame(() => {
-          const scroller = document.querySelector<HTMLElement>(".files .preview");
-          const row = gutter.querySelector<HTMLElement>(".ln");
-          if (!scroller || !row) return;
-          const h = row.getBoundingClientRect().height;
-          if (h <= 0) return;
-          scroller.scrollTop = (keep.line - fromLine) * h - keep.viewportOffset;
-        });
-      }
       const target = fo.scrollToLine;
       if (target !== undefined) {
         fo.scrollToLine = undefined;

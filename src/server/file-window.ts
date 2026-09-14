@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 // Default lines per request. Generous enough that most reads are one
 // round trip, bounded enough that the client isn't asked to build a
 // gutter row per line of a 300k-line file.
-export const DEFAULT_WINDOW_LINES = 1200;
+export const DEFAULT_WINDOW_LINES = 500;
 export const MAX_WINDOW_LINES = 4000;
 // Context kept either side of an anchor match, so the reader lands in
 // the middle of the change rather than at the top of it.
