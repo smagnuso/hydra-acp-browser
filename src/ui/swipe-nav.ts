@@ -347,7 +347,7 @@ function commit(m: Mode): void {
     const target = state.lastSessionId;
     const session = target ? state.sessions.find((s) => s.sessionId === target) : undefined;
     if (target && session) {
-      openChat(target, session.status === "cold");
+      openChat(target);
     } else {
       // Session vanished mid-gesture (killed, filtered out) — nothing
       // to open. cleanup() by hand since no real render is coming.

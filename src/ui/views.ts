@@ -850,12 +850,12 @@ function focusComposer(): void {
 // unconditionally, which narrow mode never risked (you can't select a
 // session you're not currently viewing there) but wide mode can, since
 // the chat stays open the whole time you're navigating the rail.
-function openOrFocusChat(sessionId: string, cold: boolean): void {
+function openOrFocusChat(sessionId: string): void {
   if (isWideLayout() && state.current?.sessionId === sessionId) {
     focusComposer();
     return;
   }
-  openChat(sessionId, cold);
+  openChat(sessionId);
 }
 
 // Up/Down (or n/p) moves a keyboard-nav cursor over the session list
@@ -896,7 +896,7 @@ export function handleListKeydown(e: KeyboardEvent): void {
     const s = id ? state.sessions.find((s) => s.sessionId === id) : undefined;
     if (!s) return;
     e.preventDefault();
-    openOrFocusChat(s.sessionId, s.status === "cold");
+    openOrFocusChat(s.sessionId);
     return;
   }
   // "c" opens the new-session dialog. Plain key only; a modifier
@@ -928,7 +928,7 @@ export function handleListKeydown(e: KeyboardEvent): void {
     const s = state.sessions.find((s) => s.sessionId === id);
     if (!s) return;
     e.preventDefault();
-    openOrFocusChat(s.sessionId, s.status === "cold");
+    openOrFocusChat(s.sessionId);
     return;
   }
   e.preventDefault();
@@ -1674,7 +1674,7 @@ function renderSessionCard(s: SessionInfo, showCwd: boolean): HTMLElement {
       ...tapHandler((e) => {
         const target = e.target as HTMLElement;
         if (target.closest("button")) return;
-        openOrFocusChat(s.sessionId, s.status === "cold");
+        openOrFocusChat(s.sessionId);
       }),
     },
     el("div", { class: "row1" }, title),
@@ -2224,7 +2224,7 @@ async function createSession(): Promise<void> {
     if (state.modal !== m) return;
     closeModal();
     if (data && data.sessionId) {
-      openChat(data.sessionId, false);
+      openChat(data.sessionId);
     }
   } catch (err) {
     if (state.modal !== m) return;

@@ -521,10 +521,6 @@ export interface ChatState {
   // bridge.ts when bridge/ready arrives. Drives backoff and the
   // "still disconnected" banner threshold.
   reconnectAttempt?: number;
-  // Whether the load=true query param was used on the initial open.
-  // Reconnects should not re-send it: load=true is the cold-start
-  // hint for session/load and is harmless but wasted on a hot session.
-  loadOnConnect?: boolean;
   // Application-level heartbeat (see bridge.ts's startHeartbeat/sendPing).
   // readyState and navigator.onLine can both keep reporting "fine" for a
   // while after the connection is actually dead (observed on iOS Safari:

@@ -146,7 +146,6 @@ export function attachWsBridge(
       return;
     }
     const sessionId = url.searchParams.get("session");
-    const load = url.searchParams.get("load") === "true";
     // Set by a reconnecting client that already holds a transcript — lets
     // us ask the daemon for a delta replay instead of a full one (see
     // doHandshake below) so a quiet reconnect doesn't blow away the
@@ -179,7 +178,6 @@ export function attachWsBridge(
         ctx,
         sessionId,
         sessionToken,
-        load,
         afterMessageId,
         afterSeq,
         fullHistory,
@@ -196,12 +194,11 @@ function handleConnection(
   ctx: ServerContext,
   sessionId: string,
   sessionToken: string,
-  load: boolean,
   afterMessageId: string | undefined,
   afterSeq: number | undefined,
   fullHistory: boolean,
 ): void {
-  log.info(`bridge open session=${sessionId} load=${load}`);
+  log.info(`bridge open session=${sessionId}`);
 
   const upstream = new UpstreamConnection({
     daemonWsUrl: ctx.config.hydraWsUrl,
@@ -830,15 +827,23 @@ function handleConnection(
         initHydraMeta = hm as Record<string, unknown>;
       }
     }
-    if (load) {
-      try {
-        await upstream.request("session/load", { sessionId });
-      } catch (err) {
-        log.warn(
-          `session/load failed for ${sessionId}: ${(err as Error).message} — will still attempt attach`,
-        );
-      }
-    }
+    // No separate session/load call: session/attach itself resurrects a
+    // cold session from disk when it isn't in memory (acp-ws.ts's
+    // session/attach handler), under the SAME historyPolicy the browser
+    // actually asked for below. An earlier version of this called
+    // session/load first to force the resurrect — but session/load is a
+    // core ACP method with its own hardcoded full-history attach-and-
+    // replay, so that replay landed in handshakeBuffer and then the
+    // attach below replayed a second time on top of it. Prompts dedupe
+    // by messageId on the client, streamed chunks deliberately do not,
+    // so the second copy rendered as a tail of turns with no prompt
+    // above them — every "a prompt went missing after reopening a
+    // session" report was this. It only ever happened on a cold open,
+    // which is why the TUI (never called session/load) and a warm
+    // reopen (session already in memory) never showed it. Removing the
+    // call outright fixes the daemon-side cost too, not just the
+    // browser-side duplicate render: the daemon no longer streams a
+    // whole transcript it's about to discard.
     const wantsAfterMessage =
       afterMessageId !== undefined || afterSeq !== undefined;
     const attachResp = (await upstream.request("session/attach", {

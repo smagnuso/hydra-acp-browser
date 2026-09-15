@@ -64,9 +64,8 @@ export function isConnectingGrace(chat: ChatState): boolean {
 
 // Reflect the current session in the URL fragment so a reload (or
 // copy-pasted link) drops the user back into the same chat.
-export function buildSessionHash(sessionId: string, load: boolean): string {
-  const id = encodeURIComponent(sessionId);
-  return load ? `#/session/${id}?load=true` : `#/session/${id}`;
+export function buildSessionHash(sessionId: string): string {
+  return `#/session/${encodeURIComponent(sessionId)}`;
 }
 
 // The installed PWA registers as the OS handler for web+hydra:// links
@@ -98,7 +97,7 @@ export function applyProtocolLaunch(): void {
   if (!sessionId) {
     return;
   }
-  window.location.hash = buildSessionHash(sessionId, true);
+  window.location.hash = buildSessionHash(sessionId);
 }
 
 // pushState (not replaceState) so the browser's back/forward buttons
@@ -167,15 +166,16 @@ function setLocationHash(hash: string): void {
 export function applyHashRoute(): void {
   if (hashWriting) return;
   const hash = window.location.hash;
+  // The `(?:\?...)?` tail is tolerated but ignored — old bookmarks and
+  // protocol-launch links from before session/attach could resurrect a
+  // cold session on its own may still carry a `?load=true` suffix.
   const m = hash.match(/^#\/session\/([^?]+)(?:\?(.*))?$/);
   if (m) {
     const sessionId = decodeURIComponent(m[1]!);
-    const params = new URLSearchParams(m[2] ?? "");
-    const load = params.get("load") === "true";
     if (state.view === "chat" && state.current?.sessionId === sessionId) {
       return;
     }
-    openChat(sessionId, load);
+    openChat(sessionId);
     return;
   }
   if (state.view !== "list") {
@@ -183,8 +183,8 @@ export function applyHashRoute(): void {
   }
 }
 
-export function openChat(sessionId: string, load: boolean): void {
-  setLocationHash(buildSessionHash(sessionId, load));
+export function openChat(sessionId: string): void {
+  setLocationHash(buildSessionHash(sessionId));
   closeChatSocket();
   const session = state.sessions.find(
     (s: SessionInfo) => s.sessionId === sessionId,
@@ -236,7 +236,6 @@ export function openChat(sessionId: string, load: boolean): void {
     readyListeners: [],
     currentPlanEntry: null,
     daemonSupportsAmend: false,
-    loadOnConnect: load,
     reconnectAttempt: 0,
     headerExpanded: false,
     titleDraft: null,
@@ -376,7 +375,6 @@ function connectChatSocket(chat: ChatState): void {
   const url = new URL("/ws", location.href);
   url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("session", chat.sessionId);
-  if (chat.loadOnConnect) url.searchParams.set("load", "true");
   // Ask the bridge for a delta replay instead of a full one — see
   // acp.ts's lastSeenMessageId tracking and ws-bridge.ts's doHandshake.
   // Only set once we've actually seen a recordable update, which also
@@ -620,7 +618,7 @@ export function maybeRestoreLastSession(): void {
     if (found) {
       if (found.status !== "cold") {
         replaceNextHash = true;
-        openChat(id, false);
+        openChat(id);
       }
       return;
     }
@@ -675,7 +673,7 @@ export function getLastClosedScrollTop(): number {
 export function reopenClosedChat(chat: ChatState): boolean {
   if (lastClosedChat !== chat) return false;
   lastClosedChat = null;
-  setLocationHash(buildSessionHash(chat.sessionId, false));
+  setLocationHash(buildSessionHash(chat.sessionId));
   resetConnectionStateForReconnect(chat);
   chat.reconnectAttempt = 0;
   state.current = chat;
