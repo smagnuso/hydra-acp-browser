@@ -35,3 +35,22 @@ test("compareSessions ties within a tier break on updatedAt, minute precision", 
   ];
   assert.deepEqual(sortIds(sessions), ["newer", "older"]);
 });
+
+test("compareSessions breaks ties between two busy sessions on turnStartedAt, not updatedAt", () => {
+  const sessions: SessionInfo[] = [
+    // Turn started earlier, but the most recent streamed delta (updatedAt)
+    // landed after the other session's — without turnStartedAt this would
+    // flip to the top on every poll despite its turn being the older one.
+    { sessionId: "older-turn", cwd: "/w", status: "warm", busy: true, turnStartedAt: 1000, updatedAt: "2025-01-02T00:00:00Z" },
+    { sessionId: "newer-turn", cwd: "/w", status: "warm", busy: true, turnStartedAt: 2000, updatedAt: "2025-01-01T00:00:00Z" },
+  ];
+  assert.deepEqual(sortIds(sessions), ["newer-turn", "older-turn"]);
+});
+
+test("compareSessions falls back to updatedAt when either busy session lacks turnStartedAt", () => {
+  const sessions: SessionInfo[] = [
+    { sessionId: "no-turn-start", cwd: "/w", status: "warm", busy: true, updatedAt: "2025-01-01T00:00:00Z" },
+    { sessionId: "has-turn-start", cwd: "/w", status: "warm", busy: true, turnStartedAt: 1000, updatedAt: "2025-01-02T00:00:00Z" },
+  ];
+  assert.deepEqual(sortIds(sessions), ["has-turn-start", "no-turn-start"]);
+});

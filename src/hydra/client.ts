@@ -34,6 +34,11 @@ export interface HydraSessionInfo {
   updatedAt: string;
   status: "warm" | "cold";
   busy: boolean;
+  // Epoch ms when the in-flight turn began. Present only while `busy` is
+  // true. Lets the session list order concurrently-busy sessions by when
+  // each turn started instead of `updatedAt`, which advances on every
+  // streamed delta and reshuffles the list mid-turn.
+  turnStartedAt?: number;
   awaitingInput: boolean;
   // User-set sort weight, toggled with `*` in the TUI picker. Absent/0
   // = normal, any positive integer = high priority.

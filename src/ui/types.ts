@@ -62,6 +62,9 @@ export interface SessionInfo {
   // Mid-turn flag (a prompt is in flight). See PROTOCOL.md's
   // SessionListEntry.
   busy?: boolean;
+  // Epoch ms when the in-flight turn began. Present only while `busy` is
+  // true; see session-sort.ts's compareSessions.
+  turnStartedAt?: number;
   // Any attention flag raised — a permission request or transformer flag
   // waiting on the user. Can be true on cold sessions too.
   awaitingInput?: boolean;

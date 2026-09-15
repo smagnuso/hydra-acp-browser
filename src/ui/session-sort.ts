@@ -15,6 +15,15 @@ import type { SessionInfo } from "./types.js";
 // outranking actual activity. Tiebreak within a tier is the priority
 // integer itself, then updatedAt at minute precision so per-chunk mtime
 // churn doesn't reshuffle the list between polls.
+//
+// Within the busy tiers specifically, prefer turnStartedAt over updatedAt
+// when both sides have it: updatedAt is the daemon's history mtime, which
+// advances on every streamed delta of a turn already in flight, so two
+// concurrently-busy sessions would otherwise swap places on every poll.
+// turnStartedAt is stamped once when the turn begins and holds steady for
+// its whole duration. Falls back to updatedAt when either side lacks it
+// (older daemon, or a busy tier pairing with an idle one — tier() already
+// keeps those apart, but the field is optional on the wire).
 export function compareSessions(a: SessionInfo, b: SessionInfo): number {
   const priorityOf = (s: SessionInfo): number => (s.priority && s.priority > 0 ? s.priority : 0);
   const tier = (s: SessionInfo): number => {
@@ -35,6 +44,9 @@ export function compareSessions(a: SessionInfo, b: SessionInfo): number {
   const dp = priorityOf(b) - priorityOf(a);
   if (dp !== 0) {
     return dp;
+  }
+  if (a.busy && b.busy && typeof a.turnStartedAt === "number" && typeof b.turnStartedAt === "number") {
+    return b.turnStartedAt - a.turnStartedAt;
   }
   return String(b.updatedAt || "").slice(0, 16).localeCompare(String(a.updatedAt || "").slice(0, 16));
 }
