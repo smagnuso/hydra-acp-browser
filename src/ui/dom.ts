@@ -86,6 +86,12 @@ export function el(tag: string, attrs?: Attrs, ...children: Child[]): HTMLElemen
 // landed on a form control, so it gets fully native behavior.
 export const TAP_MOVE_THRESHOLD = 10;
 
+// How long after a pointerdown a replacement click is still accepted as
+// that press's own (see tapHandler's onclick). Comfortably longer than
+// the gap between a real release and its compatibility click, short
+// enough that an abandoned press can't authorize a later stray one.
+const LOST_POINTERUP_GRACE_MS = 1500;
+
 export function hasActiveSelection(): boolean {
   const sel = window.getSelection();
   return !!sel && !sel.isCollapsed && sel.toString().length > 0;
@@ -129,10 +135,21 @@ export function initWideLayoutWatcher(onChange: () => void): void {
   window.matchMedia(WIDE_LAYOUT_QUERY).addEventListener("change", onChange);
 }
 
+// Movement is measured in SCREEN coordinates, not client ones. clientX/Y
+// are relative to the viewport, so anything that moves the viewport
+// between press and release (on iOS: the visual-viewport pan and resize
+// that come with the on-screen keyboard) changes them for a finger that
+// never moved, by up to the keyboard's height. That read as a drag and
+// silently threw the tap away, which is why Send/Enqueue failed with the
+// keyboard up and worked as soon as it was dismissed. screenX/Y are
+// relative to the physical screen: a stationary finger holds them steady
+// no matter what the viewport does, while a real drag still moves them,
+// so the pull-to-refresh/scroll suppression above is unaffected.
 export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
   let firedViaPointer = false;
   let startX = 0;
   let startY = 0;
+  let downAt = 0;
   // Whether this closure actually saw the matching pointerdown. Without
   // it the move check below compared the release point against (0, 0),
   // the initial values, which for any real button is hundreds of px and
@@ -152,9 +169,10 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
       if (isFormControl(e.target)) return;
       const pe = e as PointerEvent;
       if (pe.pointerType === "mouse" && pe.button !== 0) return;
-      startX = pe.clientX;
-      startY = pe.clientY;
+      startX = pe.screenX;
+      startY = pe.screenY;
       haveStart = true;
+      downAt = performance.now();
       e.preventDefault();
       e.stopPropagation();
     },
@@ -164,7 +182,7 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
       if (pe.pointerType === "mouse" && pe.button !== 0) return;
       e.stopPropagation();
       const moved =
-        haveStart && Math.hypot(pe.clientX - startX, pe.clientY - startY) > TAP_MOVE_THRESHOLD;
+        haveStart && Math.hypot(pe.screenX - startX, pe.screenY - startY) > TAP_MOVE_THRESHOLD;
       haveStart = false;
       if (moved) return;
       if (hasActiveSelection()) return;
@@ -178,16 +196,35 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
         firedViaPointer = false;
         return;
       }
-      // No matching pointerdown/pointerup ran on *this* element instance.
-      // That's the normal case for keyboard Enter/Space activation
-      // (MouseEvent.detail is 0 there) but it's also what a stray
-      // compatibility click looks like on iOS Chrome: preventDefault on
-      // pointerdown doesn't reliably suppress it, so it can arrive a
-      // frame late and land on whatever element render()'s teardown put
-      // in the old target's place (e.g. a just-opened modal backdrop),
-      // immediately closing it. Pointer-generated clicks have detail >= 1,
-      // so only detail === 0 is trusted here.
-      if ((e as MouseEvent).detail !== 0) return;
+      // haveStart still set means THIS instance saw the pointerdown but
+      // never got a pointerup to clear it: the pointer sequence was lost
+      // (a pointercancel, which is exactly what iOS delivers when it
+      // reclassifies the touch as a scroll because the viewport moved
+      // under the finger). The press was real and landed here, so honor
+      // the click the browser sent in its place. Bounded by time, and
+      // still subject to the same movement check, so a stale press can't
+      // authorize an unrelated later click.
+      const me = e as MouseEvent;
+      if (haveStart) {
+        const stale = performance.now() - downAt > LOST_POINTERUP_GRACE_MS;
+        const moved =
+          Math.hypot(me.screenX - startX, me.screenY - startY) > TAP_MOVE_THRESHOLD;
+        haveStart = false;
+        if (stale || moved) return;
+        if (hasActiveSelection()) return;
+        fn(e);
+        return;
+      }
+      // No pointerdown ran on *this* element instance at all. That's the
+      // normal case for keyboard Enter/Space activation (MouseEvent.detail
+      // is 0 there) but it's also what a stray compatibility click looks
+      // like on iOS Chrome: preventDefault on pointerdown doesn't reliably
+      // suppress it, so it can arrive a frame late and land on whatever
+      // element render()'s teardown put in the old target's place (e.g. a
+      // just-opened modal backdrop), immediately closing it.
+      // Pointer-generated clicks have detail >= 1, so only detail === 0 is
+      // trusted here.
+      if (me.detail !== 0) return;
       if (hasActiveSelection()) return;
       fn(e);
     },
@@ -232,8 +269,8 @@ export function delegatedTap(
       const pe = e as PointerEvent;
       if (pe.pointerType === "mouse" && pe.button !== 0) return;
       firedViaPointer = false;
-      startX = pe.clientX;
-      startY = pe.clientY;
+      startX = pe.screenX;
+      startY = pe.screenY;
     },
     true,
   );
@@ -244,7 +281,7 @@ export function delegatedTap(
       if (!target) return;
       const pe = e as PointerEvent;
       if (pe.pointerType === "mouse" && pe.button !== 0) return;
-      if (Math.hypot(pe.clientX - startX, pe.clientY - startY) > TAP_MOVE_THRESHOLD) return;
+      if (Math.hypot(pe.screenX - startX, pe.screenY - startY) > TAP_MOVE_THRESHOLD) return;
       if (hasActiveSelection()) return;
       e.preventDefault();
       e.stopPropagation();

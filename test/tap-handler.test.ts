@@ -24,11 +24,18 @@ interface Handlers {
 }
 
 const button = new FakeHTMLElement("BUTTON");
-const evt = (x: number, y: number): Record<string, unknown> => ({
+
+// x/y are where the finger physically is (screen coords). viewportShift
+// models the viewport moving under it: it changes the client coords the
+// browser reports without the finger having moved at all, which is what
+// the on-screen keyboard's pan/resize does on iOS.
+const evt = (x: number, y: number, viewportShift = 0): Record<string, unknown> => ({
   target: button,
   pointerType: "touch",
+  screenX: x,
+  screenY: y,
   clientX: x,
-  clientY: y,
+  clientY: y - viewportShift,
   preventDefault: () => {},
   stopPropagation: () => {},
 });
@@ -82,6 +89,58 @@ test("the press is consumed, so a second stray release is still gated", () => {
   h.onpointerdown(evt(340, 700));
   h.onpointerup(evt(340, 760));
   assert.equal(fired, 0, "the real drag is rejected");
+});
+
+// The regression this file is named for, second form: Send/Enqueue did
+// nothing while the on-screen keyboard was up, and worked the moment it
+// was dismissed. The move check measured clientX/Y, which the visual
+// viewport's keyboard pan shifts by up to the keyboard's height, so a
+// finger that never moved read as a drag of hundreds of px.
+test("a viewport shift under a stationary finger is not a drag", () => {
+  for (const shift of [40, 300, -300]) {
+    let fired = 0;
+    const h = tapHandler(() => fired++) as unknown as Handlers;
+    h.onpointerdown(evt(340, 700));
+    h.onpointerup(evt(340, 700, shift));
+    assert.equal(fired, 1, `dropped on a ${shift}px viewport shift`);
+  }
+});
+
+test("a real drag is still rejected even if the viewport shifts back", () => {
+  let fired = 0;
+  const h = tapHandler(() => fired++) as unknown as Handlers;
+  h.onpointerdown(evt(340, 700));
+  // Finger moved 60px; a viewport shift happens to cancel it out in
+  // client coords, which is exactly what must NOT be trusted.
+  h.onpointerup(evt(340, 760, 60));
+  assert.equal(fired, 0);
+});
+
+// iOS reclassifies a touch as a scroll when the viewport moves under the
+// finger, delivering pointercancel instead of pointerup. fn() never ran,
+// and the click the browser sent in its place was refused for having
+// detail >= 1, so the press vanished.
+test("a click rescues a press whose pointerup was lost", () => {
+  let fired = 0;
+  const h = tapHandler(() => fired++) as unknown as Handlers;
+  h.onpointerdown(evt(340, 700));
+  h.onclick({ ...evt(340, 700), detail: 1 });
+  assert.equal(fired, 1, "the press landed here, so its click must be honored");
+});
+
+test("a stray click on an instance that saw no press is still refused", () => {
+  let fired = 0;
+  const h = tapHandler(() => fired++) as unknown as Handlers;
+  h.onclick({ ...evt(340, 700), detail: 1 });
+  assert.equal(fired, 0, "a compatibility click landing on a freshly rendered node must not fire");
+});
+
+test("a lost pointerup does not let a dragged-away release fire via click", () => {
+  let fired = 0;
+  const h = tapHandler(() => fired++) as unknown as Handlers;
+  h.onpointerdown(evt(340, 700));
+  h.onclick({ ...evt(340, 760), detail: 1 });
+  assert.equal(fired, 0);
 });
 
 test("keyboard activation (detail 0) still fires, pointer clicks do not double-fire", () => {
