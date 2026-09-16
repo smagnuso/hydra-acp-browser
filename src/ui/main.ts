@@ -12,6 +12,7 @@ import { render, renderNow } from "./renderer.js";
 import { initPullToRefresh } from "./pull-refresh.js";
 import { initSwipeBack } from "./swipe-nav.js";
 import { initViewportHeight } from "./viewport.js";
+import { initTapWatchdog } from "./tap-debug.js";
 import { delegatedTap, initWideLayoutWatcher, isWideLayout } from "./dom.js";
 import { ensureServiceWorker, subscribeForPush } from "./notifications.js";
 import { reportPushEndpoint, reportVisibility } from "./bridge.js";
@@ -38,6 +39,7 @@ initPerfObserver();
 applyFontScale();
 
 initViewportHeight();
+initTapWatchdog();
 
 // Crossing the split-layout breakpoint (dom.ts's isWideLayout) needs a
 // re-render even with no state change — it changes how renderApp lays

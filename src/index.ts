@@ -12,6 +12,7 @@ import { registerFileRoutes } from "./server/routes-files.js";
 import { registerRootRoutes } from "./server/routes-root.js";
 import { registerConfigRoutes } from "./server/routes-config.js";
 import { registerPushRoutes } from "./server/routes-push.js";
+import { registerClientLogRoutes } from "./server/routes-client-log.js";
 import { startTurnNotifyCallbackServer } from "./server/turn-notify-callback.js";
 import { attachWsBridge } from "./server/ws-bridge.js";
 import { UpstreamConnection, runInitialize } from "./hydra/ws.js";
@@ -77,6 +78,7 @@ async function main(argv: string[]): Promise<void> {
   registerFileRoutes(app, ctx);
   registerConfigRoutes(app, ctx);
   registerPushRoutes(app, ctx);
+  registerClientLogRoutes(app, ctx);
 
   await app.listen({ host: config.browserHost, port: config.browserPort });
 

@@ -6,13 +6,40 @@ import { test } from "node:test";
 class FakeHTMLElement {
   tagName: string;
   isContentEditable = false;
+  parentElement: FakeHTMLElement | null = null;
+  children: FakeHTMLElement[] = [];
   constructor(tagName: string) {
     this.tagName = tagName;
   }
+  contains(other: unknown): boolean {
+    if (other === this) return true;
+    return this.children.some((c) => c.contains(other));
+  }
+  closest(selector: string): FakeHTMLElement | null {
+    const wanted = selector.split(",").map((s) => s.trim().toUpperCase());
+    let node: FakeHTMLElement | null = this;
+    while (node) {
+      if (wanted.includes(node.tagName)) return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
 }
+// dom.ts's selection check narrows with `instanceof Element` before
+// `instanceof HTMLElement`, so the fake has to satisfy both.
 (globalThis as Record<string, unknown>).HTMLElement = FakeHTMLElement;
+(globalThis as Record<string, unknown>).Element = FakeHTMLElement;
+
+let selection: { isCollapsed: boolean; anchorNode: unknown; text: string } | null = null;
 (globalThis as Record<string, unknown>).window = {
-  getSelection: () => null,
+  getSelection: () =>
+    selection === null
+      ? null
+      : {
+          isCollapsed: selection.isCollapsed,
+          anchorNode: selection.anchorNode,
+          toString: () => selection!.text,
+        },
 };
 
 const { tapHandler, TAP_MOVE_THRESHOLD } = await import("../src/ui/dom.js");
@@ -141,6 +168,60 @@ test("a lost pointerup does not let a dragged-away release fire via click", () =
   h.onpointerdown(evt(340, 700));
   h.onclick({ ...evt(340, 760), detail: 1 });
   assert.equal(fired, 0);
+});
+
+// The composer case. Double-tapping a word in the textarea to fix a typo
+// leaves a live selection, and WebKit reports selections inside a
+// textarea through window.getSelection() where Blink does not. The old
+// blanket check let that veto every tapHandler'd control on the page, so
+// Send/Enqueue stayed dead for as long as the selection survived, which
+// preventDefault on pointerdown guaranteed it would.
+test("a selection inside the composer textarea does not veto a Send tap", () => {
+  const textarea = new FakeHTMLElement("TEXTAREA");
+  selection = { isCollapsed: false, anchorNode: textarea, text: "typo" };
+  try {
+    let fired = 0;
+    const h = tapHandler(() => fired++) as unknown as Handlers;
+    h.onpointerdown(evt(340, 700));
+    h.onpointerup(evt(340, 700));
+    assert.equal(fired, 1, "a selection in a text field must not block a button");
+  } finally {
+    selection = null;
+  }
+});
+
+test("a selection elsewhere on the page does not veto an unrelated tap", () => {
+  const otherCard = new FakeHTMLElement("DIV");
+  selection = { isCollapsed: false, anchorNode: otherCard, text: "some cwd" };
+  try {
+    let fired = 0;
+    const h = tapHandler(() => fired++) as unknown as Handlers;
+    h.onpointerdown(evt(340, 700));
+    h.onpointerup(evt(340, 700));
+    assert.equal(fired, 1, "an unrelated selection must not block this control");
+  } finally {
+    selection = null;
+  }
+});
+
+// The behaviour the guard actually exists for: long-pressing a session
+// card to select its cwd must not also open the session.
+test("a selection inside the tapped element still vetoes it", () => {
+  const card = new FakeHTMLElement("DIV");
+  const text = new FakeHTMLElement("SPAN");
+  text.parentElement = card;
+  card.children.push(text);
+  selection = { isCollapsed: false, anchorNode: text, text: "~/dev/hydra-acp" };
+  try {
+    let fired = 0;
+    const h = tapHandler(() => fired++) as unknown as Handlers;
+    const press = { ...evt(340, 700), target: card };
+    h.onpointerdown(press);
+    h.onpointerup(press);
+    assert.equal(fired, 0, "long-press-to-select must not activate the element");
+  } finally {
+    selection = null;
+  }
 });
 
 test("keyboard activation (detail 0) still fires, pointer clicks do not double-fire", () => {

@@ -7,6 +7,8 @@
 // `el("button", { disabled: someFlag && true })` without polluting the
 // element tree.
 
+import { noteTapHandlerDown, tapDebugEnabled, tapLog } from "./tap-debug.js";
+
 type Attrs = Record<string, unknown> | null | undefined;
 type Child = Node | string | number | false | null | undefined | Child[];
 
@@ -92,9 +94,56 @@ export const TAP_MOVE_THRESHOLD = 10;
 // enough that an abandoned press can't authorize a later stray one.
 const LOST_POINTERUP_GRACE_MS = 1500;
 
+// Short human label for a tap target, for the ?tapdebug=1 overlay only.
+function label(target: EventTarget | null): string {
+  if (!(target instanceof HTMLElement)) return "?";
+  const text = (target.textContent ?? "").trim().slice(0, 12);
+  return `${target.tagName.toLowerCase()}:${text || target.className.slice(0, 12) || "-"}`;
+}
+
 export function hasActiveSelection(): boolean {
   const sel = window.getSelection();
   return !!sel && !sel.isCollapsed && sel.toString().length > 0;
+}
+
+// Whether a live selection means this particular tap was really a
+// select gesture rather than a press. The plain hasActiveSelection()
+// above is too blunt to gate a tap on: ANY selection anywhere in the
+// document made it veto EVERY tapHandler'd control at once.
+//
+// That is not hypothetical on iOS. Double-tapping a word in the composer
+// to fix a typo (an ordinary thing to do while writing a prompt) leaves a
+// live selection, and WebKit, unlike Blink, reports a selection inside a
+// textarea through window.getSelection(). preventDefault on pointerdown
+// then stops a tap from clearing it, so the selection outlives every
+// following tap and Send/Enqueue stay dead until something collapses it.
+// Dismissing the keyboard does, which is exactly the "toggle the keyboard
+// and it works again" cure.
+//
+// The guard's real purpose is narrow: a long-press that resolves into
+// selecting an element's own text (a session card's cwd) should not also
+// activate that element. So it only applies when the selection and the
+// tapped element are actually related, and never when the selection lives
+// in a text field, whose contents have nothing to say about whether a
+// button press was meant.
+export function selectionSuppressesTap(target: EventTarget | null): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.toString().length === 0) {
+    return false;
+  }
+  const anchor = sel.anchorNode;
+  const node = anchor instanceof Element ? anchor : (anchor?.parentElement ?? null);
+  if (!node) {
+    return false;
+  }
+  if (isFormControl(node) || node.closest("input, textarea, select") !== null) {
+    return false;
+  }
+  const el = target instanceof Element ? target : null;
+  if (!el) {
+    return false;
+  }
+  return el.contains(node) || node.contains(el);
 }
 
 export function isFormControl(target: EventTarget | null): boolean {
@@ -173,6 +222,13 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
       startY = pe.screenY;
       haveStart = true;
       downAt = performance.now();
+      noteTapHandlerDown();
+      if (tapDebugEnabled()) {
+        tapLog(
+          `down ${label(e.target)} scr=${Math.round(pe.screenX)},${Math.round(pe.screenY)} ` +
+            `cli=${Math.round(pe.clientX)},${Math.round(pe.clientY)}`,
+        );
+      }
       e.preventDefault();
       e.stopPropagation();
     },
@@ -181,17 +237,37 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
       const pe = e as PointerEvent;
       if (pe.pointerType === "mouse" && pe.button !== 0) return;
       e.stopPropagation();
-      const moved =
-        haveStart && Math.hypot(pe.screenX - startX, pe.screenY - startY) > TAP_MOVE_THRESHOLD;
+      const dist = haveStart
+        ? Math.hypot(pe.screenX - startX, pe.screenY - startY)
+        : 0;
+      const moved = haveStart && dist > TAP_MOVE_THRESHOLD;
+      const sawStart = haveStart;
       haveStart = false;
+      if (tapDebugEnabled()) {
+        tapLog(
+          `up   ${label(e.target)} start=${sawStart ? "y" : "n"} dist=${dist.toFixed(1)} ` +
+            `moved=${moved} sel=${selectionSuppressesTap(e.target)}` +
+            (moved || selectionSuppressesTap(e.target) ? " <<< DROPPED" : " -> fire"),
+        );
+      }
       if (moved) return;
-      if (hasActiveSelection()) return;
+      if (selectionSuppressesTap(e.target)) return;
       firedViaPointer = true;
       fn(e);
+    },
+    onpointercancel: (e: Event) => {
+      if (!tapDebugEnabled()) return;
+      tapLog(`CANCEL ${label(e.target)} start=${haveStart ? "y" : "n"} <<< pointerup lost`);
     },
     onclick: (e: Event) => {
       if (isFormControl(e.target)) return;
       e.stopPropagation();
+      if (tapDebugEnabled()) {
+        tapLog(
+          `click ${label(e.target)} detail=${(e as MouseEvent).detail} ` +
+            `viaPointer=${firedViaPointer} start=${haveStart ? "y" : "n"}`,
+        );
+      }
       if (firedViaPointer) {
         firedViaPointer = false;
         return;
@@ -211,7 +287,7 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
           Math.hypot(me.screenX - startX, me.screenY - startY) > TAP_MOVE_THRESHOLD;
         haveStart = false;
         if (stale || moved) return;
-        if (hasActiveSelection()) return;
+        if (selectionSuppressesTap(e.target)) return;
         fn(e);
         return;
       }
@@ -225,7 +301,7 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
       // Pointer-generated clicks have detail >= 1, so only detail === 0 is
       // trusted here.
       if (me.detail !== 0) return;
-      if (hasActiveSelection()) return;
+      if (selectionSuppressesTap(e.target)) return;
       fn(e);
     },
   };
@@ -282,7 +358,7 @@ export function delegatedTap(
       const pe = e as PointerEvent;
       if (pe.pointerType === "mouse" && pe.button !== 0) return;
       if (Math.hypot(pe.screenX - startX, pe.screenY - startY) > TAP_MOVE_THRESHOLD) return;
-      if (hasActiveSelection()) return;
+      if (selectionSuppressesTap(target)) return;
       e.preventDefault();
       e.stopPropagation();
       firedViaPointer = true;
@@ -306,7 +382,7 @@ export function delegatedTap(
       // Keyboard activation only, same detail === 0 reasoning as
       // tapHandler's onclick.
       if ((e as MouseEvent).detail !== 0) return;
-      if (hasActiveSelection()) return;
+      if (selectionSuppressesTap(target)) return;
       fn(target, e);
     },
     true,
