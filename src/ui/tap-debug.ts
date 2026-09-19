@@ -128,6 +128,7 @@ export function initTapWatchdog(): void {
       if (!inside) return;
 
       const startedAt = performance.now();
+      const touchTarget = e.target instanceof Element ? e.target : null;
       // What the browser believes is at the point we just touched. If
       // this is not the button (or a child of it), painting and
       // hit-testing have diverged and that is the whole bug.
@@ -139,9 +140,18 @@ export function initTapWatchdog(): void {
         const gotDown = lastTapHandlerDownAt >= startedAt;
         if (gotDown && hitIsButton) return;
         const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
+        const tr = ta?.getBoundingClientRect();
         report(
           "SEND TAP LOST " +
             `gotPointerDown=${gotDown} hitIsButton=${hitIsButton} hit=${describe(at)} ` +
+            // The decisive one: who the browser actually dispatched to.
+            // elementFromPoint and getBoundingClientRect agree with each
+            // other and still do not match this, which is the whole
+            // puzzle, so name the real target.
+            `target=${describe(touchTarget)} ` +
+            `taRect=${tr ? `${Math.round(tr.left)},${Math.round(tr.top)},${Math.round(tr.right)},${Math.round(tr.bottom)}` : "none"} ` +
+            `docClientH=${document.documentElement.clientHeight} ` +
+            `vvPageTop=${vv ? Math.round(vv.pageTop) : -1} scrollY=${Math.round(window.scrollY)} ` +
             `touch=${Math.round(x)},${Math.round(y)} ` +
             `btnRect=${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)} ` +
             `vv=${vv ? `${Math.round(vv.height)}h,${Math.round(vv.offsetTop)}top,${vv.scale}x` : "none"} ` +
