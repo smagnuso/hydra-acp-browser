@@ -4173,12 +4173,13 @@ function editedTitleEl(
           ...(item?.line !== undefined ? { "data-line": String(item.line) } : {}),
           ...(item?.line === undefined ? { "data-locate-tool": item!.toolCallId } : {}),
         },
-        `Edited ${name}`,
+        name,
       )
-    : el("span", { class: "edit-name" }, `Edited ${name}`);
+    : el("span", { class: "edit-name" }, name);
   return el(
     "span",
     { class: "title" },
+    el("span", { class: "edit-verb" }, "Edited"),
     nameEl,
     dir.length > 0 ? el("span", { class: "edit-dir" }, dir) : null,
   );
