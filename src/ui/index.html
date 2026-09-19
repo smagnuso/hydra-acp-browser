@@ -666,6 +666,9 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
    WebKit can latch a touch onto. */
 @media (hover: none) and (pointer: coarse) {
   .files .preview { overflow-x: hidden; }
+  /* Must not size to the content, or .code-view never overflows and the
+     hidden-overflow preview just clips it. */
+  .code-window { min-width: 0; }
   .code-view { min-width: 0; width: 100%; overflow-x: auto; overscroll-behavior-x: none; }
   /* The thing that overflows now, so .code-view has something to pan. */
   .code-view pre { min-width: max-content; }
