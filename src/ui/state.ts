@@ -21,6 +21,7 @@ const PERSISTED_KEYS = [
   // Which session to come back to on a cold load — see
   // maybeRestoreLastSession.
   "lastSessionId",
+  "resumeChatOnLoad",
 ] as const;
 
 function loadPersistedFilters(): Partial<AppState> {
@@ -71,6 +72,7 @@ export const state: AppState = {
   modal: null,
   current: null,
   lastSessionId: null,
+  resumeChatOnLoad: false,
   ...loadPersistedFilters(),
 };
 

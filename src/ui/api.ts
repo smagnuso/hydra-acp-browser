@@ -77,6 +77,13 @@ let sessionCursor: number | undefined;
 // network request still runs uncached-cursor-aware on top of it exactly
 // as if this seed hadn't happened; the daemon's response is what's
 // authoritative, this only affects what's on screen before it arrives.
+// The seeded cache stores warm sessions as "cold", so state.sessions'
+// status can't be trusted until the first live poll has replaced it.
+let liveSessionListLanded = false;
+export function hasLiveSessionList(): boolean {
+  return liveSessionListLanded;
+}
+
 export async function seedSessionCache(): Promise<void> {
   const cached = await loadPersistedSessionCache();
   if (cached) {
@@ -285,6 +292,7 @@ async function pollAllSessions(): Promise<void> {
     const clearedBanner = state.banner !== null && !state.banner.sticky;
     const sessionsChanged = !sameValue(state.sessions, newSessions);
     state.sessions = newSessions;
+    liveSessionListLanded = true;
     if (clearedBanner) {
       state.banner = null;
     }

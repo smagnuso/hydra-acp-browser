@@ -755,7 +755,11 @@ export interface AppState {
   current: ChatState | null;
   // sessionId of the chat most recently backed out of via closeChat().
   // Lets the list view's swipe-back gesture (swipe-nav.ts) jump straight
-  // back in without the user hunting for the card again. Not persisted —
-  // resets on reload same as any other in-memory nav state.
+  // back in without the user hunting for the card again. Persisted, so a
+  // cold load can highlight it (see maybeRestoreLastSession).
   lastSessionId: string | null;
+  // True while a chat is open, false once closeChat() backs out to the
+  // list. Persisted alongside lastSessionId so a cold load can tell
+  // "left the page inside that session" from "left it on the list".
+  resumeChatOnLoad: boolean;
 }

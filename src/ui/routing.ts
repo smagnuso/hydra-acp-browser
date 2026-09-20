@@ -8,6 +8,7 @@ import { cancelUnboundQueued } from "./queue.js";
 import { render, renderNow } from "./renderer.js";
 import { timed } from "./perf.js";
 import { isWideLayout } from "./dom.js";
+import { hasLiveSessionList } from "./api.js";
 import { handleNotification, resetChatHistoryState } from "./acp.js";
 import { loadCachedSession } from "./history-cache.js";
 import { loadDraft } from "./composer-draft.js";
@@ -250,7 +251,12 @@ export function openChat(sessionId: string): void {
   // Enter, a fresh deep link, session creation) funnels through here, so
   // this one line is the single place that needs to know about it,
   // rather than every call site remembering to sync it separately.
-  setState({ view: "chat", listHighlightedSessionId: sessionId, lastSessionId: sessionId });
+  setState({
+    view: "chat",
+    listHighlightedSessionId: sessionId,
+    lastSessionId: sessionId,
+    resumeChatOnLoad: true,
+  });
   void hydrateFromCacheThenConnect(initial);
 }
 
@@ -596,11 +602,13 @@ function resetConnectionStateForReconnect(chat: ChatState): void {
 }
 
 // On a cold load with no session in the URL, fall back to whichever
-// session was open last: highlight it in the list, and in split layout
-// (where the chat pane would otherwise sit empty next to the rail) open
-// it outright.
+// session was open last: highlight it in the list, and open it outright
+// in split layout (where the chat pane would otherwise sit empty next to
+// the rail) or when the page was left inside that chat rather than on
+// the list (resumeChatOnLoad).
 //
-// Deliberately waits for the first session list rather than opening
+// Deliberately waits for the first live session list (not the seeded
+// cache, which stores warm sessions as cold) rather than opening
 // blind. Attaching to a cold, disk-only session resurrects it, and doing
 // that unbidden just because a tab was reloaded would spin an agent back
 // up nobody asked for — so a cold session is highlighted but not opened.
@@ -610,11 +618,13 @@ export function maybeRestoreLastSession(): void {
   const id = state.lastSessionId;
   if (!id) return;
   setState({ listHighlightedSessionId: id });
-  if (!isWideLayout()) return;
+  if (!isWideLayout() && !state.resumeChatOnLoad) return;
   const attempt = (n: number): void => {
     // The user got there first, or navigated away while we waited.
     if (state.view === "chat") return;
-    const found = state.sessions.find((s) => s.sessionId === id);
+    const found = hasLiveSessionList()
+      ? state.sessions.find((s) => s.sessionId === id)
+      : undefined;
     if (found) {
       if (found.status !== "cold") {
         replaceNextHash = true;
@@ -622,7 +632,7 @@ export function maybeRestoreLastSession(): void {
       }
       return;
     }
-    if (n < 20) setTimeout(() => attempt(n + 1), 250);
+    if (n < 40) setTimeout(() => attempt(n + 1), 250);
   };
   attempt(0);
 }
@@ -681,6 +691,7 @@ export function reopenClosedChat(chat: ChatState): boolean {
     view: "chat",
     listHighlightedSessionId: chat.sessionId,
     lastSessionId: chat.sessionId,
+    resumeChatOnLoad: true,
   });
   connectChatSocket(chat);
   return true;
@@ -696,6 +707,7 @@ export function closeChat(): void {
     view: "list",
     current: null,
     lastSessionId: returningFrom,
+    resumeChatOnLoad: false,
     // Land the keyboard-nav cursor (views.ts's listHighlightedSessionId)
     // on the card we just backed out of, so the list isn't cursor-less
     // on return — matches the TUI's session picker behavior.
