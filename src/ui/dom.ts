@@ -7,7 +7,7 @@
 // `el("button", { disabled: someFlag && true })` without polluting the
 // element tree.
 
-import { noteTapHandlerDown, tapDebugEnabled, tapLog } from "./tap-debug.js";
+import { noteTapHandlerDown, noteTouchFallback, tapDebugEnabled, tapLog } from "./tap-debug.js";
 
 type Attrs = Record<string, unknown> | null | undefined;
 type Child = Node | string | number | false | null | undefined | Child[];
@@ -93,6 +93,10 @@ export const TAP_MOVE_THRESHOLD = 10;
 // the gap between a real release and its compatibility click, short
 // enough that an abandoned press can't authorize a later stray one.
 const LOST_POINTERUP_GRACE_MS = 1500;
+
+// How close a pointerdown must be to a touch's start to count as the
+// same gesture, whichever of the two WebKit or Blink dispatches first.
+const POINTER_TOUCH_SLACK_MS = 150;
 
 // Short human label for a tap target, for the ?tapdebug=1 overlay only.
 function label(target: EventTarget | null): string {
@@ -198,7 +202,7 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
   let firedViaPointer = false;
   let startX = 0;
   let startY = 0;
-  let downAt = 0;
+  let downAt = -Infinity;
   // Whether this closure actually saw the matching pointerdown. Without
   // it the move check below compared the release point against (0, 0),
   // the initial values, which for any real button is hundreds of px and
@@ -213,7 +217,57 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
   // here, not a pathological one. No recorded start means no evidence of
   // a drag, so treat it as a tap rather than as a 500px swipe.
   let haveStart = false;
+  // Touch-event fallback state. See ontouchend below.
+  let touchStarted = false;
+  let touchStartAt = -Infinity;
+  let touchStartX = 0;
+  let touchStartY = 0;
   return {
+    // iOS can deliver a tap's touch events to a control while delivering
+    // NO pointer events for it at all. Field captures show exactly that:
+    // the touchstart's target is the Send button, and no tapHandler ever
+    // receives a pointerdown. It sets in with the composer focused and
+    // clears when the text is edited or the keyboard is toggled, i.e. it
+    // tracks iOS's text-interaction state rather than anything in this
+    // app. Every pointer-side fix is blind to it by construction, so watch
+    // the touch stream too and act on it when the pointer stream is absent.
+    ontouchstart: (e: Event) => {
+      if (isFormControl(e.target)) return;
+      const te = e as TouchEvent;
+      const t = te.touches[0];
+      if (!t || te.touches.length > 1) {
+        touchStarted = false;
+        return;
+      }
+      touchStarted = true;
+      touchStartAt = performance.now();
+      touchStartX = t.screenX;
+      touchStartY = t.screenY;
+    },
+    ontouchcancel: () => {
+      touchStarted = false;
+    },
+    ontouchend: (e: Event) => {
+      if (!touchStarted) return;
+      touchStarted = false;
+      // A pointerdown around this touch means the pointer path owns the
+      // gesture and has already handled (or deliberately declined) it.
+      // Checked by time rather than order because WebKit and Blink
+      // disagree on whether pointerdown precedes touchstart.
+      if (downAt >= touchStartAt - POINTER_TOUCH_SLACK_MS) return;
+      const t = (e as TouchEvent).changedTouches[0];
+      if (!t) return;
+      if (Math.hypot(t.screenX - touchStartX, t.screenY - touchStartY) > TAP_MOVE_THRESHOLD) return;
+      if (selectionSuppressesTap(e.target)) return;
+      // Suppresses the compatibility mouse events and click, so the
+      // button neither steals focus (dismissing the keyboard) nor fires
+      // a second time through onclick.
+      e.preventDefault();
+      e.stopPropagation();
+      haveStart = false;
+      noteTouchFallback();
+      fn(e);
+    },
     onpointerdown: (e: Event) => {
       if (isFormControl(e.target)) return;
       const pe = e as PointerEvent;

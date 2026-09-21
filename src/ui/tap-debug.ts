@@ -78,6 +78,15 @@ export function noteTapHandlerDown(): void {
   lastTapHandlerDownAt = performance.now();
 }
 
+// Set when tapHandler's touch fallback acted because no pointer events
+// arrived for a touch. Lets the watchdog report a rescue instead of a loss,
+// which is how we learn from the field whether the fallback is working.
+let lastTouchFallbackAt = 0;
+
+export function noteTouchFallback(): void {
+  lastTouchFallbackAt = performance.now();
+}
+
 let reportsThisSession = 0;
 const MAX_REPORTS_PER_SESSION = 40;
 
@@ -139,10 +148,11 @@ export function initTapWatchdog(): void {
       setTimeout(() => {
         const gotDown = lastTapHandlerDownAt >= startedAt;
         if (gotDown && hitIsButton) return;
+        const rescued = lastTouchFallbackAt >= startedAt;
         const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
         const tr = ta?.getBoundingClientRect();
         report(
-          "SEND TAP LOST " +
+          (rescued ? "SEND TAP RESCUED by touch fallback " : "SEND TAP LOST ") +
             `gotPointerDown=${gotDown} hitIsButton=${hitIsButton} hit=${describe(at)} ` +
             // The decisive one: who the browser actually dispatched to.
             // elementFromPoint and getBoundingClientRect agree with each

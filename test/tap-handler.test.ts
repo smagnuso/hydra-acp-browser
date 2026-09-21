@@ -48,7 +48,29 @@ interface Handlers {
   onpointerdown: (e: unknown) => void;
   onpointerup: (e: unknown) => void;
   onclick: (e: unknown) => void;
+  ontouchstart: (e: unknown) => void;
+  ontouchend: (e: unknown) => void;
+  ontouchcancel: (e: unknown) => void;
 }
+
+const touch = (
+  x: number,
+  y: number,
+  target: unknown = button,
+): Record<string, unknown> & { defaultPrevented: () => boolean } => {
+  let prevented = false;
+  const pt = { screenX: x, screenY: y, clientX: x, clientY: y };
+  return {
+    target,
+    touches: [pt],
+    changedTouches: [pt],
+    preventDefault: () => {
+      prevented = true;
+    },
+    stopPropagation: () => {},
+    defaultPrevented: () => prevented,
+  };
+};
 
 const button = new FakeHTMLElement("BUTTON");
 
@@ -222,6 +244,73 @@ test("a selection inside the tapped element still vetoes it", () => {
   } finally {
     selection = null;
   }
+});
+
+// The field failure, captured repeatedly by the watchdog: the touchstart
+// targets the Send button, yet no pointer event ever arrives for it. Every
+// pointer-side fix is blind to that, so the touch stream has to carry it.
+test("a tap with touch events but no pointer events still fires", () => {
+  let fired = 0;
+  const h = tapHandler(() => fired++) as unknown as Handlers;
+  h.ontouchstart(touch(340, 700));
+  const end = touch(340, 700);
+  h.ontouchend(end);
+  assert.equal(fired, 1, "the touch-only tap must activate the control");
+  assert.equal(end.defaultPrevented(), true, "and suppress the compat click so it cannot fire twice");
+});
+
+test("a healthy tap delivering both streams fires exactly once", () => {
+  for (const order of ["pointer-first", "touch-first"] as const) {
+    let fired = 0;
+    const h = tapHandler(() => fired++) as unknown as Handlers;
+    if (order === "pointer-first") {
+      h.onpointerdown(evt(340, 700));
+      h.ontouchstart(touch(340, 700));
+    } else {
+      h.ontouchstart(touch(340, 700));
+      h.onpointerdown(evt(340, 700));
+    }
+    h.onpointerup(evt(340, 700));
+    h.ontouchend(touch(340, 700));
+    assert.equal(fired, 1, `${order}: a normal tap must not double-send`);
+  }
+});
+
+test("a touch-only drag does not fire", () => {
+  let fired = 0;
+  const h = tapHandler(() => fired++) as unknown as Handlers;
+  h.ontouchstart(touch(340, 700));
+  h.ontouchend(touch(340, 700 + TAP_MOVE_THRESHOLD + 5));
+  assert.equal(fired, 0);
+});
+
+test("a cancelled touch does not fire", () => {
+  let fired = 0;
+  const h = tapHandler(() => fired++) as unknown as Handlers;
+  h.ontouchstart(touch(340, 700));
+  h.ontouchcancel(touch(340, 700));
+  h.ontouchend(touch(340, 700));
+  assert.equal(fired, 0);
+});
+
+test("the touch fallback leaves form controls alone", () => {
+  let fired = 0;
+  const h = tapHandler(() => fired++) as unknown as Handlers;
+  const textarea = new FakeHTMLElement("TEXTAREA");
+  h.ontouchstart(touch(340, 700, textarea));
+  const end = touch(340, 700, textarea);
+  h.ontouchend(end);
+  assert.equal(fired, 0);
+  assert.equal(end.defaultPrevented(), false, "a text field must keep native touch behavior");
+});
+
+test("a touch-rescued tap is not fired again by the click that follows", () => {
+  let fired = 0;
+  const h = tapHandler(() => fired++) as unknown as Handlers;
+  h.ontouchstart(touch(340, 700));
+  h.ontouchend(touch(340, 700));
+  h.onclick({ ...evt(340, 700), detail: 1 });
+  assert.equal(fired, 1);
 });
 
 test("keyboard activation (detail 0) still fires, pointer clicks do not double-fire", () => {
