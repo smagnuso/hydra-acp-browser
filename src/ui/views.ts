@@ -4219,7 +4219,13 @@ function renderEditDiff(c: ChatState, item: EditDiffLogItem): HTMLElement {
     node.appendChild(
       el(
         "div",
-        { class: "body" },
+        {
+          class: "body",
+          ...tapHandler(() => {
+            item.expanded = false;
+            render();
+          }),
+        },
         el(
           "pre",
           null,
