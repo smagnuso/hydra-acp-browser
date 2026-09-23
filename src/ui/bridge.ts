@@ -205,7 +205,6 @@ export function handleFrame(frame: JsonRpcFrame): void {
   }
   if (frame.method === "bridge/ready") {
     state.current.ready = true;
-    state.current.cold = false;
     state.banner = null;
     // Also disarms a reveal still pending from the drop this attach just
     // ended, so a reconnect inside the grace window never paints one.
@@ -215,6 +214,12 @@ export function handleFrame(frame: JsonRpcFrame): void {
     // our own hydra-acp/prompt_queue/added events. The bridge passes
     // it through from the upstream session/attach response.
     const params = (frame.params ?? {}) as Record<string, unknown>;
+    // True when the bridge attached readonly because the session was cold
+    // (server's ws-bridge.ts) — a disk-viewer replay, not a resurrect. The
+    // chat-header pill reads this the same way it reads a
+    // hydra-acp/session/closed cold state; it self-clears the moment a
+    // real prompt's response lands (the ownPromptIds check below).
+    state.current.cold = params.cold === true;
     if (typeof params.clientId === "string") {
       state.current.ownClientId = params.clientId;
     }

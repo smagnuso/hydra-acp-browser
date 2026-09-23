@@ -34,6 +34,22 @@ import { clearConnection, isSessionVisible, setConnectionVisible } from "./sessi
 
 const log = logger("ws-bridge");
 
+// Read side of the daemon's per-frame replay cursor
+// (PROTOCOL.md, params._meta["hydra-acp"].seq). Absent on state kinds and
+// on daemons predating the field. Mirrors src/ui/acp.ts's copy of the same
+// helper — used here to track the last frame this connection delivered to
+// the browser, so escalateFromReadonly() can ask for a delta instead of a
+// second full replay.
+function extractFrameSeq(params: unknown): number | undefined {
+  if (!params || typeof params !== "object") return undefined;
+  const meta = (params as { _meta?: unknown })._meta;
+  if (!meta || typeof meta !== "object") return undefined;
+  const inner = (meta as Record<string, unknown>)["hydra-acp"];
+  if (!inner || typeof inner !== "object") return undefined;
+  const seq = (inner as { seq?: unknown }).seq;
+  return typeof seq === "number" && Number.isFinite(seq) ? seq : undefined;
+}
+
 const ALLOWED_BROWSER_REQUEST_METHODS = new Set<string>([
   "session/prompt",
   // session/cancel is kept here for backward compat with older browser
@@ -265,6 +281,22 @@ function handleConnection(
   // While the upstream handshake is running we can't yet forward browser
   // frames. Buffer them and flush once attach completes.
   const browserBuffer: JsonRpcMessage[] = [];
+
+  // True once we've attached readonly because the session was cold at
+  // open/reconnect time (see doHandshake). A readonly attach can't be
+  // resurrected into by just sitting there — the daemon only grants a
+  // fresh idle window on an actual resurrect (session.ts's "resurrection
+  // itself is the activity" comment) — so merely opening/holding a chat
+  // view in the browser no longer keeps a cold session warm, matching how
+  // the TUI leaves a cold session alone until a real prompt wakes it. The
+  // first state-changing request the browser sends escalates to a real,
+  // writable attach (see escalateFromReadonly), which is the point a
+  // resurrect is actually warranted.
+  let readonlyMode = false;
+  // Highest replay cursor delivered to the browser so far. Used by
+  // escalateFromReadonly to ask for a delta instead of a second full
+  // replay when upgrading off the readonly viewer attach.
+  let lastSeenSeq: number | undefined;
   // session/update notifications arrive via notify() from inside the
   // daemon's session/attach handler, so replay can start landing before
   // the attach *response* (and its authoritative historyPolicy field)
@@ -380,6 +412,23 @@ function handleConnection(
           },
         },
       });
+    }
+  }
+
+  // Checked at attach/reattach time so a browser tab that's merely open or
+  // reconnecting (network flap, phone wake) doesn't resurrect a session
+  // that's gone cold — see readonlyMode above. Errs toward a normal
+  // (non-readonly) attach on lookup failure so a daemon hiccup here can't
+  // turn into a session nobody can ever prompt.
+  async function isSessionCold(): Promise<boolean> {
+    try {
+      const info = await HydraRestClient.forRequest(
+        ctx.config.hydraDaemonUrl,
+        ctx.config.hydraToken,
+      ).getSession(sessionId);
+      return info.status === "cold";
+    } catch {
+      return false;
     }
   }
 
@@ -741,7 +790,74 @@ function handleConnection(
       browserBuffer.push(msg);
       return;
     }
+    if (readonlyMode) {
+      // A readonly attach (see doHandshake) can't carry a state-changing
+      // method — the daemon rejects it. There's nothing to cancel on a
+      // session with no live turn, so drop that one rather than
+      // escalating for it.
+      if (isNotification(msg) && msg.method === "session/cancel") {
+        return;
+      }
+      if (isRequest(msg) && ALLOWED_BROWSER_REQUEST_METHODS.has(msg.method)) {
+        const requestId = msg.id;
+        upstreamReady = false;
+        browserBuffer.push(msg);
+        void escalateFromReadonly()
+          .then(() => {
+            upstreamReady = true;
+            while (browserBuffer.length > 0) {
+              handleBrowserFrame(browserBuffer.shift()!);
+            }
+          })
+          .catch((err: unknown) => {
+            log.warn(
+              `escalate-from-readonly failed session=${sessionId}: ${(err as Error).message}`,
+            );
+            // Drop the request that triggered the escalation (it's first
+            // in the buffer, pushed above) rather than retrying it — we've
+            // already told the browser it failed, and readonlyMode is
+            // still true, so replaying it as-is would just try (and fail)
+            // the same escalation again.
+            browserBuffer.shift();
+            sendBrowserResponseError(
+              requestId,
+              -32000,
+              "failed to resume session",
+            );
+            upstreamReady = true;
+            const rest = browserBuffer.splice(0);
+            for (const m of rest) {
+              handleBrowserFrame(m);
+            }
+          });
+        return;
+      }
+    }
     forwardBrowserFrame(msg);
+  }
+
+  // Upgrades this connection off its readonly viewer attach the moment the
+  // browser actually does something mutating (send a prompt, change mode,
+  // etc.) — the point a resurrect is genuinely warranted, matching how the
+  // TUI only wakes a cold session on a real prompt rather than on merely
+  // being looked at. Requests an after_message delta anchored on the last
+  // frame we already delivered so the browser doesn't get a second replay
+  // of what it already has; a daemon that can't honor that cursor falls
+  // back to a full replay same as any other reattach.
+  async function escalateFromReadonly(): Promise<void> {
+    const attachResp = (await upstream.request("session/attach", {
+      sessionId,
+      historyPolicy: lastSeenSeq !== undefined ? "after_message" : "full",
+      ...(lastSeenSeq !== undefined ? { afterSeq: lastSeenSeq } : {}),
+      clientInfo: {
+        name: upstream.clientName,
+        version: upstream.clientVersion,
+      },
+    })) as { clientId?: string };
+    if (typeof attachResp?.clientId === "string") {
+      ownClientId = attachResp.clientId;
+    }
+    readonlyMode = false;
   }
 
   function forwardBrowserFrame(msg: JsonRpcMessage): void {
@@ -805,6 +921,10 @@ function handleConnection(
   }
 
   function sendBrowserFrame(msg: JsonRpcMessage): void {
+    const seq = extractFrameSeq((msg as { params?: unknown }).params);
+    if (seq !== undefined) {
+      lastSeenSeq = seq;
+    }
     if (browserWs.readyState !== WebSocket.OPEN) {
       return;
     }
@@ -833,9 +953,12 @@ function handleConnection(
   }
 
   async function doHandshake(): Promise<void> {
-    const initResp = (await runInitialize(upstream)) as
-      | { _meta?: Record<string, unknown> }
-      | undefined;
+    const [initResp, cold] = await Promise.all([
+      runInitialize(upstream) as Promise<
+        { _meta?: Record<string, unknown> } | undefined
+      >,
+      isSessionCold(),
+    ]);
     // Pluck the daemon's hydra-acp capability flags out of the
     // initialize response _meta so we can pass them through to the
     // browser. prompt.amending is the gate for the Amend button —
@@ -866,22 +989,32 @@ function handleConnection(
     // whole transcript it's about to discard.
     const wantsAfterMessage =
       afterMessageId !== undefined || afterSeq !== undefined;
+    // A cold session gets a readonly viewer attach instead of a normal
+    // one: readonly streams history straight off disk with no resurrect
+    // (cli's acp-ws.ts), so opening or reconnecting a chat view no longer
+    // grants a session a fresh idle window just for being looked at. See
+    // readonlyMode above and escalateFromReadonly below for the upgrade
+    // path once the user actually does something.
+    readonlyMode = cold;
+    // 0 = no cap. Hydra-specific attach options ride under _meta;
+    // session/attach keeps only RFD #533's own fields at the top level.
+    const hydraAttachMeta: Record<string, unknown> = {};
+    if (readonlyMode) {
+      hydraAttachMeta.readonly = true;
+    }
+    if (fullHistory) {
+      hydraAttachMeta.historyLimit = 0;
+    } else if (!wantsAfterMessage) {
+      hydraAttachMeta.historyLimit = COLD_ATTACH_HISTORY_LIMIT;
+    }
     const attachResp = (await upstream.request("session/attach", {
       sessionId,
       historyPolicy: wantsAfterMessage ? "after_message" : "full",
       ...(afterMessageId !== undefined ? { afterMessageId } : {}),
       ...(afterSeq !== undefined ? { afterSeq } : {}),
-      // 0 = no cap. Hydra-specific attach options ride under _meta;
-      // session/attach keeps only RFD #533's own fields at the top level.
-      ...(fullHistory
-        ? { _meta: { "hydra-acp": { historyLimit: 0 } } }
-        : wantsAfterMessage
-          ? {}
-          : {
-              _meta: {
-                "hydra-acp": { historyLimit: COLD_ATTACH_HISTORY_LIMIT },
-              },
-            }),
+      ...(Object.keys(hydraAttachMeta).length > 0
+        ? { _meta: { "hydra-acp": hydraAttachMeta } }
+        : {}),
       clientInfo: {
         name: upstream.clientName,
         version: upstream.clientVersion,
@@ -918,6 +1051,14 @@ function handleConnection(
     // matching originator.clientId) and hydrate any queue snapshot
     // hydra delivers in _meta["hydra-acp"].queue.
     const readyParams: Record<string, unknown> = { sessionId };
+    // Tells the browser to show the "cold" pill instead of "ready" (see
+    // bridge.ts's bridge/ready handler) — this attach didn't resurrect
+    // anything, it's the disk-viewer path. The pill clears itself the
+    // moment a real prompt goes through (bridge.ts's ownPromptIds "proof
+    // of life" check), which is also when escalateFromReadonly runs.
+    if (readonlyMode) {
+      readyParams.cold = true;
+    }
     if (typeof attachResp?.clientId === "string") {
       readyParams.clientId = attachResp.clientId;
       ownClientId = attachResp.clientId;
@@ -953,7 +1094,10 @@ function handleConnection(
     upstreamReady = true;
     while (browserBuffer.length > 0) {
       const next = browserBuffer.shift()!;
-      forwardBrowserFrame(next);
+      // Route back through handleBrowserFrame, not forwardBrowserFrame
+      // directly, so a request queued while the handshake was in flight
+      // still gets the readonlyMode escalation check below.
+      handleBrowserFrame(next);
     }
   }
 
