@@ -164,7 +164,7 @@ function setLocationHash(hash: string): void {
   }
 }
 
-export function applyHashRoute(): void {
+export function applyHashRoute(opts: { initialLoad?: boolean } = {}): void {
   if (hashWriting) return;
   const hash = window.location.hash;
   // The `(?:\?...)?` tail is tolerated but ignored — old bookmarks and
@@ -176,7 +176,7 @@ export function applyHashRoute(): void {
     if (state.view === "chat" && state.current?.sessionId === sessionId) {
       return;
     }
-    openChat(sessionId);
+    openChat(sessionId, { passive: opts.initialLoad === true });
     return;
   }
   if (state.view !== "list") {
@@ -184,7 +184,10 @@ export function applyHashRoute(): void {
   }
 }
 
-export function openChat(sessionId: string): void {
+// `passive` is for an open the user didn't ask for (the page reloading onto
+// the session named in its own URL): a cold session then gets the readonly
+// viewer attach instead of waking up. See connectChatSocket.
+export function openChat(sessionId: string, opts: { passive?: boolean } = {}): void {
   setLocationHash(buildSessionHash(sessionId));
   closeChatSocket();
   const session = state.sessions.find(
@@ -257,7 +260,7 @@ export function openChat(sessionId: string): void {
     lastSessionId: sessionId,
     resumeChatOnLoad: true,
   });
-  void hydrateFromCacheThenConnect(initial);
+  void hydrateFromCacheThenConnect(initial, opts);
 }
 
 // Cache lookup is async, so the connect that needs lastSeenMessageId
@@ -267,7 +270,10 @@ export function openChat(sessionId: string): void {
 // cached frames through the same handleNotification path live/replayed
 // frames go through, so coalescing (message chunks, tool_call_update
 // merges, …) stays identical either way.
-async function hydrateFromCacheThenConnect(chat: ChatState): Promise<void> {
+async function hydrateFromCacheThenConnect(
+  chat: ChatState,
+  opts: { passive?: boolean } = {},
+): Promise<void> {
   const cached = await loadCachedSession(chat.sessionId);
   // Bail if the user navigated away (or into a different session) while
   // the cache read was in flight.
@@ -330,7 +336,7 @@ async function hydrateFromCacheThenConnect(chat: ChatState): Promise<void> {
   if (cached || held.length > 0) {
     render();
   }
-  connectChatSocket(chat);
+  connectChatSocket(chat, opts);
 }
 
 // Discards whatever's loaded and forces a genuine full session/attach
@@ -377,10 +383,22 @@ export function requestFullHistory(chat: ChatState): void {
 // tool cards, queue, …) is left alone here and only cleared later, by
 // bridge.ts, if the bridge/replay_policy frame says the daemon couldn't
 // honor our afterMessageId request.
-function connectChatSocket(chat: ChatState): void {
+// `passive` marks a reconnect the user didn't initiate — a dropped socket
+// retrying on its own (scheduleReconnect), as opposed to a tap into the
+// list, a swipe back into a chat, or "Load full history", all of which
+// signal real intent to use this session right now. Only passive matters
+// to ws-bridge.ts: a cold session gets a readonly viewer attach (no
+// resurrect) when it's set, and a normal attach otherwise — mirrors the
+// TUI, which resurrects on opening a session from the picker but never
+// re-attaches a session that went cold out from under an already-open one
+// on its own.
+function connectChatSocket(chat: ChatState, opts: { passive?: boolean } = {}): void {
   const url = new URL("/ws", location.href);
   url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("session", chat.sessionId);
+  if (opts.passive) {
+    url.searchParams.set("passive", "true");
+  }
   // Ask the bridge for a delta replay instead of a full one — see
   // acp.ts's lastSeenMessageId tracking and ws-bridge.ts's doHandshake.
   // Only set once we've actually seen a recordable update, which also
@@ -559,7 +577,7 @@ function scheduleReconnect(chat: ChatState): void {
     chat.reconnectAttempt = attempt + 1;
     resetConnectionStateForReconnect(chat);
     render();
-    connectChatSocket(chat);
+    connectChatSocket(chat, { passive: true });
   }, delay);
 }
 

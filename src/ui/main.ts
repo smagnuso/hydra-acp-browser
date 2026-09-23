@@ -72,7 +72,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     void subscribeForPush().then(() => reportPushEndpoint());
   }
   applyProtocolLaunch();
-  applyHashRoute();
+  applyHashRoute({ initialLoad: true });
   maybeRestoreLastSession();
   render();
   initPullToRefresh();

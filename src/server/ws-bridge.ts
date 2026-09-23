@@ -187,6 +187,15 @@ export function attachWsBridge(
     const rawAfterSeq = url.searchParams.get("afterSeq");
     const parsedSeq = rawAfterSeq === null ? Number.NaN : Number(rawAfterSeq);
     const afterSeq = Number.isFinite(parsedSeq) ? parsedSeq : undefined;
+    // Set by routing.ts only on a reconnect the user didn't initiate (a
+    // dropped socket retrying itself) — never on a tap into the list, a
+    // swipe back into a chat, or "Load full history", all real intent to
+    // use this session now. Gates the readonly-viewer-on-cold attach in
+    // doHandshake below: only a passive reconnect gets it, so a cold
+    // session still wakes up the moment someone actually opens it,
+    // matching the TUI (resurrects on open, never re-attaches a session
+    // that went cold on its own while already attached).
+    const passive = url.searchParams.get("passive") === "true";
     if (!sessionId) {
       socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
       socket.destroy();
@@ -202,6 +211,7 @@ export function attachWsBridge(
         afterMessageId,
         afterSeq,
         fullHistory,
+        passive,
       );
     });
   });
@@ -218,6 +228,7 @@ function handleConnection(
   afterMessageId: string | undefined,
   afterSeq: number | undefined,
   fullHistory: boolean,
+  passive: boolean,
 ): void {
   log.info(`bridge open session=${sessionId}`);
 
@@ -967,7 +978,10 @@ function handleConnection(
       runInitialize(upstream) as Promise<
         { _meta?: Record<string, unknown> } | undefined
       >,
-      isSessionCold(),
+      // Only matters for a passive reconnect (readonlyMode below) — skip
+      // the round-trip entirely on an explicit open, which resurrects
+      // regardless of status.
+      passive ? isSessionCold() : Promise.resolve(false),
     ]);
     // Pluck the daemon's hydra-acp capability flags out of the
     // initialize response _meta so we can pass them through to the
@@ -1000,12 +1014,15 @@ function handleConnection(
     const wantsAfterMessage =
       afterMessageId !== undefined || afterSeq !== undefined;
     // A cold session gets a readonly viewer attach instead of a normal
-    // one: readonly streams history straight off disk with no resurrect
-    // (cli's acp-ws.ts), so opening or reconnecting a chat view no longer
-    // grants a session a fresh idle window just for being looked at. See
-    // readonlyMode above and escalateFromReadonly below for the upgrade
-    // path once the user actually does something.
-    readonlyMode = cold;
+    // one, but only on a passive reconnect (see the `passive` param
+    // above): readonly streams history straight off disk with no
+    // resurrect (cli's acp-ws.ts), so a dropped socket retrying itself no
+    // longer grants a session a fresh idle window just for being looked
+    // at. An explicit open (tap, swipe-back, full-history) still resurrects
+    // immediately, matching the TUI. See readonlyMode above and
+    // escalateFromReadonly below for the upgrade path once a passive
+    // viewer's user actually does something.
+    readonlyMode = cold && passive;
     // 0 = no cap. Hydra-specific attach options ride under _meta;
     // session/attach keeps only RFD #533's own fields at the top level.
     const hydraAttachMeta: Record<string, unknown> = {};
