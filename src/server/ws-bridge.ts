@@ -849,6 +849,16 @@ function handleConnection(
       sessionId,
       historyPolicy: lastSeenSeq !== undefined ? "after_message" : "full",
       ...(lastSeenSeq !== undefined ? { afterSeq: lastSeenSeq } : {}),
+      // Keep the same clientId the readonly viewer attach got (daemon
+      // honors an explicit one — see bindClientToSession). We never tell
+      // the browser about a new one (no bridge/ready round-trip here), so
+      // minting a fresh clientId would silently invalidate the browser's
+      // cached ownClientId: the prompt this escalate is forwarding would
+      // come back with an originator.clientId the browser no longer
+      // recognizes as its own, and it would render as a second, separate
+      // bubble instead of binding to the optimistic "sending" one already
+      // on screen.
+      ...(ownClientId !== undefined ? { clientId: ownClientId } : {}),
       clientInfo: {
         name: upstream.clientName,
         version: upstream.clientVersion,
