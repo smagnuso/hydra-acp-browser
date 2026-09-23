@@ -625,7 +625,15 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
 .files .entry .icon { width: 1.2rem; text-align: center; color: var(--muted); }
 .files .entry .name { flex: 1; }
 .files .entry .size { color: var(--muted); font-size: 0.8rem; }
-.files .preview { flex: 1; overflow: auto; overscroll-behavior: contain; padding: 0; }
+/* min-height: 0 overrides the flex-item default of min-height: auto,
+   which resolves to the CONTENT's height in a column flex parent
+   (.files) — without it, a tall child (an 80vh-capped image, in
+   particular) makes this item just grow to fit instead of clipping to
+   the available space and scrolling internally, and the excess gets
+   silently cut off by .files's own overflow: hidden further up instead
+   of being reachable via this element's overflow: auto. Same bug as
+   .image-preview-full's min-width/min-height fix, one flex level up. */
+.files .preview { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0; }
 .files .md-view { padding: 0.75rem 1rem; }
 .files .md-view p:first-child { margin-top: 0; }
 .files .md-view p:last-child { margin-bottom: 0; }
@@ -638,8 +646,26 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
 .files .md-view th, .files .md-view td { border: 1px solid var(--border); padding: 0.3rem 0.55rem; vertical-align: top; }
 .files .md-view th { background: var(--panel-2); font-weight: 600; text-align: left; }
 .files .md-view pre { margin: 0.4rem 0; padding: 0.6rem 0.75rem; overflow-x: auto; background: var(--panel-2); border-radius: 6px; }
-.image-preview { display: flex; justify-content: center; padding: 0.75rem; }
-.image-preview-full { max-width: 100%; max-height: 80vh; border-radius: 6px; }
+/* Safari has a long-standing bug with an <img> as a flex item: even with
+   min-width/min-height: 0 (which fixes Chrome/Firefox), it still sizes
+   the flex item off the image's own intrinsic pixel dimensions instead of
+   shrinking it to max-width/max-height — on a real phone this showed as
+   the image rendering at native resolution, many times wider than the
+   screen. object-fit: contain on a NON-flex, explicitly-bounded box
+   sidesteps that class of bug entirely: img sizing is now driven by the
+   box's own dimensions, not by intrinsic-size arithmetic.
+   overflow: auto (not hidden) at rest, because the box's height (80vh) is
+   a raw vh unit and Safari resolves vh against the LAYOUT viewport
+   (chrome collapsed) rather than the actually-visible one — with any
+   address/tab bar showing, "80% of the full viewport" can still be
+   taller than what's really on screen, and unlike overflow: hidden,
+   overflow: auto means the reader can just scroll to the rest instead of
+   it being silently, unrecoverably clipped. Switched to hidden only while
+   imagePreviewEl (views.ts) marks the image zoomed, so scroll and pan
+   don't fight each other over the same gesture once zoomed in. */
+.image-preview { display: flex; justify-content: center; align-items: center; height: 80vh; padding: 0.75rem; box-sizing: border-box; overflow: auto; touch-action: none; }
+.image-preview.zoomed { overflow: hidden; }
+.image-preview-full { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 6px; touch-action: none; transform-origin: center center; }
 /* Wraps the code view plus its paging pills, so the pills scroll with
    the content rather than floating over it. */
 .code-window { display: flex; flex-direction: column; align-items: stretch; min-width: max-content; }

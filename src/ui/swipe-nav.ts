@@ -82,6 +82,21 @@ function hasScrollableLeftAncestor(target: EventTarget | null): boolean {
   return false;
 }
 
+// The full-size image preview owns one-finger pan itself once zoomed in
+// (views.ts's imagePreviewEl), via its own touchstart/touchmove — which
+// fire independently of this module's, so without a bail here a pan drag
+// would simultaneously arm and drag the whole viewer closed underneath it.
+// Gated on the "zoomed" class (toggled by imagePreviewEl only while
+// scale > 1) rather than just "inside .image-preview": at scale 1 there's
+// nothing for this handler to pan, so a plain swipe-to-close started in
+// the blank letterboxed space beside the image — or anywhere else in the
+// pane — must keep working exactly as if the image preview weren't there.
+function isInImagePreview(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  const preview = target.closest(".image-preview");
+  return preview !== null && preview.classList.contains("zoomed");
+}
+
 // "closeFiles" dismisses the maximized Files overlay back to the chat
 // underneath. Much simpler than the other two: the chat is real, live,
 // still-attached DOM sitting right there behind the overlay (renderer's
@@ -399,7 +414,8 @@ function onTouchStart(e: TouchEvent): void {
     if (
       !fileOverlay.maximized ||
       isFormControl(touch.target) ||
-      hasScrollableLeftAncestor(touch.target)
+      hasScrollableLeftAncestor(touch.target) ||
+      isInImagePreview(touch.target)
     ) {
       return;
     }

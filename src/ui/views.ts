@@ -4137,7 +4137,11 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
             "div",
             { class: "attachment-thumbs" },
             ...item.attachments.map((a) =>
-              el("img", { class: "attachment-thumb", src: attachmentSrc(a) }),
+              el("img", {
+                class: "attachment-thumb clickable",
+                src: attachmentSrc(a),
+                ...tapHandler(() => openImagePreviewAt(c, attachmentSrc(a), a.path)),
+              }),
             ),
           ),
         );
@@ -4375,15 +4379,16 @@ function renderImageLogItem(c: ChatState, item: ImageLogItem): HTMLElement {
       { class: "attachment-thumbs" },
       ...item.attachments.map((a) =>
         el("img", {
-          class: a.path ? "attachment-thumb clickable" : "attachment-thumb",
+          class: "attachment-thumb clickable",
           src: attachmentSrc(a),
-          // Only a resource_link (a.path/a.url set) names a real file on
-          // the daemon's host the Files viewer can reopen — a base64
-          // block has no server-side path to show there. Hands over this
-          // bubble's own (cache-busted) url rather than rebuilding one
-          // from the bare path, so the viewer shows the exact snapshot
-          // this thumbnail is showing, not whatever the file holds now.
-          ...(a.path && a.url ? tapHandler(() => openImagePreviewAt(c, a.path!, a.url!)) : {}),
+          // A resource_link (a.path/a.url set) names a real file on the
+          // daemon's host, so this hands over the bubble's own
+          // (cache-busted) url rather than rebuilding one from the bare
+          // path — the viewer then shows the exact snapshot this
+          // thumbnail is showing, not whatever the file holds now. A
+          // base64 block has no server-side path (a.path is undefined);
+          // the viewer just opens the same data: URI full-size instead.
+          ...tapHandler(() => openImagePreviewAt(c, attachmentSrc(a), a.path)),
         }),
       ),
     ),
@@ -4977,8 +4982,10 @@ function openFiles(): void {
 // and "let me look at it too" land on the exact same view. No directory
 // listing fetch: the image's path is routinely outside cwd (a /tmp
 // scratch dir), where /api/files/list would 400, and there's nothing
-// useful "back to listing" needs beyond closing the preview.
-function openImagePreviewAt(c: ChatState, path: string, url: string): void {
+// useful "back to listing" needs beyond closing the preview. path is
+// omitted for a pasted/sent prompt image — there's no file on the
+// daemon's host to name, only the data: URI already in url.
+function openImagePreviewAt(c: ChatState, url: string, path?: string): void {
   blurForOverlay();
   const saved = c.savedFileView;
   c.fileOverlay = {
@@ -5627,6 +5634,133 @@ function cachedFileOverlay(c: ChatState): Node {
   return node;
 }
 
+// Pinch-zoom/pan for the full-size image preview — the viewport meta
+// (index.html) has maximum-scale=1, user-scalable=no so the app never
+// zooms as a whole (the crumbs/header stay put), which means native
+// browser pinch-zoom isn't available here at all; this hand-rolls the
+// same gesture with a CSS transform on the image alone.
+//
+// Raw Touch Events, not Pointer Events: this app's other hand-rolled
+// gestures (swipe-nav.ts, pull-refresh.ts) are all built on touchstart/
+// touchmove/touchend, which is the combination actually exercised and
+// proven on-device here — Pointer Events for multi-touch turned out to
+// be unreliable in practice (a real two-finger pinch never produced a
+// visible scale change), so this follows the same proven pattern rather
+// than debug that gap blind.
+//
+// Listens on the wrapping container, not the <img> itself: the image is
+// centered by a flex container and rarely fills it edge to edge (aspect
+// ratio + max-height:80vh routinely letterbox it), so a real two-finger
+// pinch just as often lands one finger on the padding beside the image
+// as on the image pixels themselves. Listening on the container catches
+// both fingers regardless.
+//
+// swipe-nav.ts's own document-level touchstart/touchmove ALSO watches
+// this same physical touch to arm its swipe-to-close-the-viewer gesture,
+// and only backs off once THIS handler has toggled the "zoomed" class
+// (see isInImagePreview) — not for every touch anywhere in the pane,
+// which would also swallow a plain swipe-to-close started in the blank
+// letterboxed space beside an unzoomed image.
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 4;
+
+function imagePreviewEl(src: string): HTMLElement {
+  const img = el("img", { class: "image-preview-full", src }) as HTMLImageElement;
+  const container = el("div", { class: "image-preview" }, img);
+  let scale = 1;
+  let tx = 0;
+  let ty = 0;
+  let pinchStartDist = 0;
+  let pinchStartMid = { x: 0, y: 0 };
+  let pinchStartScale = 1;
+  let pinchStartTx = 0;
+  let pinchStartTy = 0;
+  let panStart: { x: number; y: number; tx: number; ty: number } | null = null;
+
+  const apply = (): void => {
+    img.style.transform = scale === 1 && tx === 0 && ty === 0 ? "" : `translate(${tx}px, ${ty}px) scale(${scale})`;
+    // swipe-nav.ts reads this to decide whether to back off its own
+    // swipe-to-close gesture over this same touch surface.
+    container.classList.toggle("zoomed", scale > ZOOM_MIN);
+  };
+  const midpoint = (a: Touch, b: Touch) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+  const distance = (a: Touch, b: Touch) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+
+  container.addEventListener(
+    "touchstart",
+    (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        pinchStartDist = distance(e.touches[0]!, e.touches[1]!);
+        pinchStartMid = midpoint(e.touches[0]!, e.touches[1]!);
+        pinchStartScale = scale;
+        pinchStartTx = tx;
+        pinchStartTy = ty;
+        panStart = null;
+      } else if (e.touches.length === 1 && scale > ZOOM_MIN) {
+        const t = e.touches[0]!;
+        panStart = { x: t.clientX, y: t.clientY, tx, ty };
+      }
+    },
+    { passive: true },
+  );
+  container.addEventListener(
+    "touchmove",
+    (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchStartDist > 0) {
+        // Non-passive: overriding the browser's own default handling for
+        // this gesture, same as pull-refresh.ts/swipe-nav.ts's own
+        // touchmove listeners.
+        e.preventDefault();
+        const ratio = distance(e.touches[0]!, e.touches[1]!) / pinchStartDist;
+        scale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, pinchStartScale * ratio));
+        // Anchors on the pinch midpoint's own movement rather than the
+        // image center, so the zoom tracks roughly where the fingers are
+        // instead of always ballooning outward from the middle.
+        const mid = midpoint(e.touches[0]!, e.touches[1]!);
+        tx = scale > ZOOM_MIN ? pinchStartTx + (mid.x - pinchStartMid.x) : 0;
+        ty = scale > ZOOM_MIN ? pinchStartTy + (mid.y - pinchStartMid.y) : 0;
+        apply();
+      } else if (e.touches.length === 1 && panStart) {
+        e.preventDefault();
+        const t = e.touches[0]!;
+        tx = panStart.tx + (t.clientX - panStart.x);
+        ty = panStart.ty + (t.clientY - panStart.y);
+        apply();
+      }
+    },
+    { passive: false },
+  );
+  const onTouchEnd = (e: TouchEvent): void => {
+    if (e.touches.length < 2) pinchStartDist = 0;
+    if (e.touches.length === 1 && scale > ZOOM_MIN) {
+      const t = e.touches[0]!;
+      panStart = { x: t.clientX, y: t.clientY, tx, ty };
+    } else {
+      panStart = null;
+    }
+  };
+  container.addEventListener("touchend", onTouchEnd, { passive: true });
+  container.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+  // Trackpad pinch on desktop Chrome/Firefox reports as a wheel event
+  // with ctrlKey set (the browser's own synthesized "pinch" signal).
+  container.addEventListener(
+    "wheel",
+    (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      scale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale - e.deltaY * 0.01));
+      if (scale <= ZOOM_MIN) {
+        tx = 0;
+        ty = 0;
+      }
+      apply();
+    },
+    { passive: false },
+  );
+  return container;
+}
+
 function renderFileOverlay(c: ChatState): Node {
   const fo = c.fileOverlay;
   if (!fo) return document.createTextNode("");
@@ -5644,13 +5778,11 @@ function renderFileOverlay(c: ChatState): Node {
           { class: "crumbs-actions" },
           el("span", { class: "crumb", ...tapHandler(() => closeFilePreview()) }, "← back to listing"),
         ),
-        copyablePathNode(c.cwd, path),
+        // No real file behind a pasted/sent prompt image — nothing to
+        // copy a path for.
+        path !== undefined ? copyablePathNode(c.cwd, path) : null,
       ),
-      el(
-        "div",
-        { class: "image-preview" },
-        el("img", { class: "image-preview-full", src: url }),
-      ),
+      imagePreviewEl(url),
     );
   } else if (fo.preview) {
     const { path, content, fromLine, hasMore } = fo.preview;
@@ -5806,8 +5938,8 @@ function renderFileOverlay(c: ChatState): Node {
         // prominent line told you the project while the filename only
         // appeared in the smaller crumb row underneath — with a whole
         // desktop-width header to spend on it.
-        el("span", { class: "title" }, fo.preview ? baseName(fo.preview.path) : "Files"),
-        el("span", { class: "pill" }, fo.preview ? dirName(fo.preview.path, c.cwd) : c.cwd),
+        el("span", { class: "title" }, fo.preview?.path ? baseName(fo.preview.path) : fo.preview ? "pasted image" : "Files"),
+        el("span", { class: "pill" }, fo.preview?.path ? dirName(fo.preview.path, c.cwd) : c.cwd),
         el("span", { class: "spacer" }),
         el(
           "button",

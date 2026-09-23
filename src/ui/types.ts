@@ -385,7 +385,9 @@ export interface FileOverlayState {
   // opening a preview from a chat image bubble hands over that bubble's
   // own URL, cache-busted with the toolCallId that produced it (see
   // acp.ts's extractInlineImages), so the viewer shows the same snapshot
-  // you clicked rather than whatever the file holds right now.
+  // you clicked rather than whatever the file holds right now. `path` is
+  // absent for a pasted/sent prompt image: it's pure base64 (url is a
+  // data: URI) with no file on the daemon's host to name.
   preview:
     | {
         path: string;
@@ -393,7 +395,7 @@ export interface FileOverlayState {
         fromLine: number;
         hasMore: boolean;
       }
-    | { path: string; isImage: true; url: string }
+    | { path?: string; isImage: true; url: string }
     | null;
   err: string | null;
   maximized: boolean;
