@@ -198,7 +198,34 @@ export function initWideLayoutWatcher(onChange: () => void): void {
 // relative to the physical screen: a stationary finger holds them steady
 // no matter what the viewport does, while a real drag still moves them,
 // so the pull-to-refresh/scroll suppression above is unaffected.
-export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
+// When any tapHandler'd control last actually activated. The composer's
+// touchstart rescue (views.ts) reads it to tell a tap that was handled
+// from one iOS swallowed.
+let lastActivatedAt = -Infinity;
+
+export function lastTapActivatedAt(): number {
+  return lastActivatedAt;
+}
+
+// Set by that rescue when it presses a control itself, so a touchend
+// arriving late for the same gesture cannot fire the control again.
+let lastRescuedAt = -Infinity;
+
+export function noteTapRescued(): void {
+  lastRescuedAt = performance.now();
+}
+
+let lastPointerDownAt = -Infinity;
+
+export function lastTapPointerDownAt(): number {
+  return lastPointerDownAt;
+}
+
+export function tapHandler(handler: (e: Event) => void): Record<string, unknown> {
+  const fn = (e: Event): void => {
+    lastActivatedAt = performance.now();
+    handler(e);
+  };
   let firedViaPointer = false;
   let startX = 0;
   let startY = 0;
@@ -255,6 +282,7 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
       // Checked by time rather than order because WebKit and Blink
       // disagree on whether pointerdown precedes touchstart.
       if (downAt >= touchStartAt - POINTER_TOUCH_SLACK_MS) return;
+      if (lastRescuedAt >= touchStartAt) return;
       const t = (e as TouchEvent).changedTouches[0];
       if (!t) return;
       if (Math.hypot(t.screenX - touchStartX, t.screenY - touchStartY) > TAP_MOVE_THRESHOLD) return;
@@ -276,6 +304,7 @@ export function tapHandler(fn: (e: Event) => void): Record<string, unknown> {
       startY = pe.screenY;
       haveStart = true;
       downAt = performance.now();
+      lastPointerDownAt = downAt;
       noteTapHandlerDown();
       if (tapDebugEnabled()) {
         tapLog(

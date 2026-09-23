@@ -51,6 +51,20 @@ interface AmendPromptResult {
   messageId?: string;
 }
 
+// iOS can commit dictated or marked text into the textarea without an
+// input event reaching oninput first, leaving composerValue behind what is
+// on screen. Only ever adopt a non-empty field: an empty value is what that
+// same uncommitted state reads as, and must not wipe the real draft.
+function syncComposerFromDom(c: ChatState): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+  const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
+  if (ta && ta.value.trim().length > 0 && ta.value !== c.composerValue) {
+    c.composerValue = ta.value;
+  }
+}
+
 export function sendPrompt(): void {
   const c = state.current;
   if (tapDebugEnabled()) {
@@ -64,6 +78,7 @@ export function sendPrompt(): void {
     );
   }
   if (!c) return;
+  syncComposerFromDom(c);
   const text = c.composerValue.trim();
   const attachments = c.attachments;
   if (!text && attachments.length === 0) {
@@ -431,6 +446,7 @@ export function updateQueuedPrompt(entry: QueueEntry, text: string): void {
 export function amendPrompt(): void {
   const c = state.current;
   if (!c) return;
+  syncComposerFromDom(c);
   const text = c.composerValue.trim();
   const attachments = c.attachments;
   if (!text && attachments.length === 0) return;

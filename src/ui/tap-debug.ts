@@ -120,9 +120,19 @@ function cssVar(name: string): string {
 
 // How long to wait after the touch before deciding the button never got
 // it. Comfortably past the synchronous pointerdown dispatch.
-const VERDICT_DELAY_MS = 350;
+const VERDICT_DELAY_MS = 1500;
+
+// Touch-sequence and composition facts for the report: whether iOS ever
+// finished the touch, and whether dictation/marked text was open.
+let lastTouchEndAt = -Infinity;
+let lastTouchCancelAt = -Infinity;
+let composing = false;
 
 export function initTapWatchdog(): void {
+  document.addEventListener("touchend", () => { lastTouchEndAt = performance.now(); }, { capture: true, passive: true });
+  document.addEventListener("touchcancel", () => { lastTouchCancelAt = performance.now(); }, { capture: true, passive: true });
+  document.addEventListener("compositionstart", () => { composing = true; }, true);
+  document.addEventListener("compositionend", () => { composing = false; }, true);
   document.addEventListener(
     "touchstart",
     (e: TouchEvent) => {
@@ -137,6 +147,9 @@ export function initTapWatchdog(): void {
       if (!inside) return;
 
       const startedAt = performance.now();
+      const composingAtStart = composing;
+      const taAtStart = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
+      const taLenAtStart = taAtStart ? taAtStart.value.trim().length : -1;
       const touchTarget = e.target instanceof Element ? e.target : null;
       // What the browser believes is at the point we just touched. If
       // this is not the button (or a child of it), painting and
@@ -159,6 +172,9 @@ export function initTapWatchdog(): void {
             // other and still do not match this, which is the whole
             // puzzle, so name the real target.
             `target=${describe(touchTarget)} ` +
+            `build=${typeof __BUILD_ID__ === "string" ? __BUILD_ID__ : "dev"} ` +
+            `touchEnd=${lastTouchEndAt >= startedAt} touchCancel=${lastTouchCancelAt >= startedAt} ` +
+            `composing=${composingAtStart} ` +
             `taRect=${tr ? `${Math.round(tr.left)},${Math.round(tr.top)},${Math.round(tr.right)},${Math.round(tr.bottom)}` : "none"} ` +
             `docClientH=${document.documentElement.clientHeight} ` +
             `vvPageTop=${vv ? Math.round(vv.pageTop) : -1} scrollY=${Math.round(window.scrollY)} ` +
@@ -170,7 +186,7 @@ export function initTapWatchdog(): void {
             `kbdClass=${document.documentElement.classList.contains("keyboard-open")} ` +
             `bodyTransform=${getComputedStyle(document.body).transform} ` +
             `active=${describe(document.activeElement)} ` +
-            `taLen=${ta ? ta.value.trim().length : -1}`,
+            `taLen=${taLenAtStart}`,
         );
       }, VERDICT_DELAY_MS);
     },
