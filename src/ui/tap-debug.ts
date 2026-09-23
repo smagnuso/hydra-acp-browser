@@ -87,6 +87,26 @@ export function noteTouchFallback(): void {
   lastTouchFallbackAt = performance.now();
 }
 
+// Set whenever any tapHandler'd control actually fires. The watchdog judges
+// a tap by this outcome rather than by which events arrived: a press can
+// deliver its pointerdown and still be cancelled before it fires.
+let lastActivatedAt = -Infinity;
+
+// What sendPrompt last did, and when. The watchdog's real question is not
+// whether the button fired but whether a prompt went out: a button can
+// fire and sendPrompt still return early with nothing sent.
+let lastSendAt = -Infinity;
+let lastSendOutcome = "";
+
+export function noteSendOutcome(outcome: string): void {
+  lastSendAt = performance.now();
+  lastSendOutcome = outcome;
+}
+
+export function noteTapActivated(): void {
+  lastActivatedAt = performance.now();
+}
+
 let reportsThisSession = 0;
 const MAX_REPORTS_PER_SESSION = 40;
 
@@ -158,10 +178,13 @@ const VERDICT_DELAY_MS = 1500;
 let lastTouchEndAt = -Infinity;
 let lastTouchCancelAt = -Infinity;
 let composing = false;
+let lastPointerCancelAt = -Infinity;
 
 export function initTapWatchdog(): void {
+  report(`CLIENT LOADED build=${typeof __BUILD_ID__ === "string" ? __BUILD_ID__ : "dev"} ua=${navigator.userAgent.slice(0, 120)}`);
   document.addEventListener("touchend", () => { lastTouchEndAt = performance.now(); }, { capture: true, passive: true });
   document.addEventListener("touchcancel", () => { lastTouchCancelAt = performance.now(); }, { capture: true, passive: true });
+  document.addEventListener("pointercancel", () => { lastPointerCancelAt = performance.now(); }, true);
   document.addEventListener("compositionstart", () => { composing = true; }, true);
   document.addEventListener("compositionend", () => { composing = false; }, true);
   document.addEventListener(
@@ -191,13 +214,21 @@ export function initTapWatchdog(): void {
       const vv = window.visualViewport;
 
       setTimeout(() => {
-        const gotDown = lastTapHandlerDownAt >= startedAt;
-        if (gotDown && hitIsButton) return;
-        const rescued = lastTouchFallbackAt >= startedAt;
+        // iOS dispatches pointerdown just before touchstart, so a press on
+        // this button can predate startedAt slightly.
+        const gotDown = lastTapHandlerDownAt >= startedAt - 150;
+        const activated = lastActivatedAt >= startedAt - 150;
+        const rescued = lastTouchFallbackAt >= startedAt - 150;
+        const sendRan = lastSendAt >= startedAt - 150;
+        const sent = sendRan && lastSendOutcome === "dispatched";
+        // Nothing typed means nothing should go out; not a failure.
+        if (sent || taLenAtStart === 0) return;
         const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
         const tr = ta?.getBoundingClientRect();
         report(
-          (rescued ? "SEND TAP RESCUED by touch fallback " : "SEND TAP LOST ") +
+          "SEND TAP NO PROMPT " +
+            `activated=${activated} rescued=${rescued} sendRan=${sendRan} ` +
+            `sendOutcome=${sendRan ? lastSendOutcome : "-"} ` +
             `gotPointerDown=${gotDown} hitIsButton=${hitIsButton} hit=${describe(at)} ` +
             // The decisive one: who the browser actually dispatched to.
             // elementFromPoint and getBoundingClientRect agree with each
@@ -208,6 +239,7 @@ export function initTapWatchdog(): void {
             `composers=${composerCensus()} ` +
             `build=${typeof __BUILD_ID__ === "string" ? __BUILD_ID__ : "dev"} ` +
             `touchEnd=${lastTouchEndAt >= startedAt} touchCancel=${lastTouchCancelAt >= startedAt} ` +
+            `pointerCancel=${lastPointerCancelAt >= startedAt - 150} ` +
             `composing=${composingAtStart} ` +
             `taRect=${tr ? `${Math.round(tr.left)},${Math.round(tr.top)},${Math.round(tr.right)},${Math.round(tr.bottom)}` : "none"} ` +
             `docClientH=${document.documentElement.clientHeight} ` +

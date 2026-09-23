@@ -7,7 +7,7 @@
 // `el("button", { disabled: someFlag && true })` without polluting the
 // element tree.
 
-import { noteTapHandlerDown, noteTouchFallback, tapDebugEnabled, tapLog } from "./tap-debug.js";
+import { noteTapActivated, noteTapHandlerDown, noteTouchFallback, tapDebugEnabled, tapLog } from "./tap-debug.js";
 
 type Attrs = Record<string, unknown> | null | undefined;
 type Child = Node | string | number | false | null | undefined | Child[];
@@ -225,15 +225,11 @@ export function noteTapRescued(): void {
   lastRescuedAt = performance.now();
 }
 
-let lastPointerDownAt = -Infinity;
-
-export function lastTapPointerDownAt(): number {
-  return lastPointerDownAt;
-}
 
 export function tapHandler(handler: (e: Event) => void): Record<string, unknown> {
   const fn = (e: Event): void => {
     lastActivatedAt = performance.now();
+    noteTapActivated();
     handler(e);
   };
   let firedViaPointer = false;
@@ -315,7 +311,6 @@ export function tapHandler(handler: (e: Event) => void): Record<string, unknown>
       startY = pe.screenY;
       haveStart = true;
       downAt = performance.now();
-      lastPointerDownAt = downAt;
       noteTapHandlerDown();
       if (tapDebugEnabled()) {
         tapLog(
@@ -345,6 +340,7 @@ export function tapHandler(handler: (e: Event) => void): Record<string, unknown>
         );
       }
       if (moved) return;
+      if (sawStart && lastRescuedAt >= downAt) return;
       if (selectionSuppressesTap(e.target)) return;
       firedViaPointer = true;
       fn(e);

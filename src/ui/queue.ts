@@ -25,7 +25,7 @@ import {
 import { jumpToBottom } from "./views.js";
 import { clearDraft, queueDraftWrite } from "./composer-draft.js";
 import { removeOfflineEntry, saveOfflineEntry } from "./offline-queue.js";
-import { tapDebugEnabled, tapLog } from "./tap-debug.js";
+import { noteSendOutcome, tapDebugEnabled, tapLog } from "./tap-debug.js";
 import type { Attachment, ChatState, QueueEntry } from "./types.js";
 
 // Build an ACP ContentBlock[] for session/prompt et al. Text block is
@@ -77,14 +77,19 @@ export function sendPrompt(): void {
         (domLen > 0 && stateLen === 0 ? " <<< DOM HAS TEXT, STATE EMPTY" : ""),
     );
   }
-  if (!c) return;
+  if (!c) {
+    noteSendOutcome("no-current-chat");
+    return;
+  }
   syncComposerFromDom(c);
   const text = c.composerValue.trim();
   const attachments = c.attachments;
   if (!text && attachments.length === 0) {
+    noteSendOutcome("empty");
     tapLog("sendPrompt DROPPED: nothing to send");
     return;
   }
+  noteSendOutcome("dispatched");
   if (dispatchPrompt(c, text, { attachments })) {
     c.composerValue = "";
     c.attachments = [];

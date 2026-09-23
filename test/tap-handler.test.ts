@@ -42,7 +42,7 @@ let selection: { isCollapsed: boolean; anchorNode: unknown; text: string } | nul
         },
 };
 
-const { tapHandler, TAP_MOVE_THRESHOLD } = await import("../src/ui/dom.js");
+const { tapHandler, TAP_MOVE_THRESHOLD, noteTapRescued } = await import("../src/ui/dom.js");
 
 interface Handlers {
   onpointerdown: (e: unknown) => void;
@@ -351,6 +351,18 @@ test("a touch-only tap on a nested control does not also fire its container", ()
   row.ontouchend(te);
   assert.equal(inner, 1);
   assert.equal(outer, 0);
+});
+
+// The composer rescue presses the live button itself when iOS cancels the
+// press. If the pointer sequence then completes after all, the same tap
+// must not send a second time.
+test("a pointerup after the rescue already pressed does not fire again", () => {
+  let fired = 0;
+  const h = tapHandler(() => fired++) as unknown as Handlers;
+  h.onpointerdown(evt(340, 700));
+  noteTapRescued();
+  h.onpointerup(evt(340, 700));
+  assert.equal(fired, 0);
 });
 
 test("keyboard activation (detail 0) still fires, pointer clicks do not double-fire", () => {

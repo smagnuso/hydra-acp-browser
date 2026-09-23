@@ -13,7 +13,6 @@ import {
   isDesktopPointer,
   isWideLayout,
   lastTapActivatedAt,
-  lastTapPointerDownAt,
   noteTapRescued,
   TAP_MOVE_THRESHOLD,
 } from "./dom.js";
@@ -2847,27 +2846,41 @@ function ensureChatView(c: ChatState): ChatView {
   };
   composerSlot.addEventListener("pointerup", releaseComposerGesture, { capture: true });
   composerSlot.addEventListener("pointercancel", releaseComposerGesture, { capture: true });
+  // Keep a tap on Send/Enqueue/Amend/Stop from blurring the textarea. On iOS
+  // preventDefault on pointerdown (tapHandler) does not do it; focus changes
+  // follow the touch events. Without this the tap closed the keyboard, the
+  // composer jumped down the screen under the finger, and the press was
+  // cancelled. Non-passive so preventDefault takes effect; scoped to the
+  // buttons so text selection and scrolling elsewhere are untouched.
+  composerSlot.addEventListener(
+    "touchstart",
+    (e: TouchEvent) => {
+      if ((e.target as Element | null)?.closest?.(".composer-buttons button")) {
+        e.preventDefault();
+      }
+    },
+    { passive: false },
+  );
   installComposerTapRescue();
   return view;
 }
 
-// iOS sometimes delivers only a touchstart for a tap on a composer button:
-// no pointer events, and no touchend either (or a touchcancel), so neither
-// of tapHandler's paths ever completes. Field captures show it with the
-// composer focused and textarea.value reading empty while text is visibly
-// in it, i.e. while iOS still holds the text as uncommitted dictation or
-// marked text and spends the first outside touch on closing that session.
-// Editing the text or toggling the keyboard commits it, which is why
-// either one made the button work again.
+// iOS routinely fails to complete a tap on a composer button while the
+// keyboard is up. Field captures show the sequence: pointerdown and
+// touchstart arrive, the tap blurs the textarea anyway (preventDefault on
+// pointerdown does not stop that on iOS; focus follows the touch events),
+// the keyboard closes and the composer jumps down the screen under the
+// finger, and the pointer sequence is cancelled. No pointerup, so neither
+// of tapHandler's paths activates. Editing the text or toggling the
+// keyboard first avoided it only because the keyboard was then already
+// settled.
 //
-// So a stationary touch on a composer button that nothing activates counts
-// as the press. The textarea is blurred first to commit the pending text
-// (the same thing dismissing the keyboard did by hand), and the button is
-// then pressed. The pointer path still owns any gesture it saw a
-// pointerdown for, so healthy taps and drags are untouched.
+// composerSlot's non-passive touchstart (ensureChatView) now keeps the
+// focus where it is, which should stop the jump. This is the backstop: a
+// stationary touch on a composer button that nothing activates counts as
+// the press, and presses the live composer's button.
 const RESCUE_SETTLE_MS = 60;
 const RESCUE_TIMEOUT_MS = 900;
-const RESCUE_COMMIT_MS = 80;
 const RESCUE_POINTER_SLACK_MS = 150;
 
 function composerButtonKey(btn: Element): string {
@@ -2916,20 +2929,17 @@ function installComposerTapRescue(): void {
     window.clearTimeout(p.timer);
     // Let the button's own touchend/pointerup handlers run first.
     window.setTimeout(() => {
-      if (lastTapActivatedAt() >= p.at) {
-        return;
-      }
-      if (lastTapPointerDownAt() >= p.at - RESCUE_POINTER_SLACK_MS) {
+      // Only an actual activation settles it. A pointerdown alone does
+      // not: on iOS it arrives just before the touchstart, and the press
+      // is then routinely cancelled (pointercancel, no pointerup) when the
+      // tap blurs the textarea and the composer jumps as the keyboard
+      // closes. Standing aside on a bare pointerdown is what left those
+      // taps LOST. A real drag is still excluded by the touchmove check.
+      if (lastTapActivatedAt() >= p.at - RESCUE_POINTER_SLACK_MS) {
         return;
       }
       noteTapRescued();
       noteTouchFallback();
-      const ta = liveComposerView()?.composerTextarea;
-      if (ta && document.activeElement === ta) {
-        ta.blur();
-        window.setTimeout(() => press(p.key), RESCUE_COMMIT_MS);
-        return;
-      }
       press(p.key);
     }, RESCUE_SETTLE_MS);
   };
