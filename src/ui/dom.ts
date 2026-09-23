@@ -198,6 +198,16 @@ export function initWideLayoutWatcher(onChange: () => void): void {
 // relative to the physical screen: a stationary finger holds them steady
 // no matter what the viewport does, while a real drag still moves them,
 // so the pull-to-refresh/scroll suppression above is unaffected.
+// Touches already taken by a tapHandler'd control nearer the target. The
+// pointer path keeps a nested control from also firing its container by
+// stopping propagation on pointerdown; the touch path cannot, since swipe
+// navigation listens for touchstart on the document. Without this, a
+// container (the header's pill row around its "ready" pill, both bound to
+// toggleDetails) saw the bubbled touch with no pointerdown of its own,
+// took that for iOS withholding pointer events, and fired a second time,
+// toggling the details panel straight back shut.
+const claimedTouches = new WeakSet<Event>();
+
 // When any tapHandler'd control last actually activated. The composer's
 // touchstart rescue (views.ts) reads it to tell a tap that was handled
 // from one iOS swallowed.
@@ -262,10 +272,11 @@ export function tapHandler(handler: (e: Event) => void): Record<string, unknown>
       if (isFormControl(e.target)) return;
       const te = e as TouchEvent;
       const t = te.touches[0];
-      if (!t || te.touches.length > 1) {
+      if (!t || te.touches.length > 1 || claimedTouches.has(e)) {
         touchStarted = false;
         return;
       }
+      claimedTouches.add(e);
       touchStarted = true;
       touchStartAt = performance.now();
       touchStartX = t.screenX;

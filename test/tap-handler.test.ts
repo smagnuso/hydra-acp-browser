@@ -313,6 +313,46 @@ test("a touch-rescued tap is not fired again by the click that follows", () => {
   assert.equal(fired, 1);
 });
 
+// The header's "ready" pill and the pill row around it are both bound to
+// toggleDetails. A tap dispatches each event to the pill, then bubbles the
+// same event object to the row. The pill's pointerdown stops propagation
+// so the row never sees one, and the row's touch fallback used to read
+// that as "iOS sent no pointer events" and fire again, toggling the panel
+// straight back shut.
+test("a tap on a nested control does not also fire its container", () => {
+  let inner = 0;
+  let outer = 0;
+  const pill = tapHandler(() => inner++) as unknown as Handlers;
+  const row = tapHandler(() => outer++) as unknown as Handlers;
+  const ts = touch(340, 700);
+  const te = touch(340, 700);
+  const pd = evt(340, 700);
+  const pu = evt(340, 700);
+  pill.onpointerdown(pd);
+  pill.ontouchstart(ts);
+  row.ontouchstart(ts);
+  pill.onpointerup(pu);
+  pill.ontouchend(te);
+  row.ontouchend(te);
+  assert.equal(inner, 1, "the pill fires once");
+  assert.equal(outer, 0, "the row must not fire on the pill's tap");
+});
+
+test("a touch-only tap on a nested control does not also fire its container", () => {
+  let inner = 0;
+  let outer = 0;
+  const pill = tapHandler(() => inner++) as unknown as Handlers;
+  const row = tapHandler(() => outer++) as unknown as Handlers;
+  const ts = touch(340, 700);
+  const te = touch(340, 700);
+  pill.ontouchstart(ts);
+  row.ontouchstart(ts);
+  pill.ontouchend(te);
+  row.ontouchend(te);
+  assert.equal(inner, 1);
+  assert.equal(outer, 0);
+});
+
 test("keyboard activation (detail 0) still fires, pointer clicks do not double-fire", () => {
   let fired = 0;
   const h = tapHandler(() => fired++) as unknown as Handlers;
