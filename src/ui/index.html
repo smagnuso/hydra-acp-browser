@@ -221,6 +221,8 @@ pre code { background: transparent; padding: 0; }
 /* Header */
 .topbar { display: flex; align-items: center; gap: 0.5rem; padding: calc(0.6rem + env(safe-area-inset-top)) calc(0.6rem + env(safe-area-inset-right)) 0.6rem calc(0.6rem + env(safe-area-inset-left)); border-bottom: 1px solid var(--border); background: var(--panel); }
 .topbar .spacer { flex: 1; }
+.topbar > * { flex-shrink: 0; }
+.topbar > .host-select { flex-shrink: 1; min-width: 0; text-overflow: ellipsis; }
 .pill { font-size: 0.8rem; color: var(--muted); padding: 0.15rem 0.5rem; border: 1px solid var(--border); border-radius: 999px; display: inline-flex; align-items: center; gap: 0.3rem; }
 .pill.clickable { cursor: pointer; }
 .pill.clickable:hover { background: var(--panel-2); color: var(--fg); }
