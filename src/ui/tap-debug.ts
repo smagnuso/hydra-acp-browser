@@ -114,6 +114,37 @@ function describe(el: Element | null): string {
   return `${el.tagName.toLowerCase()}${cls ? "." + cls.replace(/\s+/g, ".") : ""}[${text}]`;
 }
 
+// Where a node sits in the tree, root last, with any inline transform or
+// positioning, which is how a leftover or displaced copy would show.
+function ancestry(el: Element | null): string {
+  const parts: string[] = [];
+  let node: Element | null = el;
+  while (node && parts.length < 12) {
+    const cls = typeof node.className === "string" ? node.className.trim().split(/\s+/).slice(0, 2).join(".") : "";
+    let part = node.tagName.toLowerCase() + (node.id ? `#${node.id}` : "") + (cls ? `.${cls}` : "");
+    if (node instanceof HTMLElement) {
+      const st = node.style;
+      const extra = [st.transform && `tf:${st.transform}`, st.position && `pos:${st.position}`, st.zIndex && `z:${st.zIndex}`]
+        .filter(Boolean)
+        .join(",");
+      if (extra) {
+        part += `{${extra}}`;
+      }
+    }
+    parts.push(part);
+    node = node.parentElement;
+  }
+  return parts.join("<");
+}
+
+// Every composer on the page: its top edge and its container chain.
+function composerCensus(): string {
+  const all = [...document.querySelectorAll(".composer")];
+  return `${all.length}[` +
+    all.map((c) => `${Math.round(c.getBoundingClientRect().top)}@${ancestry(c.parentElement).split("<").slice(0, 4).join("<")}`).join(" | ") +
+    "]";
+}
+
 function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "-";
 }
@@ -138,13 +169,14 @@ export function initTapWatchdog(): void {
     (e: TouchEvent) => {
       const touch = e.touches[0];
       if (!touch) return;
-      const btn = document.querySelector<HTMLElement>(".composer .composer-buttons button.primary");
+      const touched = e.target instanceof Element ? e.target.closest<HTMLElement>(".composer-buttons button.primary") : null;
+      const btn = touched ?? document.querySelector<HTMLElement>(".composer .composer-buttons button.primary");
       if (!btn) return;
       const r = btn.getBoundingClientRect();
       const x = touch.clientX;
       const y = touch.clientY;
       const inside = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-      if (!inside) return;
+      if (!touched && !inside) return;
 
       const startedAt = performance.now();
       const composingAtStart = composing;
@@ -172,6 +204,8 @@ export function initTapWatchdog(): void {
             // other and still do not match this, which is the whole
             // puzzle, so name the real target.
             `target=${describe(touchTarget)} ` +
+            `btnPath=${ancestry(touchTarget)} ` +
+            `composers=${composerCensus()} ` +
             `build=${typeof __BUILD_ID__ === "string" ? __BUILD_ID__ : "dev"} ` +
             `touchEnd=${lastTouchEndAt >= startedAt} touchCancel=${lastTouchCancelAt >= startedAt} ` +
             `composing=${composingAtStart} ` +

@@ -2847,7 +2847,7 @@ function ensureChatView(c: ChatState): ChatView {
   };
   composerSlot.addEventListener("pointerup", releaseComposerGesture, { capture: true });
   composerSlot.addEventListener("pointercancel", releaseComposerGesture, { capture: true });
-  installComposerTapRescue(readyView);
+  installComposerTapRescue();
   return view;
 }
 
@@ -2880,11 +2880,28 @@ function composerButtonKey(btn: Element): string {
   return "button.content-gated:not(.primary)";
 }
 
-function installComposerTapRescue(view: ChatView): void {
+// The composer belonging to the chat actually open. Field captures show a
+// second composer on the page, frozen at an old layout and sitting over
+// the real one, taking the touch while its button activates nothing. So
+// the rescue never trusts the touched button's own subtree: it resolves
+// and presses the live composer's equivalent instead.
+function liveComposerView(): ChatView | null {
+  const c = state.current;
+  return c ? (chatViews.get(c) ?? null) : null;
+}
+
+let composerTapRescueInstalled = false;
+
+function installComposerTapRescue(): void {
+  if (composerTapRescueInstalled) {
+    return;
+  }
+  composerTapRescueInstalled = true;
   let pending: { key: string; at: number; x: number; y: number; timer: number } | null = null;
 
   const press = (key: string): void => {
-    const btn = view.composerSlot.querySelector<HTMLButtonElement>(`.composer-buttons ${key}`);
+    const view = liveComposerView();
+    const btn = view?.composerSlot.querySelector<HTMLButtonElement>(`.composer-buttons ${key}`);
     if (btn && !btn.disabled) {
       btn.click();
     }
@@ -2907,7 +2924,7 @@ function installComposerTapRescue(view: ChatView): void {
       }
       noteTapRescued();
       noteTouchFallback();
-      const ta = view.composerTextarea;
+      const ta = liveComposerView()?.composerTextarea;
       if (ta && document.activeElement === ta) {
         ta.blur();
         window.setTimeout(() => press(p.key), RESCUE_COMMIT_MS);
@@ -2917,7 +2934,7 @@ function installComposerTapRescue(view: ChatView): void {
     }, RESCUE_SETTLE_MS);
   };
 
-  view.composerSlot.addEventListener(
+  document.addEventListener(
     "touchstart",
     (e: TouchEvent) => {
       if (pending) {
@@ -2942,8 +2959,8 @@ function installComposerTapRescue(view: ChatView): void {
     },
     { capture: true, passive: true },
   );
-  // Document-level: iOS may deliver the rest of the sequence anywhere, or
-  // not at all, once it has claimed the touch.
+  // iOS may deliver the rest of the sequence anywhere, or not at all,
+  // once it has claimed the touch.
   document.addEventListener(
     "touchmove",
     (e: TouchEvent) => {
