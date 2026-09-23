@@ -1953,7 +1953,19 @@ export function handleNotification(frame: JsonRpcFrame, fromCache = false): void
   // Without this, the chat header pill (views.ts) would keep reading
   // "cold" forever after a kill-then-resurrect that didn't also drop
   // the WS.
-  if (state.current?.cold) {
+  //
+  // agent_message_links is excluded: it's a browser-only bookkeeping
+  // notification ws-bridge.ts synthesizes from its own async file-mention
+  // scan (scanForFileMentions) and sends after bridge/ready, including for
+  // a readonly viewer attach to a session that's genuinely cold — the scan
+  // runs off historical turn_complete/stop entries in the replay, with no
+  // live agent behind it. Treating it as proof of life flipped the "cold"
+  // pill back to "ready" seconds after a cold open, every time.
+  const isSyntheticLinkUpdate =
+    frame.method === "session/update" &&
+    (frame.params as { update?: { sessionUpdate?: unknown } } | undefined)?.update
+      ?.sessionUpdate === "agent_message_links";
+  if (state.current?.cold && !isSyntheticLinkUpdate) {
     state.current.cold = false;
     state.current.ready = true;
   }
