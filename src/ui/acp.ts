@@ -14,6 +14,7 @@ import type {
   ConfigOption,
   EditDiffLogItem,
   ExitPlanLogItem,
+  ImageLogItem,
   LogItem,
   PermissionEntry,
   PlanLogItem,
@@ -328,7 +329,8 @@ export function pushChunk(
 ): void {
   if (!state.current) return;
   const text = contentToText(content);
-  if (!text) return;
+  const images = extractInlineImages(content, state.current.sessionId, messageId);
+  if (!text && !images) return;
   const log = state.current.log;
   // Active-turn content lands above any waiting-queued bubbles (so the
   // turn's output stays attached to its prompt and queued prompts trail
@@ -363,6 +365,9 @@ export function pushChunk(
       last.messageId === messageId)
   ) {
     last.text += text;
+    if (images) {
+      last.attachments = last.attachments ? [...last.attachments, ...images] : images;
+    }
     // Each chunk is its own recordable frame with its own messageId
     // (cli's recordAndBroadcast stamps one per broadcast, not once per
     // logical message) — track the latest one, not just the first.
@@ -395,6 +400,7 @@ export function pushChunk(
     text,
     synthetic: synthetic || undefined,
     messageId,
+    attachments: images,
   });
 }
 
@@ -790,6 +796,13 @@ function onToolCall(update: AnyRecord): void {
     );
     return;
   }
+  if (applyResourceLinkImageUpdate(update)) {
+    maybeResolvePermissionByToolCall(
+      String(update.toolCallId),
+      typeof update.status === "string" ? update.status : undefined,
+    );
+    return;
+  }
   const tc: ToolCallState = {
     toolCallId: String(update.toolCallId),
     title: String(update.title ?? update.kind ?? "tool"),
@@ -818,6 +831,15 @@ function onToolCallUpdate(update: AnyRecord): void {
     return;
   }
   if (applyEditDiffUpdate(update)) {
+    if (typeof update.status === "string") {
+      maybeResolvePermissionByToolCall(
+        String(update.toolCallId),
+        update.status,
+      );
+    }
+    return;
+  }
+  if (applyResourceLinkImageUpdate(update)) {
     if (typeof update.status === "string") {
       maybeResolvePermissionByToolCall(
         String(update.toolCallId),
@@ -1207,7 +1229,7 @@ function promptBlocksToText(prompt: unknown): string {
 // LogItem stays clean (no attachments field at all) and its
 // logItemSig/render path matches an ordinary bubble exactly.
 function extractImageAttachments(prompt: unknown): Attachment[] | undefined {
-  const blocks = Array.isArray(prompt) ? prompt : [];
+  const blocks = Array.isArray(prompt) ? prompt : prompt ? [prompt] : [];
   const attachments: Attachment[] = [];
   for (const block of blocks) {
     if (!block || typeof block !== "object") continue;
@@ -1220,6 +1242,130 @@ function extractImageAttachments(prompt: unknown): Attachment[] | undefined {
     });
   }
   return attachments.length > 0 ? attachments : undefined;
+}
+
+// Mirrors routes-files.ts's IMAGE_MIME_BY_EXT (server-side, decides what
+// /api/files/image will serve). Kept in sync by hand — no shared module
+// between the server and UI bundles.
+const RESOURCE_LINK_IMAGE_MIME_BY_EXT: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".bmp": "image/bmp",
+};
+
+// A resource_link block ({type: "resource_link", uri, name}) is how an
+// agent points at a file it saved to disk instead of inlining bytes — the
+// path this repo's agents actually take for a generated screenshot/diagram
+// (an {type: "image", data} block with inline base64 is rarer, but still
+// handled here). The file lives on the daemon's host, not in this frame,
+// so unlike a base64 block this can't embed the bytes here: it builds a
+// lazy /api/files/image URL (scoped server-side to the session's cwd, same
+// allowlist ws-bridge.ts's extractResourceLinkImagePaths populates) for
+// the <img> tag to fetch directly.
+//
+// Recurses into `.content` because a tool call's content[] wraps every
+// block as {type: "content", content: <the actual ContentBlock>} — unlike
+// a message chunk's content, which is the bare block. Message-chunk
+// callers hand this a bare block/array, which the same walk handles fine
+// (no `.content` wrapper to descend through).
+//
+// cacheKey (the toolCallId/messageId this image came from) rides along in
+// the URL's query string so the SAME path viewed by two different tool
+// calls gets two distinct URLs. Without it, an agent that edits a file and
+// re-views it (common: redraw a diagram, look again) produces two log
+// bubbles sharing one URL — and since the "image" LogItem kind is
+// deliberately uncached (see logItemSig) and gets a fresh <img> element
+// every render, EVERY render after that re-fetches BOTH bubbles from
+// whatever the file currently holds, silently overwriting the earlier
+// bubble's "what the agent saw back then" with the latest bytes instead.
+// A distinct URL per view freezes each bubble to what the file held the
+// first time that toolCallId's image was fetched.
+function extractInlineImages(
+  content: unknown,
+  sessionId: string,
+  cacheKey?: string,
+): Attachment[] | undefined {
+  const attachments: Attachment[] = [];
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    const b = node as AnyRecord;
+    if (b.type === "image" && typeof b.data === "string") {
+      attachments.push({
+        mimeType: typeof b.mimeType === "string" ? b.mimeType : "image/png",
+        data: b.data,
+        sizeBytes: Math.round((b.data.length * 3) / 4),
+      });
+      return;
+    }
+    if (b.type === "resource_link") {
+      const path = typeof b.uri === "string" ? b.uri : typeof b.name === "string" ? b.name : undefined;
+      if (!path) return;
+      const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
+      const mime = RESOURCE_LINK_IMAGE_MIME_BY_EXT[ext];
+      if (!mime) return;
+      const key = cacheKey ? `&t=${encodeURIComponent(cacheKey)}` : "";
+      attachments.push({
+        mimeType: mime,
+        url: `/api/files/image?sessionId=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(path)}${key}`,
+        path,
+        sizeBytes: 0,
+      });
+      return;
+    }
+    if (b.content !== undefined) walk(b.content);
+  };
+  walk(content);
+  return attachments.length > 0 ? attachments : undefined;
+}
+
+function findImageLogItem(toolCallId: string): { idx: number; item: ImageLogItem } | null {
+  if (!state.current) return null;
+  const log = state.current.log;
+  for (let i = 0; i < log.length; i++) {
+    const entry = log[i]!;
+    if (entry.kind === "image" && entry.toolCallId === toolCallId) {
+      return { idx: i, item: entry };
+    }
+  }
+  return null;
+}
+
+// Push (or update the status of) a persistent image bubble for a tool call
+// whose content names an image (resource_link or inline base64). Mirrors
+// applyEditDiffUpdate: returns true when the update carried (or already
+// had) an image and should not fall through to the generic tool-call
+// handling, which is what keeps the bubble visible after finalizeTurn()
+// drops the spinner.
+function applyResourceLinkImageUpdate(update: AnyRecord): boolean {
+  if (!state.current) return false;
+  const toolCallId = String(update.toolCallId ?? "");
+  if (!toolCallId) return false;
+  const existing = findImageLogItem(toolCallId);
+  const images = extractInlineImages(update.content, state.current.sessionId, toolCallId);
+  const status = typeof update.status === "string" ? update.status : undefined;
+  if (existing) {
+    if (images) existing.item.attachments = images;
+    if (status !== undefined) existing.item.status = status;
+    return true;
+  }
+  if (!images) return false;
+  closeOpenStream();
+  const item: ImageLogItem = {
+    kind: "image",
+    toolCallId,
+    attachments: images,
+  };
+  if (status !== undefined) item.status = status;
+  insertAboveQueued(item);
+  return true;
 }
 
 function onPromptQueueAdded(params: AnyRecord): void {

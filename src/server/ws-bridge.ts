@@ -21,7 +21,12 @@ import {
 import { checkStateChanging } from "../util/csrf.js";
 import type { ServerContext } from "./http.js";
 import { HydraRestClient, foreignCwdOwner } from "../hydra/client.js";
-import { contentToText, extractEditedPaths, findFileMentions } from "./file-mentions.js";
+import {
+  contentToText,
+  extractEditedPaths,
+  extractResourceLinkImagePaths,
+  findFileMentions,
+} from "./file-mentions.js";
 import { recordEditedPath } from "./session-files.js";
 import { hasSubscriptions, sendPushToEndpoint } from "./push-store.js";
 import { registerForPush } from "./turn-notify-callback.js";
@@ -552,6 +557,21 @@ function handleConnection(
           void localSessionCwd().then((cwd) => {
             if (cwd === null) return;
             for (const path of edited) {
+              recordEditedPath(sessionId, path);
+            }
+          });
+        }
+      }
+      // Same allowlist, same reasoning: a resource_link image an agent
+      // saved to disk is routinely outside cwd (a /tmp scratch dir is the
+      // common case), and /api/files/image needs the same escape hatch
+      // recordEditedPath already gives edited-file links above.
+      if (update?.content !== undefined) {
+        const imagePaths = extractResourceLinkImagePaths(update.content);
+        if (imagePaths.length > 0) {
+          void localSessionCwd().then((cwd) => {
+            if (cwd === null) return;
+            for (const path of imagePaths) {
               recordEditedPath(sessionId, path);
             }
           });

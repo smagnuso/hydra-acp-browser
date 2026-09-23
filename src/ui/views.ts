@@ -12,8 +12,12 @@ import {
   isFormControl,
   isDesktopPointer,
   isWideLayout,
+  lastTapActivatedAt,
+  lastTapPointerDownAt,
+  noteTapRescued,
   TAP_MOVE_THRESHOLD,
 } from "./dom.js";
+import { noteTouchFallback } from "./tap-debug.js";
 import { renderMarkdown, renderInlineMarkdown, escapeHtml, linkifyFilePaths } from "./markdown.js";
 import { highlightCode } from "./hljs.js";
 import {
@@ -61,6 +65,7 @@ import type {
   EditDiffLogItem,
   FileEntry,
   FileOverlayState,
+  ImageLogItem,
   PermissionEntry,
   QueueEntry,
   SessionInfo,
@@ -120,8 +125,8 @@ function addPastedImages(c: ChatState, files: File[]): void {
   }
 }
 
-function dataUri(a: Attachment): string {
-  return `data:${a.mimeType};base64,${a.data}`;
+function attachmentSrc(a: Attachment): string {
+  return a.url ?? `data:${a.mimeType};base64,${a.data}`;
 }
 
 // Pending-attachment chips shown above the composer textarea, each with a
@@ -136,7 +141,7 @@ function renderAttachmentChips(c: ChatState): Node | null {
       el(
         "span",
         { class: "attachment-chip", title: formatAttachmentSize(a.sizeBytes) },
-        el("img", { class: "attachment-thumb", src: dataUri(a) }),
+        el("img", { class: "attachment-thumb", src: attachmentSrc(a) }),
         el(
           "button",
           {
@@ -2842,7 +2847,119 @@ function ensureChatView(c: ChatState): ChatView {
   };
   composerSlot.addEventListener("pointerup", releaseComposerGesture, { capture: true });
   composerSlot.addEventListener("pointercancel", releaseComposerGesture, { capture: true });
+  installComposerTapRescue(readyView);
   return view;
+}
+
+// iOS sometimes delivers only a touchstart for a tap on a composer button:
+// no pointer events, and no touchend either (or a touchcancel), so neither
+// of tapHandler's paths ever completes. Field captures show it with the
+// composer focused and textarea.value reading empty while text is visibly
+// in it, i.e. while iOS still holds the text as uncommitted dictation or
+// marked text and spends the first outside touch on closing that session.
+// Editing the text or toggling the keyboard commits it, which is why
+// either one made the button work again.
+//
+// So a stationary touch on a composer button that nothing activates counts
+// as the press. The textarea is blurred first to commit the pending text
+// (the same thing dismissing the keyboard did by hand), and the button is
+// then pressed. The pointer path still owns any gesture it saw a
+// pointerdown for, so healthy taps and drags are untouched.
+const RESCUE_SETTLE_MS = 60;
+const RESCUE_TIMEOUT_MS = 900;
+const RESCUE_COMMIT_MS = 80;
+const RESCUE_POINTER_SLACK_MS = 150;
+
+function composerButtonKey(btn: Element): string {
+  if (btn.classList.contains("stop")) {
+    return "button.stop";
+  }
+  if (btn.classList.contains("primary")) {
+    return "button.primary";
+  }
+  return "button.content-gated:not(.primary)";
+}
+
+function installComposerTapRescue(view: ChatView): void {
+  let pending: { key: string; at: number; x: number; y: number; timer: number } | null = null;
+
+  const press = (key: string): void => {
+    const btn = view.composerSlot.querySelector<HTMLButtonElement>(`.composer-buttons ${key}`);
+    if (btn && !btn.disabled) {
+      btn.click();
+    }
+  };
+
+  const decide = (): void => {
+    const p = pending;
+    if (!p) {
+      return;
+    }
+    pending = null;
+    window.clearTimeout(p.timer);
+    // Let the button's own touchend/pointerup handlers run first.
+    window.setTimeout(() => {
+      if (lastTapActivatedAt() >= p.at) {
+        return;
+      }
+      if (lastTapPointerDownAt() >= p.at - RESCUE_POINTER_SLACK_MS) {
+        return;
+      }
+      noteTapRescued();
+      noteTouchFallback();
+      const ta = view.composerTextarea;
+      if (ta && document.activeElement === ta) {
+        ta.blur();
+        window.setTimeout(() => press(p.key), RESCUE_COMMIT_MS);
+        return;
+      }
+      press(p.key);
+    }, RESCUE_SETTLE_MS);
+  };
+
+  view.composerSlot.addEventListener(
+    "touchstart",
+    (e: TouchEvent) => {
+      if (pending) {
+        window.clearTimeout(pending.timer);
+        pending = null;
+      }
+      const t = e.touches[0];
+      if (!t || e.touches.length > 1) {
+        return;
+      }
+      const btn = (e.target as Element | null)?.closest?.(".composer-buttons button");
+      if (!btn || (btn as HTMLButtonElement).disabled) {
+        return;
+      }
+      pending = {
+        key: composerButtonKey(btn),
+        at: performance.now(),
+        x: t.screenX,
+        y: t.screenY,
+        timer: window.setTimeout(decide, RESCUE_TIMEOUT_MS),
+      };
+    },
+    { capture: true, passive: true },
+  );
+  // Document-level: iOS may deliver the rest of the sequence anywhere, or
+  // not at all, once it has claimed the touch.
+  document.addEventListener(
+    "touchmove",
+    (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!pending || !t) {
+        return;
+      }
+      if (Math.hypot(t.screenX - pending.x, t.screenY - pending.y) > TAP_MOVE_THRESHOLD) {
+        window.clearTimeout(pending.timer);
+        pending = null;
+      }
+    },
+    { capture: true, passive: true },
+  );
+  document.addEventListener("touchend", decide, { capture: true, passive: true });
+  document.addEventListener("touchcancel", decide, { capture: true, passive: true });
 }
 
 // Per-item node cache: a bubble whose inputs haven't changed keeps its
@@ -3178,7 +3295,7 @@ function patchFileOverlayInPlace(parent: HTMLElement, c: ChatState): void {
 function applyKeepLine(c: ChatState): boolean {
   const fo = c.fileOverlay;
   const keep = fo?.keepLine;
-  if (!fo || !keep || !fo.preview) return false;
+  if (!fo || !keep || !fo.preview || !("fromLine" in fo.preview)) return false;
   const scroller = document.querySelector<HTMLElement>(".files .preview");
   const metrics = scroller ? gutterMetrics(scroller) : null;
   // Cleared only once it has been applied. Clearing up front instead
@@ -4020,7 +4137,7 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
             "div",
             { class: "attachment-thumbs" },
             ...item.attachments.map((a) =>
-              el("img", { class: "attachment-thumb", src: dataUri(a) }),
+              el("img", { class: "attachment-thumb", src: attachmentSrc(a) }),
             ),
           ),
         );
@@ -4088,6 +4205,9 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
   }
   if (item.kind === "edit-diff") {
     return renderEditDiff(c, item);
+  }
+  if (item.kind === "image") {
+    return renderImageLogItem(c, item);
   }
   return document.createTextNode("");
 }
@@ -4241,6 +4361,33 @@ function renderEditDiff(c: ChatState, item: EditDiffLogItem): HTMLElement {
     );
   }
   return node;
+}
+
+// Persistent "the agent looked at/saved an image" block — an agent's
+// resource_link (or inline base64) tool-call content, kept visible after
+// finalizeTurn() the same way renderEditDiff keeps an edit visible.
+function renderImageLogItem(c: ChatState, item: ImageLogItem): HTMLElement {
+  return el(
+    "div",
+    { class: "msg agent" },
+    el(
+      "div",
+      { class: "attachment-thumbs" },
+      ...item.attachments.map((a) =>
+        el("img", {
+          class: a.path ? "attachment-thumb clickable" : "attachment-thumb",
+          src: attachmentSrc(a),
+          // Only a resource_link (a.path/a.url set) names a real file on
+          // the daemon's host the Files viewer can reopen — a base64
+          // block has no server-side path to show there. Hands over this
+          // bubble's own (cache-busted) url rather than rebuilding one
+          // from the bare path, so the viewer shows the exact snapshot
+          // this thumbnail is showing, not whatever the file holds now.
+          ...(a.path && a.url ? tapHandler(() => openImagePreviewAt(c, a.path!, a.url!)) : {}),
+        }),
+      ),
+    ),
+  );
 }
 
 function renderExitPlan(item: {
@@ -4825,6 +4972,27 @@ function openFiles(): void {
   }
 }
 
+// Opens the Files overlay straight into a full-size view of one image —
+// what tapping a chat image bubble does, so "the agent looked at this"
+// and "let me look at it too" land on the exact same view. No directory
+// listing fetch: the image's path is routinely outside cwd (a /tmp
+// scratch dir), where /api/files/list would 400, and there's nothing
+// useful "back to listing" needs beyond closing the preview.
+function openImagePreviewAt(c: ChatState, path: string, url: string): void {
+  blurForOverlay();
+  const saved = c.savedFileView;
+  c.fileOverlay = {
+    path: "",
+    entries: [],
+    preview: { path, isImage: true, url },
+    err: null,
+    maximized: saved?.maximized ?? defaultMaximized(),
+    previewRaw: false,
+  };
+  render();
+  focusOverlay();
+}
+
 type ReadWindow = {
   content: string;
   fromLine?: number;
@@ -4846,22 +5014,27 @@ async function restoreFileView(
   // is computed for edits nobody clicks.
   locate?: EditAnchor,
 ): Promise<void> {
+  const isImage = isImagePath(previewPath);
   const [listResult, readResult] = await Promise.allSettled([
     api<{ path: string; entries?: FileEntry[] }>("/api/files/list", {
       method: "POST",
       body: JSON.stringify({ sessionId: c.sessionId, path: dirPath }),
     }),
-    api<ReadWindow>("/api/files/read", {
-      method: "POST",
-      body: JSON.stringify({
-        sessionId: c.sessionId,
-        path: previewPath,
-        // Centre the window on whatever we're aiming at, so a link into
-        // a large file lands on its lines rather than its first page.
-        ...(locate ? { locate: locate.anchor } : {}),
-        ...(locate || scrollToLine === undefined ? {} : { fromLine: windowStartFor(scrollToLine) }),
-      }),
-    }),
+    // /api/files/read 415s on binary, so there's nothing worth asking for
+    // an image path — the <img> tag fetches /api/files/image itself.
+    isImage
+      ? Promise.resolve({ content: "" } as ReadWindow)
+      : api<ReadWindow>("/api/files/read", {
+          method: "POST",
+          body: JSON.stringify({
+            sessionId: c.sessionId,
+            path: previewPath,
+            // Centre the window on whatever we're aiming at, so a link into
+            // a large file lands on its lines rather than its first page.
+            ...(locate ? { locate: locate.anchor } : {}),
+            ...(locate || scrollToLine === undefined ? {} : { fromLine: windowStartFor(scrollToLine) }),
+          }),
+        }),
   ]);
   if (state.current !== c || !c.fileOverlay) return;
   const maximized = c.fileOverlay.maximized;
@@ -4870,7 +5043,7 @@ async function restoreFileView(
   // The server resolves the anchor now and reports which line it hit,
   // because the client only holds a window of the file and can no longer
   // search it.
-  if (from === undefined && locate && readResult.status === "fulfilled") {
+  if (!isImage && from === undefined && locate && readResult.status === "fulfilled") {
     const matched = readResult.value.matchedLine;
     if (typeof matched === "number") {
       from = matched;
@@ -4878,12 +5051,13 @@ async function restoreFileView(
     }
   }
   const listErr = listResult.status === "rejected" ? (listResult.reason as Error).message : null;
-  const readErr = readResult.status === "rejected" ? (readResult.reason as Error).message : null;
+  const readErr = !isImage && readResult.status === "rejected" ? (readResult.reason as Error).message : null;
   c.fileOverlay = {
     path: listResult.status === "fulfilled" ? listResult.value.path : dirPath,
     entries: listResult.status === "fulfilled" ? listResult.value.entries ?? [] : [],
-    preview:
-      readResult.status === "fulfilled"
+    preview: isImage
+      ? { path: previewPath, isImage: true, url: imageUrl(c.sessionId, previewPath) }
+      : readResult.status === "fulfilled"
         ? {
             path: previewPath,
             content: readResult.value.content,
@@ -4986,6 +5160,18 @@ function isMarkdownPath(path: string): boolean {
   return ext === "md" || ext === "markdown";
 }
 
+// Mirrors routes-files.ts's IMAGE_MIME_BY_EXT (the server's word on what
+// /api/files/image will actually serve) — kept separate since the UI
+// bundle can't import server route internals.
+function isImagePath(path: string): boolean {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(ext);
+}
+
+function imageUrl(sessionId: string, path: string): string {
+  return `/api/files/image?sessionId=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(path)}`;
+}
+
 function togglePreviewRaw(): void {
   const fo = state.current?.fileOverlay;
   if (!fo) return;
@@ -5080,7 +5266,7 @@ async function extendWindow(direction: "up" | "down"): Promise<void> {
   const c = state.current;
   const fo = c?.fileOverlay;
   const preview = fo?.preview;
-  if (!c || !fo || !preview || windowLoadInFlight) return;
+  if (!c || !fo || !preview || !("content" in preview) || windowLoadInFlight) return;
   const lines = preview.content.split("\n");
   const firstLine = preview.fromLine;
   const lastLine = firstLine + lines.length - 1;
@@ -5176,7 +5362,7 @@ export function initFileWindowPaging(): void {
       const target = e.target;
       if (!(target instanceof HTMLElement) || !target.matches(".files .preview")) return;
       const preview = state.current?.fileOverlay?.preview;
-      if (!preview) return;
+      if (!preview || !("content" in preview)) return;
       const margin = target.clientHeight * PREFETCH_SCREENS;
       const fromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
       if (fromBottom < margin && preview.hasMore) {
@@ -5193,6 +5379,19 @@ export function initFileWindowPaging(): void {
 
 async function readFile(p: string): Promise<void> {
   if (!state.current) return;
+  if (isImagePath(p)) {
+    // /api/files/read 415s on binary, so there's nothing to await here —
+    // the <img> tag fetches /api/files/image itself, same as a chat image
+    // bubble.
+    const fo = state.current.fileOverlay!;
+    state.current.fileOverlay = {
+      ...fo,
+      preview: { path: p, isImage: true, url: imageUrl(state.current.sessionId, p) },
+      err: null,
+    };
+    render();
+    return;
+  }
   try {
     const data = await api<ReadWindow>("/api/files/read", {
       method: "POST",
@@ -5432,7 +5631,28 @@ function renderFileOverlay(c: ChatState): Node {
   const fo = c.fileOverlay;
   if (!fo) return document.createTextNode("");
   let body: HTMLElement;
-  if (fo.preview) {
+  if (fo.preview && "isImage" in fo.preview) {
+    const { path, url } = fo.preview;
+    body = el(
+      "div",
+      { class: "preview" },
+      el(
+        "div",
+        { class: "crumbs preview-crumbs" },
+        el(
+          "div",
+          { class: "crumbs-actions" },
+          el("span", { class: "crumb", ...tapHandler(() => closeFilePreview()) }, "← back to listing"),
+        ),
+        copyablePathNode(c.cwd, path),
+      ),
+      el(
+        "div",
+        { class: "image-preview" },
+        el("img", { class: "image-preview-full", src: url }),
+      ),
+    );
+  } else if (fo.preview) {
     const { path, content, fromLine, hasMore } = fo.preview;
     const isMarkdown = isMarkdownPath(path);
     // Prose only when the whole file is in hand. A markdown render of a

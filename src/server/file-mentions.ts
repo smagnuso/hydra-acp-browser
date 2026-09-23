@@ -124,6 +124,35 @@ export function extractEditedPaths(update: unknown): string[] {
   return out;
 }
 
+// Mirrors routes-files.ts's IMAGE_MIME_BY_EXT — kept separate since that
+// module can't import server route internals and vice versa.
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp)$/i;
+
+// Paths a resource_link content block points at (an agent-saved
+// screenshot/diagram referenced by path rather than inlined as base64),
+// restricted to image extensions since this feeds the same allowlist as
+// extractEditedPaths and should stay just as conservative: naming a path
+// in a resource_link must not make an arbitrary file on the daemon's host
+// readable, only the image that block is actually for.
+export function extractResourceLinkImagePaths(content: unknown): string[] {
+  const out: string[] = [];
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    const b = node as Record<string, unknown>;
+    if (b.type === "resource_link") {
+      const path = typeof b.uri === "string" ? b.uri : typeof b.name === "string" ? b.name : undefined;
+      if (path && IMAGE_EXT_RE.test(path)) out.push(path);
+    }
+    if (b.content !== undefined) walk(b.content);
+  };
+  walk(content);
+  return out;
+}
+
 // Best-effort flatten of an ACP content blob, mirroring the client's
 // contentToText. Duplicated rather than imported so the server bundle
 // doesn't pull in the UI's markdown module.

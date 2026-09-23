@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _reset, isEditedPath, recordEditedPath } from "../src/server/session-files.js";
-import { extractEditedPaths } from "../src/server/file-mentions.js";
+import { extractEditedPaths, extractResourceLinkImagePaths } from "../src/server/file-mentions.js";
 
 function makeRoot(): { root: string; cleanup: () => void } {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "hydra-acp-sf-")));
@@ -90,6 +90,36 @@ test("a read-only tool naming a path grants nothing", () => {
   assert.deepEqual(extractEditedPaths({ rawInput: { file_path: "/abs/secret" } }), []);
   assert.deepEqual(
     extractEditedPaths({ rawInput: { path: "/abs/secret", pattern: "foo" } }),
+    [],
+  );
+});
+
+test("a resource_link's image path is extracted", () => {
+  assert.deepEqual(
+    extractResourceLinkImagePaths({
+      type: "resource_link",
+      uri: "/tmp/scratch/staging.png",
+      name: "staging.png",
+    }),
+    ["/tmp/scratch/staging.png"],
+  );
+  // Nested under a message chunk's content array, the shape pushChunk
+  // actually receives.
+  assert.deepEqual(
+    extractResourceLinkImagePaths([
+      { type: "text", text: "here's the diagram" },
+      { type: "resource_link", uri: "/tmp/scratch/diagram.svg" },
+    ]),
+    ["/tmp/scratch/diagram.svg"],
+  );
+});
+
+test("a resource_link naming a non-image grants nothing", () => {
+  // Same conservatism as extractEditedPaths: a resource_link pointing at
+  // an arbitrary file must not become a readable-file allowlist entry,
+  // only the image feature this exists for.
+  assert.deepEqual(
+    extractResourceLinkImagePaths({ type: "resource_link", uri: "/tmp/scratch/notes.txt" }),
     [],
   );
 });

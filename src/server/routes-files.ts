@@ -1,5 +1,5 @@
 import { promises as fsp } from "node:fs";
-import { resolve, sep } from "node:path";
+import { extname, resolve, sep } from "node:path";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { HydraRestClient, foreignCwdOwner } from "../hydra/client.js";
 import type { ServerContext } from "./http.js";
@@ -242,7 +242,94 @@ export function registerFileRoutes(
     }
     reply.send({ path: body.path, ...window });
   });
+
+  // Serves an image referenced by a chat resource_link (agent-generated
+  // screenshots/diagrams saved to disk) so the chat log can render it as
+  // an <img>, not just a link. GET so a plain <img src> works — the same
+  // cookie auth and CSRF same-origin check other routes get apply here
+  // too (see http.ts's onRequest hooks, which aren't gated on method).
+  app.get("/api/files/image", async (request, reply) => {
+    const query = request.query as { sessionId?: string; path?: string };
+    const sessionId = query.sessionId;
+    const path = query.path;
+    if (!sessionId || !path) {
+      reply.code(400).send({ error: "sessionId and path required" });
+      return;
+    }
+    const mime = IMAGE_MIME_BY_EXT[extname(path).toLowerCase()];
+    if (!mime) {
+      reply.code(400).send({ error: "not an image path" });
+      return;
+    }
+    const session = await lookupSession(ctx, request, sessionId);
+    if (!session) {
+      reply.code(404).send({ error: "session not found" });
+      return;
+    }
+    if (session.remote) {
+      reply.code(400).send({
+        error: `files live on "${session.remote}" and cannot be read from here`,
+      });
+      return;
+    }
+    let target: string;
+    try {
+      target = await resolveScopedPath(session.cwd, path);
+    } catch (err) {
+      if (!(err instanceof PathScopeError)) {
+        reply.code(500).send({ error: (err as Error).message });
+        return;
+      }
+      // Same isEditedPath escape hatch /api/files/read uses: a
+      // resource_link image is routinely saved to a /tmp scratch dir
+      // outside cwd, and ws-bridge.ts's session/update handler records
+      // any resource_link image path this session's own agent named
+      // (extractResourceLinkImagePaths) into the same allowlist edited
+      // files use.
+      if (!(await isEditedPath(sessionId, path))) {
+        reply.code(400).send({ error: "path out of scope" });
+        return;
+      }
+      target = resolve(path);
+    }
+    let stat;
+    try {
+      stat = await fsp.stat(target);
+    } catch (err) {
+      reply.code(404).send({ error: (err as Error).message });
+      return;
+    }
+    if (!stat.isFile()) {
+      reply.code(400).send({ error: "not a file" });
+      return;
+    }
+    if (stat.size > MAX_IMAGE_BYTES) {
+      reply.code(413).send({ error: "image too large" });
+      return;
+    }
+    const data = await fsp.readFile(target);
+    // http.ts's onRequest hook already sets Cache-Control: no-store on
+    // every response, but this route's whole point is showing the file's
+    // CURRENT bytes (an agent-edited image, re-viewed) — Pragma is
+    // belt-and-suspenders against an HTTP/1.0-only intermediary that
+    // ignores Cache-Control.
+    reply.header("Pragma", "no-cache");
+    reply.type(mime).send(data);
+  });
 }
+
+const IMAGE_MIME_BY_EXT: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".bmp": "image/bmp",
+};
+
+// Mirrors views.ts's MAX_ATTACHMENT_BYTES cap on pasted images.
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 // Heuristic: a NUL byte in the first 8 KiB means binary. Reads only
 // those bytes, so the check costs the same whatever the file's size.

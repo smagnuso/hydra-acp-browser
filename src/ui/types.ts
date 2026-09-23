@@ -17,9 +17,20 @@ export interface ConfigOptionValue {
 // One pasted image, ready to be sent as an ACP image content block. data is
 // base64-encoded raw bytes; mimeType matches. name/sizeBytes are
 // display-only — the outgoing wire block only carries data + mimeType.
+//
+// An incoming resource_link content block (an agent-saved screenshot/diagram
+// referenced by path rather than inlined as base64) is represented the same
+// way but with `url` instead of `data` — a lazy /api/files/image link the
+// <img> tag fetches directly, since the file lives on the daemon's host, not
+// in the wire frame. sizeBytes is 0 for those (unknown until fetched). `path`
+// is the raw file path `url` was built from (server-scoped, may be absolute
+// and outside cwd) — kept alongside so clicking the thumbnail can reopen the
+// same file at full size in the Files viewer without reparsing the URL.
 export interface Attachment {
   mimeType: string;
-  data: string;
+  data?: string;
+  url?: string;
+  path?: string;
   name?: string;
   sizeBytes: number;
 }
@@ -283,6 +294,19 @@ export interface EditDiffLogItem {
   line?: number;
 }
 
+// Persistent bubble for a tool call whose content is a resource_link (or
+// inline base64 image) block — an agent-saved screenshot/diagram. Mirrors
+// EditDiffLogItem: without a dedicated LogItem this content would only
+// ever show inside the spinner's transient tool-call list (title + status
+// icon, see renderSpinner) and vanish the moment finalizeTurn() drops the
+// spinner. Mutated in place by tool_call_update, same as EditDiffLogItem.
+export interface ImageLogItem {
+  kind: "image";
+  toolCallId: string;
+  attachments: Attachment[];
+  status?: string;
+}
+
 export type LogItem =
   | {
       kind: "stream";
@@ -335,7 +359,8 @@ export type LogItem =
   | { kind: "perm"; toolCallId: string }
   | PlanLogItem
   | ExitPlanLogItem
-  | EditDiffLogItem;
+  | EditDiffLogItem
+  | ImageLogItem;
 
 export interface FileEntry {
   name: string;
@@ -352,12 +377,24 @@ export interface FileOverlayState {
   // 300KiB file lands on its lines instead of an error. fromLine is the
   // 1-based line `content` starts at, and hasMore says whether the file
   // continues past its end.
-  preview: {
-    path: string;
-    content: string;
-    fromLine: number;
-    hasMore: boolean;
-  } | null;
+  //
+  // An image path never takes this shape: /api/files/read 415s on binary,
+  // so an image preview skips it entirely and just names the path — the
+  // <img> tag fetches /api/files/image directly, same as a chat image
+  // bubble. `url` carries the exact URL to fetch (not rebuilt from path):
+  // opening a preview from a chat image bubble hands over that bubble's
+  // own URL, cache-busted with the toolCallId that produced it (see
+  // acp.ts's extractInlineImages), so the viewer shows the same snapshot
+  // you clicked rather than whatever the file holds right now.
+  preview:
+    | {
+        path: string;
+        content: string;
+        fromLine: number;
+        hasMore: boolean;
+      }
+    | { path: string; isImage: true; url: string }
+    | null;
   err: string | null;
   maximized: boolean;
   // Markdown files default to a rendered preview; this forces the raw,
