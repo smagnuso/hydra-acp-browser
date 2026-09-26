@@ -41,7 +41,7 @@ import {
   sendWorkspaceCommand,
   updateQueuedPrompt,
 } from "./queue.js";
-import { openChat, closeChat, requestFullHistory, loadEarlierHistory, isConnectingGrace } from "./routing.js";
+import { openChat, closeChat, requestFullHistory, warmSession, loadEarlierHistory, isConnectingGrace } from "./routing.js";
 import { queueDraftWrite } from "./composer-draft.js";
 import {
   requestNotificationPermission,
@@ -3587,8 +3587,8 @@ function renderChat(c: ChatState): HTMLElement {
             "span",
             {
               class: "pill cold clickable",
-              title: "Session closed cold — sending a prompt will resurrect it",
-              ...tapHandler(toggleDetails),
+              title: "Session closed cold — click to resurrect it",
+              ...tapHandler(() => warmSession(c)),
             },
             "cold",
           )

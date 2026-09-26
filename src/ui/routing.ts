@@ -425,6 +425,16 @@ export async function loadEarlierHistory(chat: ChatState): Promise<void> {
 // a session's very first-ever open (lastSeenMessageId starts undefined
 // there too), just triggered explicitly instead of by having nothing
 // cached.
+export function warmSession(chat: ChatState): void {
+  if (state.current !== chat) {
+    return;
+  }
+  closeChatSocket();
+  resetConnectionStateForReconnect(chat);
+  render();
+  connectChatSocket(chat);
+}
+
 export function requestFullHistory(chat: ChatState): void {
   if (state.current !== chat) {
     return;
