@@ -3445,9 +3445,22 @@ export function scrollToTurn(direction: "prev" | "next"): void {
   const view = state.current ? chatViews.get(state.current) : undefined;
   const containerTop = chatBody.getBoundingClientRect().top;
   const EPSILON = 1;
+  // While a previous jump's smooth scroll is still in flight, the
+  // viewport hasn't reached its target, so stepping from the on-screen
+  // position would pick that same target again and a second press would do
+  // nothing. Step from the in-flight target instead so rapid presses chain.
+  const inFlightIdx =
+    pendingTurnStop &&
+    pendingTurnStop.el.isConnected &&
+    Date.now() - pendingTurnStop.at < PENDING_TURN_STOP_MS
+      ? stops.indexOf(pendingTurnStop.el)
+      : -1;
   let target: HTMLElement | null = null;
   let targetIdx = -1;
-  if (direction === "prev") {
+  if (inFlightIdx !== -1) {
+    targetIdx = direction === "prev" ? inFlightIdx - 1 : inFlightIdx + 1;
+    target = stops[targetIdx] ?? null;
+  } else if (direction === "prev") {
     for (let i = stops.length - 1; i >= 0; i--) {
       if (stops[i]!.getBoundingClientRect().top < containerTop - EPSILON) {
         target = stops[i]!;
@@ -3455,34 +3468,46 @@ export function scrollToTurn(direction: "prev" | "next"): void {
         break;
       }
     }
-    if (target) {
-      target.scrollIntoView({ block: "start", behavior: "smooth" });
-      // Smooth scrolling hasn't moved yet on this same tick, so
-      // updateTurnToast would still read the OLD position — set the
-      // known answer directly for instant feedback; the scroll listener
-      // takes over (and stays in sync) once the animation is underway.
-      if (view) view.turnToast.textContent = `Turn ${targetIdx + 1} of ${stops.length}`;
-    } else {
-      chatBody.scrollTo({ top: 0, behavior: "smooth" });
-      if (view) view.turnToast.textContent = "Start";
-    }
-    return;
-  }
-  for (let i = 0; i < stops.length; i++) {
-    if (stops[i]!.getBoundingClientRect().top > containerTop + EPSILON) {
-      target = stops[i]!;
-      targetIdx = i;
-      break;
+  } else {
+    for (let i = 0; i < stops.length; i++) {
+      if (stops[i]!.getBoundingClientRect().top > containerTop + EPSILON) {
+        target = stops[i]!;
+        targetIdx = i;
+        break;
+      }
     }
   }
   if (target) {
+    notePendingTurnStop(target);
     target.scrollIntoView({ block: "start", behavior: "smooth" });
+    // Smooth scrolling hasn't moved yet on this same tick, so
+    // updateTurnToast would still read the OLD position; set the known
+    // answer directly for instant feedback and let the scroll listener
+    // take over once the animation is underway.
     if (view) view.turnToast.textContent = `Turn ${targetIdx + 1} of ${stops.length}`;
+    return;
+  }
+  notePendingTurnStop(null);
+  if (direction === "prev") {
+    chatBody.scrollTo({ top: 0, behavior: "smooth" });
+    if (view) view.turnToast.textContent = "Start";
   } else {
     // Landing at the live tail hides jump (and the toast with it) once
-    // the scroll settles — nothing to set here.
+    // the scroll settles, so nothing to set here.
     chatBody.scrollTo({ top: chatBody.scrollHeight, behavior: "smooth" });
   }
+}
+
+let pendingTurnStop: { el: HTMLElement; at: number } | null = null;
+
+// How long after a jump a further press still steps from that jump's
+// target rather than from the on-screen position. Deliberately time-based:
+// touching the button cancels the running smooth scroll on touch devices,
+// so scrollend can't be trusted to mean "arrived".
+const PENDING_TURN_STOP_MS = 1500;
+
+function notePendingTurnStop(stop: HTMLElement | null): void {
+  pendingTurnStop = stop ? { el: stop, at: Date.now() } : null;
 }
 
 function renderChat(c: ChatState): HTMLElement {
