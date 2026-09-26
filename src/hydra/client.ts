@@ -197,6 +197,23 @@ export class HydraRestClient {
     return this.json("GET", `/v1/sessions/${encodeURIComponent(sessionId)}`);
   }
 
+  // One page of history older than `beforeSeq`, including archived
+  // history that session/attach never replays. See PROTOCOL.md's
+  // GET /v1/sessions/:id/history/page.
+  async getHistoryPage(
+    sessionId: string,
+    opts: { beforeSeq: number; turns?: number },
+  ): Promise<{ entries: unknown[]; hasMore: boolean }> {
+    const q = new URLSearchParams({ beforeSeq: String(opts.beforeSeq) });
+    if (opts.turns !== undefined) {
+      q.set("turns", String(opts.turns));
+    }
+    return this.json(
+      "GET",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/history/page?${q}`,
+    );
+  }
+
   async killSession(sessionId: string): Promise<void> {
     await this.json(
       "POST",

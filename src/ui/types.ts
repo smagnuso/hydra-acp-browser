@@ -691,6 +691,14 @@ export interface ChatState {
   // of what's locally available. Cleared by routing.ts's
   // requestFullHistory once a genuine full replay lands.
   historyIsPartial?: boolean;
+  // Seq of the oldest recordable frame held. The cursor for "Load
+  // earlier" (routing.ts's loadEarlierHistory), which pages older history
+  // in from the daemon, archives included. Reset with the log.
+  oldestSeq?: number;
+  // False once the daemon says nothing older exists; undefined = unknown.
+  historyHasMoreOlder?: boolean;
+  loadingEarlier?: boolean;
+  earlierError?: string;
   // messageId of the bubble that was topmost-visible right before
   // requestFullHistory wiped and reloaded the log — a full replay
   // rebuilds brand-new LogItem objects and typically has MORE history

@@ -105,6 +105,23 @@ export function registerSessionRoutes(
     }
   });
 
+  // Older history page for the SPA's "Load earlier" control. Query values
+  // pass straight through; the daemon's own 400 surfaces on bad input.
+  app.get("/api/sessions/:id/history", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const query = request.query as { beforeSeq?: string; turns?: string };
+    try {
+      const result = await clientFor(ctx, request).getHistoryPage(id, {
+        beforeSeq: Number(query.beforeSeq),
+        turns: query.turns !== undefined ? Number(query.turns) : undefined,
+      });
+      reply.send(result);
+    } catch (err) {
+      const status = err instanceof HydraRestError ? err.status : 502;
+      reply.code(status).send({ error: (err as Error).message });
+    }
+  });
+
   app.patch("/api/sessions/:id/priority", async (request, reply) => {
     const id = (request.params as { id: string }).id;
     const body = (request.body ?? {}) as { priority?: unknown };

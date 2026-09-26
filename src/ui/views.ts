@@ -41,7 +41,7 @@ import {
   sendWorkspaceCommand,
   updateQueuedPrompt,
 } from "./queue.js";
-import { openChat, closeChat, requestFullHistory, isConnectingGrace } from "./routing.js";
+import { openChat, closeChat, requestFullHistory, loadEarlierHistory, isConnectingGrace } from "./routing.js";
 import { queueDraftWrite } from "./composer-draft.js";
 import {
   requestNotificationPermission,
@@ -3163,6 +3163,27 @@ function reconcileChatBody(c: ChatState, view: ChatView): void {
           ...tapHandler(() => requestFullHistory(c)),
         },
         "Load full history",
+      ),
+    );
+  }
+  if (
+    !c.historyIsPartial &&
+    !capped &&
+    c.oldestSeq !== undefined &&
+    c.historyHasMoreOlder !== false
+  ) {
+    desired.push(
+      el(
+        "button",
+        {
+          class: "show-earlier",
+          ...tapHandler(() => void loadEarlierHistory(c)),
+        },
+        c.loadingEarlier
+          ? "Loading earlier history..."
+          : c.earlierError
+            ? "Retry loading earlier history"
+            : "Load earlier history",
       ),
     );
   }

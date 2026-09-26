@@ -8,9 +8,10 @@ import { cancelUnboundQueued } from "./queue.js";
 import { render, renderNow } from "./renderer.js";
 import { timed } from "./perf.js";
 import { isWideLayout } from "./dom.js";
-import { hasLiveSessionList } from "./api.js";
+import { api, hasLiveSessionList } from "./api.js";
 import { handleNotification, resetChatHistoryState } from "./acp.js";
 import { loadCachedSession } from "./history-cache.js";
+import { historyEntryToFrame, oldestSeqOf, type HistoryPageEntry } from "./history-page.js";
 import { loadDraft } from "./composer-draft.js";
 import { loadOfflineEntries } from "./offline-queue.js";
 import { peekChatScrollTop } from "./views.js";
@@ -184,16 +185,8 @@ export function applyHashRoute(opts: { initialLoad?: boolean } = {}): void {
   }
 }
 
-// `passive` is for an open the user didn't ask for (the page reloading onto
-// the session named in its own URL): a cold session then gets the readonly
-// viewer attach instead of waking up. See connectChatSocket.
-export function openChat(sessionId: string, opts: { passive?: boolean } = {}): void {
-  setLocationHash(buildSessionHash(sessionId));
-  closeChatSocket();
-  const session = state.sessions.find(
-    (s: SessionInfo) => s.sessionId === sessionId,
-  );
-  const initial: ChatState = {
+export function createChatState(sessionId: string, session?: SessionInfo): ChatState {
+  return {
     sessionId,
     // Empty string is the right sentinel here — renderChat falls back
     // to its own placeholder when this is empty and there's no live
@@ -247,6 +240,18 @@ export function openChat(sessionId: string, opts: { passive?: boolean } = {}): v
     configOptions: [],
     connectionHealthy: true,
   };
+}
+
+// `passive` is for an open the user didn't ask for (the page reloading onto
+// the session named in its own URL): a cold session then gets the readonly
+// viewer attach instead of waking up. See connectChatSocket.
+export function openChat(sessionId: string, opts: { passive?: boolean } = {}): void {
+  setLocationHash(buildSessionHash(sessionId));
+  closeChatSocket();
+  const session = state.sessions.find(
+    (s: SessionInfo) => s.sessionId === sessionId,
+  );
+  const initial = createChatState(sessionId, session);
   beginConnectingGrace(initial);
   state.current = initial;
   // Keeps the split-view rail's highlight glued to whichever session is
@@ -339,6 +344,80 @@ async function hydrateFromCacheThenConnect(
   connectChatSocket(chat, opts);
 }
 
+// Remember which message was topmost on screen so renderer.ts can scroll
+// back to it once the log has been rebuilt or extended above it, instead
+// of leaving the user wherever the raw scrollTop happens to fall. First
+// bubble whose bottom edge is still below the container's top edge, i.e.
+// not yet fully scrolled past.
+function captureScrollAnchor(chat: ChatState): void {
+  const body = document.querySelector<HTMLElement>(".chat-body");
+  if (body) {
+    const containerTop = body.getBoundingClientRect().top;
+    for (const el of body.querySelectorAll<HTMLElement>("[data-message-id]")) {
+      if (el.getBoundingClientRect().bottom > containerTop) {
+        chat.scrollRestoreMessageId = el.dataset.messageId;
+        break;
+      }
+    }
+  }
+}
+
+// Pages one older slice of history in above what the log already holds,
+// from the daemon's paged history route. Unlike requestFullHistory this
+// never touches the socket, the replay cursors or the cache, and it
+// reaches archived history that no attach replays. Frames run through the
+// real handleNotification into a scratch chat so coalescing and tool-card
+// building stay identical, then the result is spliced onto the front.
+export async function loadEarlierHistory(chat: ChatState): Promise<void> {
+  if (chat.loadingEarlier || chat.oldestSeq === undefined) {
+    return;
+  }
+  const cursor = chat.oldestSeq;
+  chat.loadingEarlier = true;
+  chat.earlierError = undefined;
+  render();
+  try {
+    const page = await api<{ entries: HistoryPageEntry[]; hasMore: boolean }>(
+      `/api/sessions/${encodeURIComponent(chat.sessionId)}/history?beforeSeq=${chat.oldestSeq}&turns=10`,
+      { timeoutMs: 30_000 },
+    );
+    // A reset or reload while the fetch was in flight moves the cursor;
+    // the page no longer lines up with the log.
+    if (state.current !== chat || chat.oldestSeq !== cursor) {
+      return;
+    }
+    const scratch = createChatState(chat.sessionId);
+    const live = state.current;
+    state.current = scratch;
+    try {
+      for (const entry of page.entries) {
+        try {
+          handleNotification(historyEntryToFrame(entry), true);
+        } catch (err) {
+          console.error("[hydra] paged frame failed to replay", err, entry);
+        }
+      }
+    } finally {
+      state.current = live;
+    }
+    captureScrollAnchor(chat);
+    chat.log = [...scratch.log, ...chat.log];
+    for (const [id, call] of scratch.toolCalls) {
+      if (!chat.toolCalls.has(id)) {
+        chat.toolCalls.set(id, call);
+      }
+    }
+    chat.oldestSeq = oldestSeqOf(page.entries) ?? chat.oldestSeq;
+    chat.historyHasMoreOlder = page.hasMore;
+    chat.renderAllHistory = true;
+  } catch (err) {
+    chat.earlierError = err instanceof Error ? err.message : String(err);
+  } finally {
+    chat.loadingEarlier = false;
+    render();
+  }
+}
+
 // Discards whatever's loaded and forces a genuine full session/attach
 // replay, bypassing the afterMessageId delta path entirely — the
 // fallback for when the user scrolls past what the local cache (or a
@@ -350,22 +429,7 @@ export function requestFullHistory(chat: ChatState): void {
   if (state.current !== chat) {
     return;
   }
-  // Remember which message was topmost on screen so renderer.ts can
-  // scroll back to it once the fresh replay lands, instead of leaving
-  // the user wherever the raw scrollTop happens to fall in a rebuilt
-  // (and likely now-longer) log. First bubble whose bottom edge is
-  // still below the container's top edge — i.e. not yet fully
-  // scrolled past.
-  const body = document.querySelector<HTMLElement>(".chat-body");
-  if (body) {
-    const containerTop = body.getBoundingClientRect().top;
-    for (const el of body.querySelectorAll<HTMLElement>("[data-message-id]")) {
-      if (el.getBoundingClientRect().bottom > containerTop) {
-        chat.scrollRestoreMessageId = el.dataset.messageId;
-        break;
-      }
-    }
-  }
+  captureScrollAnchor(chat);
   closeChatSocket();
   resetConnectionStateForReconnect(chat);
   resetChatHistoryState(chat);

@@ -92,6 +92,8 @@ export function resetChatHistoryState(c: ChatState): void {
   c.lastSeenMessageId = undefined;
   c.pendingCursorMessageId = undefined;
   c.lastSeenSeq = undefined;
+  c.oldestSeq = undefined;
+  c.historyHasMoreOlder = undefined;
   c.spinnerOwner = undefined;
 }
 
@@ -2031,6 +2033,15 @@ export function handleNotification(frame: JsonRpcFrame, fromCache = false): void
   // transcript inheriting it. Live sockets still advance the cursor
   // normally, so an in-tab reconnect keeps its cheap delta — that path
   // never involved the cache, and never had these bugs.
+  if (state.current && !fromCache && kind && !STATE_UPDATE_KINDS.has(kind)) {
+    const frameSeq = extractFrameSeq(frame.params);
+    if (
+      frameSeq !== undefined &&
+      (state.current.oldestSeq === undefined || frameSeq < state.current.oldestSeq)
+    ) {
+      state.current.oldestSeq = frameSeq;
+    }
+  }
   if (
     state.current &&
     !fromCache &&
