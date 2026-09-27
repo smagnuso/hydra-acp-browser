@@ -15,6 +15,7 @@ const ctx = buildSecurityContext("127.0.0.1", DEFAULT_BROWSER_PORT, "http", ["my
 function fixtureConfig(overrides: Partial<Config> = {}): Config {
   return {
     browserHost: "127.0.0.1",
+    browserHostExplicit: false,
     browserPort: DEFAULT_BROWSER_PORT,
     tls: undefined,
     linkFile: "/tmp/link",

@@ -77,6 +77,10 @@ QR-encodes the friendly `mybox.tailxxxx.ts.net` hostname instead of the
 raw tailnet IP. See [HTTPS](#https) below for the self-signed alternative
 if you're not on Tailscale, plus cert-trust steps for iOS/macOS/Linux.
 
+If you've already opened the daemon with `hydra-acp daemon listen`, you can
+skip this: with no cert of its own configured, the browser serves with the
+daemon's. See [Using the daemon's cert](#using-the-daemons-cert).
+
 Grab the URL (and a scannable QR code for your phone) any time, without
 starting anything, with:
 
@@ -183,6 +187,26 @@ If `tailscale cert` needs root (no `operator` set — see `tailscale set
 with `sudo` and fixes up file ownership afterward so the server can still
 read the key.
 
+### Using the daemon's cert
+
+When `BROWSER_TLS_CERT`/`BROWSER_TLS_KEY` are unset, the browser asks the
+daemon at startup (`GET /v1/config`) and serves with the daemon's cert, as set
+up by `hydra-acp daemon listen`. Unless you set them yourself, it also binds
+where the daemon binds (`BROWSER_HOST`) and displays the daemon's public host
+(`BROWSER_PREFERRED_HOST`). A daemon still on loopback changes nothing.
+
+This is the route when the daemon should accept remote clients anyway (the
+TUI or another machine's daemon attaching over the network): one cert for
+both, renewed by re-running `hydra-acp daemon listen tailnet`. The browser
+logs a warning when its cert has fewer than 14 days left, wherever it came
+from.
+
+`tailscale setup` above is the narrower choice: the browser gets its own
+cert and binds to the tailnet while the daemon stays on loopback. Its keys in
+browser.conf win over the daemon's cert; when both exist the browser says so
+at startup. Set `BROWSER_TLS_*` by hand when the browser needs some other
+cert, for example a CA-signed one behind a reverse proxy.
+
 ### Without Tailscale: self-signed
 
 The simplest setup is a self-signed cert in `~/.hydra-acp/browser/tls/`.
@@ -258,12 +282,12 @@ HTTPS won't be sent over plain HTTP — clear cookies for the site (or hit
 
 | Key                          | Default                                | Notes |
 |------------------------------|----------------------------------------|-------|
-| `BROWSER_HOST`               | `127.0.0.1`                            | Bind host. Non-loopback requires TLS. |
+| `BROWSER_HOST`               | `127.0.0.1`, or the daemon's bind host | Bind host. Non-loopback requires TLS. Unset, it follows the daemon when serving with the daemon's cert. |
 | `BROWSER_PORT`               | `5514`                                 | Listen port. |
-| `BROWSER_TLS_CERT`           | (none)                                 | If set with `BROWSER_TLS_KEY`, listen on HTTPS. |
+| `BROWSER_TLS_CERT`           | the daemon's cert, if any              | If set with `BROWSER_TLS_KEY`, listen on HTTPS with this cert. Unset, the daemon's cert from `hydra-acp daemon listen` is used. |
 | `BROWSER_TLS_KEY`            | (none)                                 | Path to TLS key. |
 | `BROWSER_LINK_FILE`          | `~/.hydra-acp/browser/link`            | URL written for convenience. |
-| `BROWSER_PREFERRED_HOST`     | (none)                                 | Hostname shown in the link file/logs and `hydra-acp-browser url` instead of `BROWSER_HOST` (set by `tailscale setup` to your MagicDNS name). Always implicitly allowed for the Host-header check — no need to also list it in `BROWSER_ALLOWED_HOSTS`. |
+| `BROWSER_PREFERRED_HOST`     | the daemon's public host, if any       | Hostname shown in the link file/logs and `hydra-acp-browser url` instead of `BROWSER_HOST` (set by `tailscale setup` to your MagicDNS name). Always implicitly allowed for the Host-header check, so there's no need to also list it in `BROWSER_ALLOWED_HOSTS`. |
 | `BROWSER_ALLOWED_HOSTS`      | empty                                  | Comma-sep extra Host values for DNS-rebind allowlist (e.g. Tailscale name). |
 | `HYDRA_DAEMON_URL`           | from env / `http://127.0.0.1:55514`    | `HYDRA_ACP_DAEMON_URL` env wins. |
 | `HYDRA_WS_URL`               | derived                                | `HYDRA_ACP_WS_URL` env wins. |

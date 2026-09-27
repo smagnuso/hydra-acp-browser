@@ -5,6 +5,14 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import qrcode from "qrcode-terminal";
 import { loadConfig, type Config } from "./config.js";
+import {
+  applyDaemonListen,
+  certExpiryNotice,
+  fetchDaemonListen,
+  isLoopbackHost,
+  ownCertNotice,
+} from "./daemon-listen.js";
+import { paths } from "./util/paths.js";
 import { buildContext, createServer } from "./server/http.js";
 import { registerSessionRoutes } from "./server/routes-sessions.js";
 import { registerAgentRoutes } from "./server/routes-agents.js";
@@ -21,14 +29,9 @@ import { logger, setDebug } from "./util/log.js";
 const log = logger("main");
 
 function ensureLoopbackOrTls(host: string, hasTls: boolean): void {
-  const isLoopback =
-    host === "127.0.0.1" ||
-    host === "::1" ||
-    host === "localhost" ||
-    host === "[::1]";
-  if (!isLoopback && !hasTls) {
+  if (!isLoopbackHost(host) && !hasTls) {
     throw new Error(
-      `Refusing to bind to non-loopback host ${host} without TLS configured. Set BROWSER_TLS_CERT and BROWSER_TLS_KEY in ~/.hydra-acp-browser.conf.`,
+      `Refusing to bind to non-loopback host ${host} without TLS configured. Run \`hydra-acp-browser tailscale setup\` (browser only) or \`hydra-acp daemon listen tailnet\` (daemon and browser), or set BROWSER_TLS_CERT and BROWSER_TLS_KEY in ~/.hydra-acp/browser.conf.`,
     );
   }
 }
@@ -58,14 +61,29 @@ async function main(argv: string[]): Promise<void> {
   // `run` is the explicit escape hatch to force server mode without
   // faking the env var (e.g. local debugging).
   if (argv[0] === "url" || (argv.length === 0 && !process.env.HYDRA_ACP_TOKEN)) {
-    const url = computeDisplayUrl(loadConfig(undefined, { requireToken: false }));
+    const url = readLinkFile(loadConfig(undefined, { requireToken: false }));
     qrcode.generate(url, { small: true });
     process.stdout.write(`${url}\n\n`);
     return;
   }
 
-  const config = loadConfig();
-  setDebug(config.debug);
+  const fileConfig = loadConfig();
+  setDebug(fileConfig.debug);
+  const listen = await fetchDaemonListen(fileConfig.hydraDaemonUrl, fileConfig.hydraToken);
+  const config = applyDaemonListen(fileConfig, listen);
+  const ownCert = ownCertNotice(fileConfig, listen, resolve(paths.home(), "tls"));
+  if (ownCert) {
+    log.info(ownCert);
+  }
+  if (config.tls) {
+    const expiry = certExpiryNotice(config.tls.cert);
+    if (expiry) {
+      log.warn(expiry);
+    }
+    if (config.tls !== fileConfig.tls) {
+      log.info(`serving with the daemon's cert: ${config.tls.cert}`);
+    }
+  }
 
   ensureLoopbackOrTls(config.browserHost, !!config.tls);
 
@@ -165,6 +183,21 @@ function computeDisplayUrl(config: Config): string {
   return `${scheme}://${resolveDisplayHost(config)}:${config.browserPort}/`;
 }
 
+// The running server writes the URL it actually serves, which can come
+// from the daemon's listen settings this process has no token to fetch.
+// Computed from browser.conf only when no server has written one yet.
+function readLinkFile(config: Config): string {
+  try {
+    const url = readFileSync(config.linkFile, "utf8").trim();
+    if (url) {
+      return url;
+    }
+  } catch {
+    // no server has run yet
+  }
+  return computeDisplayUrl(config);
+}
+
 function writeLinkFile(path: string, url: string): void {
   try {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -196,7 +229,8 @@ Usage:
                                       set) starts the server; run bare by a
                                       human in a terminal, same as \`url\`.
   hydra-acp-browser url            Print the URL to open (and a QR code
-                                      for it) without starting the server.
+                                      for it) without starting the server:
+                                      the one the server last served on.
   hydra-acp-browser run            Force server mode even without
                                       HYDRA_ACP_TOKEN set (e.g. local testing).
   hydra-acp-browser tailscale setup  Mint a Tailscale cert and configure

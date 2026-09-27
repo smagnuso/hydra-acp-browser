@@ -8,6 +8,9 @@ export interface TlsConfig {
 
 export interface Config {
   browserHost: string;
+  // False when BROWSER_HOST is unset and browserHost is the loopback
+  // default, so the daemon's bind host may replace it (daemon-listen.ts).
+  browserHostExplicit: boolean;
   browserPort: number;
   tls: TlsConfig | undefined;
   linkFile: string;
@@ -165,6 +168,7 @@ export function loadConfig(
 
   return {
     browserHost: map.get("BROWSER_HOST") ?? "127.0.0.1",
+    browserHostExplicit: map.has("BROWSER_HOST"),
     browserPort: intVal(map, "BROWSER_PORT", DEFAULT_BROWSER_PORT),
     tls,
     linkFile: expandHome(map.get("BROWSER_LINK_FILE") ?? paths.linkFile()),
