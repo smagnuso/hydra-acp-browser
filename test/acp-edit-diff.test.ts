@@ -149,3 +149,39 @@ test("a non-edit tool_call still goes through the generic spinner path", () => {
   assert.equal(editDiffItems().length, 0);
   assert.equal(state.current!.toolCalls.has("tc2"), true);
 });
+
+test("a multi-file apply_patch completion pushes one block per file", () => {
+  state.current = makeChatState();
+  handleNotification(
+    toolCallFrame({
+      sessionUpdate: "tool_call",
+      toolCallId: "tc9",
+      title: "apply_patch",
+      kind: "edit",
+      status: "pending",
+      rawInput: {},
+    }),
+  );
+  const done = {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tc9",
+    status: "completed",
+    rawOutput: {
+      metadata: {
+        files: [
+          { filePath: "/r/a.ts", patch: "@@ -1 +1 @@\n-old\n+new" },
+          { filePath: "/r/b.ts", patch: "@@ -0,0 +1 @@\n+fresh" },
+        ],
+      },
+    },
+  };
+  handleNotification(toolCallFrame(done));
+  handleNotification(toolCallFrame(done));
+  const items = editDiffItems();
+  assert.equal(items.length, 2, "repeat update must amend, not duplicate");
+  assert.equal(items[0]!.diff.path, "/r/a.ts");
+  assert.equal(items[0]!.diff.oldText, "old\n");
+  assert.equal(items[0]!.diff.newText, "new\n");
+  assert.equal(items[1]!.diff.oldText, "");
+  assert.equal(items[1]!.diff.newText, "fresh\n");
+});

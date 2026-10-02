@@ -5,13 +5,14 @@
 import { state, setState } from "./state.js";
 import { render } from "./renderer.js";
 import { contentToText } from "./markdown.js";
-import { extractEditDiff } from "./edit-diff.js";
+import { extractEditDiff, extractPatchDiffs } from "./edit-diff.js";
 import { queueFrameForCache } from "./history-cache.js";
 import type {
   ArmedTask,
   Attachment,
   ChatState,
   ConfigOption,
+  EditDiff,
   EditDiffLogItem,
   ExitPlanLogItem,
   ImageLogItem,
@@ -721,11 +722,27 @@ function applyEditDiffUpdate(update: AnyRecord): boolean {
   if (!state.current) return false;
   const toolCallId = String(update.toolCallId ?? "");
   if (!toolCallId) return false;
-  const existing = findEditDiffLogItem(toolCallId);
   const diff = extractEditDiff(update);
   const status =
     typeof update.status === "string" ? update.status : undefined;
   const line = extractToolCallLine(update);
+  if (diff === null && !findEditDiffLogItem(toolCallId)) {
+    // A multi-file patch gets one block per file, under derived ids so each
+    // keeps its own expand state and a repeated update amends in place.
+    const patched = extractPatchDiffs(update);
+    patched.forEach((d, i) => upsertEditDiffItem(`${toolCallId}#${i}`, d, status, line));
+    if (patched.length > 0) return true;
+  }
+  return upsertEditDiffItem(toolCallId, diff, status, line);
+}
+
+function upsertEditDiffItem(
+  toolCallId: string,
+  diff: EditDiff | null,
+  status: string | undefined,
+  line: number | undefined,
+): boolean {
+  const existing = findEditDiffLogItem(toolCallId);
   if (existing) {
     if (diff !== null) existing.item.diff = diff;
     if (status !== undefined) existing.item.status = status;

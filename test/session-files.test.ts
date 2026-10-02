@@ -123,3 +123,26 @@ test("a resource_link naming a non-image grants nothing", () => {
     [],
   );
 });
+
+test("a patch tool's rawOutput.metadata.files paths are extracted", () => {
+  assert.deepEqual(
+    extractEditedPaths({
+      rawOutput: {
+        metadata: {
+          files: [
+            { filePath: "/abs/a.ts", patch: "@@\n+x" },
+            { filePath: "/abs/b.ts", patch: { __hydraBlob: "h", bytes: 3 } },
+          ],
+        },
+      },
+    }),
+    ["/abs/a.ts", "/abs/b.ts"],
+  );
+});
+
+test("a files list without patches grants nothing", () => {
+  assert.deepEqual(
+    extractEditedPaths({ rawOutput: { metadata: { files: [{ filePath: "/abs/secret" }] } } }),
+    [],
+  );
+});

@@ -107,6 +107,26 @@ export function extractEditedPaths(update: unknown): string[] {
       if (b.type === "diff" && typeof b.path === "string" && b.path) out.push(b.path);
     }
   }
+  // Multi-file patch tools (opencode's apply_patch) name what they changed
+  // only in rawOutput.metadata.files[]. A `patch` on the entry is what marks
+  // it as a mutation, as opposed to some tool that merely lists paths.
+  const rawOutput = u.rawOutput;
+  if (rawOutput && typeof rawOutput === "object") {
+    const metadata = (rawOutput as Record<string, unknown>).metadata;
+    const files =
+      metadata && typeof metadata === "object"
+        ? (metadata as Record<string, unknown>).files
+        : undefined;
+    if (Array.isArray(files)) {
+      for (const f of files) {
+        if (!f || typeof f !== "object") continue;
+        const e = f as Record<string, unknown>;
+        if (typeof e.filePath === "string" && e.filePath && e.patch !== undefined) {
+          out.push(e.filePath);
+        }
+      }
+    }
+  }
   const rawInput = u.rawInput;
   if (rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)) {
     const r = rawInput as Record<string, unknown>;

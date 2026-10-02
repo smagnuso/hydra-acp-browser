@@ -70,6 +70,58 @@ export function extractEditDiff(update: AnyRecord): EditDiff | null {
   return null;
 }
 
+// Rebuild old/new text from a unified diff's hunks. Hunks are concatenated,
+// so unchanged lines between them are absent; the line diff still aligns
+// the shared context. Ported from cli/src/core/tool-edit.ts.
+export function parseUnifiedPatch(patch: string): { oldText: string; newText: string } {
+  const oldLines: string[] = [];
+  const newLines: string[] = [];
+  let inHunk = false;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk || line.startsWith("\\")) continue;
+    const text = line.slice(1);
+    if (line.startsWith("-")) {
+      oldLines.push(text);
+    } else if (line.startsWith("+")) {
+      newLines.push(text);
+    } else if (line.startsWith(" ")) {
+      oldLines.push(text);
+      newLines.push(text);
+    }
+  }
+  return {
+    oldText: oldLines.length > 0 ? oldLines.join("\n") + "\n" : "",
+    newText: newLines.length > 0 ? newLines.join("\n") + "\n" : "",
+  };
+}
+
+// One EditDiff per file touched by a multi-file patch tool (opencode's
+// apply_patch, sent for OpenAI models). Such a call declares kind "edit"
+// but carries no diff block and no locations; the per-file unified diffs
+// arrive in `rawOutput.metadata.files[]` on the completed update. Files
+// whose patch isn't an inline string (blob refs) are skipped.
+export function extractPatchDiffs(update: AnyRecord): EditDiff[] {
+  const rawOutput = update.rawOutput;
+  if (!rawOutput || typeof rawOutput !== "object") return [];
+  const metadata = (rawOutput as AnyRecord).metadata;
+  if (!metadata || typeof metadata !== "object") return [];
+  const files = (metadata as AnyRecord).files;
+  if (!Array.isArray(files)) return [];
+  const out: EditDiff[] = [];
+  for (const entry of files) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as AnyRecord;
+    if (typeof e.filePath !== "string" || e.filePath.length === 0) continue;
+    if (typeof e.patch !== "string") continue;
+    out.push({ path: e.filePath, ...parseUnifiedPatch(e.patch) });
+  }
+  return out;
+}
+
 interface DiffOp {
   op: "=" | "-" | "+";
   text: string;
