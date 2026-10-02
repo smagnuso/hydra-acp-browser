@@ -1391,6 +1391,95 @@ function copyableDiagnostic(label: string, value: string): HTMLElement {
   return row;
 }
 
+// Clipboard write that also works over plain http on a LAN, where
+// navigator.clipboard is undefined: falls back to a throwaway textarea
+// and execCommand. Resolves true on success.
+async function writeClipboard(text: string, html?: string): Promise<boolean> {
+  if (html !== undefined && navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/plain": new Blob([text], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        }),
+      ]);
+      return true;
+    } catch {
+      // fall through to plain text
+    }
+  }
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fall through to the legacy path
+    }
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  ta.remove();
+  return ok;
+}
+
+const COPY_ICON =
+  '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg>';
+const CHECK_ICON =
+  '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg>';
+const FAIL_ICON =
+  '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+
+function copyButton(title: string, getParts: () => string[]): HTMLElement {
+  const btn: HTMLElement = el(
+    "button",
+    {
+      class: "copy-btn",
+      title,
+      ...tapHandler(() => {
+        const parts = getParts();
+        const html = parts.map((p) => renderMarkdown(p)).join("");
+        void writeClipboard(parts.join("\n\n"), html).then((ok) => {
+          btn.innerHTML = ok ? CHECK_ICON : FAIL_ICON;
+          setTimeout(() => {
+            btn.innerHTML = COPY_ICON;
+          }, 1200);
+        });
+      }),
+    },
+  );
+  btn.innerHTML = COPY_ICON;
+  return btn;
+}
+
+// Agent prose of the turn that `stamp` opens: every agent message up to
+// the next prompt or turn boundary, in order.
+function turnAgentParts(c: ChatState, stamp: ChatState["log"][number]): string[] {
+  const start = c.log.indexOf(stamp);
+  if (start < 0) {
+    return [];
+  }
+  const parts: string[] = [];
+  for (let i = start + 1; i < c.log.length; i++) {
+    const it = c.log[i]!;
+    if (it.kind === "turn-stamp" || (it.kind === "stream" && it.role === "user")) {
+      break;
+    }
+    if (it.kind === "stream" && it.role === "agent") {
+      parts.push(it.text);
+    }
+  }
+  return parts;
+}
+
 // No clipboard API — select the text so a long-press "Copy" still works.
 function selectFallback(node: HTMLElement): void {
   const range = document.createRange();
@@ -4249,6 +4338,9 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
       // user's intent carried forward into the M2; the M1 was just a
       // draft that got superseded, not an abandoned thought.
       node.appendChild(body);
+      if (item.role === "agent" && item.text.length > 0) {
+        node.appendChild(copyButton("Copy this message", () => [item.text]));
+      }
       if (item.role === "user" && item.sentAt !== undefined) {
         node.appendChild(el("div", { class: "msg-time" }, formatDateTime(item.sentAt)));
       }
@@ -4266,7 +4358,7 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
     return renderSpinner(item.spinner);
   }
   if (item.kind === "turn-stamp") {
-    return renderTurnStamp(item);
+    return renderTurnStamp(item, copyButton("Copy this turn's reply", () => turnAgentParts(c, item)));
   }
   if (item.kind === "perm") {
     if (!state.current) return document.createTextNode("");
@@ -4774,7 +4866,7 @@ function renderTurnStamp(item: {
   toolCount: number;
   stopReason?: string;
   endedAt: number;
-}): HTMLElement {
+}, copyBtn: HTMLElement): HTMLElement {
   const bad = item.stopReason !== undefined && item.stopReason !== "end_turn";
   const label = bad
     ? `stopped (${item.stopReason}) · ${formatElapsed(item.elapsedMs)}`
@@ -4784,7 +4876,8 @@ function renderTurnStamp(item: {
   return el(
     "div",
     { class: bad ? "turn-stamp bad" : "turn-stamp" },
-    `${label} · ${formatDateTime(item.endedAt)}`,
+    `${label} · ${formatDateTime(item.endedAt)} `,
+    copyBtn,
   );
 }
 
