@@ -132,6 +132,17 @@ test("a release with no recorded press is not treated as a drag at any position"
   }
 });
 
+// Field capture: the composer rescue pressed Send via btn.click() after
+// iOS lost the pointerup, and the click was read as a drag from the press
+// point to its 0,0 screen coordinates and dropped, every single time.
+test("a programmatic click after a press with no pointerup fires", () => {
+  let fired = 0;
+  const h = tapHandler(() => fired++) as unknown as Handlers;
+  h.onpointerdown(evt(352, 396));
+  h.onclick({ ...evt(0, 0), isTrusted: false, detail: 0 });
+  assert.equal(fired, 1);
+});
+
 test("the press is consumed, so a second stray release is still gated", () => {
   let fired = 0;
   const h = tapHandler(() => fired++) as unknown as Handlers;

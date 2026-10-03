@@ -358,6 +358,15 @@ export function tapHandler(handler: (e: Event) => void): Record<string, unknown>
             `viaPointer=${firedViaPointer} start=${haveStart ? "y" : "n"}`,
         );
       }
+      // A programmatic click() (the composer rescue) carries screen
+      // coordinates of 0,0, so the lost-pointerup check below read it as a
+      // drag from the press point and dropped every rescue.
+      if (e.isTrusted === false) {
+        haveStart = false;
+        firedViaPointer = false;
+        fn(e);
+        return;
+      }
       if (firedViaPointer) {
         firedViaPointer = false;
         return;
