@@ -752,14 +752,17 @@ function applyEditDiffUpdate(update: AnyRecord): boolean {
   const status =
     typeof update.status === "string" ? update.status : undefined;
   const line = extractToolCallLine(update);
+  const source = extractChunkSource(update);
   if (diff === null && !findEditDiffLogItem(toolCallId)) {
     // A multi-file patch gets one block per file, under derived ids so each
     // keeps its own expand state and a repeated update amends in place.
     const patched = extractPatchDiffs(update);
-    patched.forEach((d, i) => upsertEditDiffItem(`${toolCallId}#${i}`, d, status, line));
+    patched.forEach((d, i) =>
+      upsertEditDiffItem(`${toolCallId}#${i}`, d, status, line, source),
+    );
     if (patched.length > 0) return true;
   }
-  return upsertEditDiffItem(toolCallId, diff, status, line);
+  return upsertEditDiffItem(toolCallId, diff, status, line, source);
 }
 
 function upsertEditDiffItem(
@@ -767,6 +770,7 @@ function upsertEditDiffItem(
   diff: EditDiff | null,
   status: string | undefined,
   line: number | undefined,
+  source: ChunkSource | undefined,
 ): boolean {
   const existing = findEditDiffLogItem(toolCallId);
   if (existing) {
@@ -774,6 +778,7 @@ function upsertEditDiffItem(
     if (status !== undefined) existing.item.status = status;
     // A later tool_call_update can be the one that carries locations.
     if (line !== undefined) existing.item.line = line;
+    if (source !== undefined) existing.item.source = source;
     return true;
   }
   if (diff === null) return false;
@@ -786,6 +791,7 @@ function upsertEditDiffItem(
   };
   if (status !== undefined) item.status = status;
   if (line !== undefined) item.line = line;
+  if (source !== undefined) item.source = source;
   insertAboveQueued(item);
   return true;
 }

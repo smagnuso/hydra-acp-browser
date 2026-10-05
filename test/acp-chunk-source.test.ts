@@ -110,3 +110,23 @@ test("a planner notice with only a task id gets a label-only source", () => {
   );
   assert.deepEqual(streamBubbles()[0]!.source, { sessionId: undefined, label: "T3" });
 });
+
+test("a forwarded worker edit carries its source onto the edit block", () => {
+  state.current = makeChatState();
+  handleNotification(
+    frame({
+      sessionUpdate: "tool_call",
+      toolCallId: "T2:abc",
+      kind: "edit",
+      title: "Edit",
+      status: "pending",
+      content: [{ type: "diff", path: "/a.ts", oldText: "x", newText: "y" }],
+      _meta: {
+        "hydra-acp": { sourceSessionId: "w1", planner: { taskId: "T2" } },
+      },
+    }),
+  );
+  const item = state.current!.log.find((e) => e.kind === "edit-diff");
+  assert.ok(item && item.kind === "edit-diff");
+  assert.deepEqual(item.source, { sessionId: "w1", label: "T2" });
+});

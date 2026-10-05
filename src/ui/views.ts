@@ -62,6 +62,7 @@ import type {
   ConfigOption,
   EditDiff,
   EditDiffLogItem,
+  ChunkSource,
   FileEntry,
   FileOverlayState,
   ImageLogItem,
@@ -3117,7 +3118,14 @@ function logItemSig(c: ChatState, item: ChatState["log"][number]): unknown[] | n
     return [item.text];
   }
   if (item.kind === "edit-diff") {
-    return [item.diff, item.expanded, item.status, item.line];
+    return [
+      item.diff,
+      item.expanded,
+      item.status,
+      item.line,
+      item.source?.sessionId,
+      item.source?.label,
+    ];
   }
   if (item.kind === "exit-plan-mode") {
     return [item.plan, item.status];
@@ -4240,22 +4248,7 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
       });
     }
     if (item.source) {
-      const { sessionId, label } = item.source;
-      if (sessionId === undefined) {
-        node.appendChild(el("span", { class: "msg-source" }, label ?? ""));
-      } else {
-        const chip = el(
-          "a",
-          { class: "msg-source", href: buildSessionHash(sessionId), title: sessionId },
-          label ?? sessionId.slice(-8),
-        );
-        chip.addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          openChat(sessionId);
-        });
-        node.appendChild(chip);
-      }
+      node.appendChild(sourceChip(item.source));
     }
     const qe = item.queueEntry;
     // Dim the M1 bubble of an amend pair so the eye lands on the M2.
@@ -4494,6 +4487,28 @@ function editedTitleEl(
   );
 }
 
+function sourceChip(source: ChunkSource): HTMLElement {
+  const { sessionId, label } = source;
+  if (sessionId === undefined) {
+    return el("span", { class: "msg-source" }, label ?? "");
+  }
+  const chip = el(
+    "a",
+    {
+      class: "msg-source",
+      href: buildSessionHash(sessionId),
+      title: sessionId,
+      ...tapHandler(() => openChat(sessionId)),
+    },
+    label ?? sessionId.slice(-8),
+  );
+  chip.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  return chip;
+}
+
 function renderEditDiff(c: ChatState, item: EditDiffLogItem): HTMLElement {
   const cached = diffCacheFor(item.diff);
   const counts = cached.counts;
@@ -4516,6 +4531,7 @@ function renderEditDiff(c: ChatState, item: EditDiffLogItem): HTMLElement {
     },
     el("span", null, item.expanded ? "▾" : "▸"),
     editedTitleEl(shownPath, item, c.sessionId),
+    item.source ? sourceChip(item.source) : null,
     summary.length > 0 ? el("span", { class: "kind edit-summary" }, summary) : null,
   );
   const node = el(

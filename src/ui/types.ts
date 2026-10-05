@@ -292,6 +292,7 @@ export interface EditDiffLogItem {
   // about a fifth do). Absent means the header link falls back to
   // anchoring the patch text in the file — see editAnchor.
   line?: number;
+  source?: ChunkSource;
 }
 
 // Persistent bubble for a tool call whose content is a resource_link (or
