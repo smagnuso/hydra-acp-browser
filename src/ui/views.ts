@@ -4357,10 +4357,10 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
       // wrapper — we deliberately don't strike them through. The
       // user's intent carried forward into the M2; the M1 was just a
       // draft that got superseded, not an abandoned thought.
-      node.appendChild(body);
       if (item.role === "agent" && item.text.length > 0) {
         node.appendChild(copyButton("Copy this message", () => [item.text]));
       }
+      node.appendChild(body);
       if (item.role === "user" && item.sentAt !== undefined) {
         node.appendChild(el("div", { class: "msg-time" }, formatDateTime(item.sentAt)));
       }

@@ -456,7 +456,7 @@ pre code { background: transparent; padding: 0; }
 .copy-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0.25rem; color: var(--muted); background: transparent; border: none; border-radius: 6px; cursor: pointer; }
 .copy-btn:hover { color: inherit; background: var(--panel-2); }
 .msg.agent { position: relative; }
-.msg.agent .copy-btn { position: absolute; top: 0.3rem; right: 0.3rem; background: var(--agent-bg); opacity: 0; transition: opacity 0.12s; }
+.msg.agent .copy-btn { float: right; margin: -0.2rem -0.5rem 0.1rem 0.4rem; opacity: 0; transition: opacity 0.12s; }
 .msg.agent:hover .copy-btn, .msg.agent .copy-btn:focus-visible { opacity: 1; }
 @media (hover: none) { .msg.agent .copy-btn { opacity: 0.6; } }
 .turn-stamp { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
