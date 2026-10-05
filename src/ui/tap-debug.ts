@@ -101,6 +101,125 @@ let lastSendOutcome = "";
 export function noteSendOutcome(outcome: string): void {
   lastSendAt = performance.now();
   lastSendOutcome = outcome;
+  if (outcome === "dispatched") {
+    reportTrail();
+  }
+}
+
+// Rolling record of recent input events, uploaded with every successful
+// send. A failure where iOS swallows the whole touch (no touchstart either)
+// is invisible to the watchdog, but it still shows here: the send that
+// finally works carries the stretch before it, so failed taps that never
+// arrived read as a gap followed by the backspacing or keyboard toggle that
+// cleared it.
+const TRAIL_WINDOW_MS = 20_000;
+const TRAIL_MAX_CHARS = 1900;
+const MAX_TRAILS_PER_SESSION = 300;
+let trailsThisSession = 0;
+const trail: { at: number; text: string }[] = [];
+
+function trailPush(text: string): void {
+  const now = performance.now();
+  const last = trail[trail.length - 1];
+  // Typing is one entry per run rather than one per keystroke.
+  const run = /^(in|del)(\d+)$/.exec(last?.text ?? "");
+  const kind = text === "in" || text === "del" ? text : null;
+  if (kind && last && run && run[1] === kind && now - last.at < 2000) {
+    last.text = `${kind}${Number(run[2]) + 1}`;
+    last.at = now;
+    return;
+  }
+  trail.push({ at: now, text: kind ? `${kind}1` : text });
+  while (trail.length > 0 && now - trail[0]!.at > TRAIL_WINDOW_MS) {
+    trail.shift();
+  }
+}
+
+function short(el: EventTarget | null): string {
+  if (!(el instanceof Element)) {
+    return "-";
+  }
+  if (el.closest(".composer-buttons button")) {
+    return `btn:${(el.closest("button")?.textContent ?? "").trim().slice(0, 7)}`;
+  }
+  if (el.matches('[data-focus-key="composer"]')) {
+    return "ta";
+  }
+  const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/)[0] : "";
+  return el.tagName.toLowerCase() + (cls ? `.${cls.slice(0, 14)}` : "");
+}
+
+function reportTrail(): void {
+  if (trailsThisSession >= MAX_TRAILS_PER_SESSION || trail.length === 0) {
+    return;
+  }
+  trailsThisSession += 1;
+  const now = performance.now();
+  const parts = trail
+    .filter((e) => now - e.at <= TRAIL_WINDOW_MS)
+    .map((e) => `${((e.at - now) / 1000).toFixed(1)} ${e.text}`);
+  let line = parts.join(" | ");
+  while (line.length > TRAIL_MAX_CHARS && parts.length > 1) {
+    parts.shift();
+    line = parts.join(" | ");
+  }
+  trail.length = 0;
+  try {
+    void fetch("/api/client-log", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ line: `SEND OK trail: ${line}` }),
+      keepalive: true,
+    }).catch(() => undefined);
+  } catch {
+    void 0;
+  }
+}
+
+function installTrail(): void {
+  const xy = (e: Event): string => {
+    if (e instanceof TouchEvent) {
+      const t = e.changedTouches[0];
+      return t ? ` ${Math.round(t.clientX)},${Math.round(t.clientY)}` : "";
+    }
+    if (e instanceof MouseEvent) {
+      return ` ${Math.round(e.clientX)},${Math.round(e.clientY)}`;
+    }
+    return "";
+  };
+  const abbrev: Record<string, string> = {
+    touchstart: "ts", touchend: "te", touchcancel: "tc!",
+    pointerdown: "pd", pointerup: "pu", pointercancel: "pc!", click: "clk",
+    focusin: "fin", focusout: "fout",
+  };
+  for (const type of Object.keys(abbrev)) {
+    document.addEventListener(
+      type,
+      (e) => trailPush(`${abbrev[type]} ${short(e.target)}${type.startsWith("focus") ? "" : xy(e)}`),
+      { capture: true, passive: true },
+    );
+  }
+  document.addEventListener(
+    "input",
+    (e) => {
+      if (!(e.target instanceof Element) || !e.target.matches('[data-focus-key="composer"]')) {
+        return;
+      }
+      const it = (e as InputEvent).inputType ?? "";
+      if (it === "insertText" || it === "deleteContentBackward") {
+        trailPush(it === "insertText" ? "in" : "del");
+        return;
+      }
+      trailPush(`input:${it || "?"}`);
+    },
+    true,
+  );
+  document.addEventListener("compositionstart", () => trailPush("comp+"), true);
+  document.addEventListener("compositionend", () => trailPush("comp-"), true);
+  window.visualViewport?.addEventListener("resize", () => {
+    trailPush(`vv ${Math.round(window.visualViewport?.height ?? 0)}h`);
+  });
 }
 
 export function noteTapActivated(): void {
@@ -182,6 +301,7 @@ let lastPointerCancelAt = -Infinity;
 
 export function initTapWatchdog(): void {
   report(`CLIENT LOADED build=${typeof __BUILD_ID__ === "string" ? __BUILD_ID__ : "dev"} ua=${navigator.userAgent.slice(0, 120)}`);
+  installTrail();
   document.addEventListener("touchend", () => { lastTouchEndAt = performance.now(); }, { capture: true, passive: true });
   document.addEventListener("touchcancel", () => { lastTouchCancelAt = performance.now(); }, { capture: true, passive: true });
   document.addEventListener("pointercancel", () => { lastPointerCancelAt = performance.now(); }, true);
