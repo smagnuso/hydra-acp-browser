@@ -585,8 +585,10 @@ a.edit-name.file-link:hover { color: var(--accent); border-bottom: 1px dashed cu
 .composer { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.6rem max(0.6rem, calc(50% - 52rem)) max(0.6rem, calc(env(safe-area-inset-bottom) - 1.1rem)); border-top: 1px solid var(--border); background: var(--panel); }
 /* The keyboard already bounds the composer's bottom edge, so the
    safe-area reserve (there for the home indicator when it's not up)
-   would just leave a dead gap above it — see viewport.ts. */
-html.keyboard-open .composer { padding-bottom: 0.6rem; }
+   would just leave a dead gap above it — see viewport.ts. The reserve
+   that is left keeps Send clear of the keyboard's top edge: right after
+   an autocorrect, iOS swallows touches there before the page sees them. */
+html.keyboard-open .composer { padding-bottom: 1.9rem; }
 .composer textarea { width: 100%; min-height: 2.4rem; max-height: 12rem; resize: none; }
 /* padding-right shifts the row (Send/Enqueue lands rightmost) off the
    screen's rounded bottom-right corner — the swipe-gesture margin above
