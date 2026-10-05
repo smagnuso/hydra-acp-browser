@@ -276,6 +276,9 @@ export interface EditDiff {
   path?: string;
   oldText: string;
   newText: string;
+  // Line counts the daemon recorded on the tool call (hydra-acp editStats),
+  // so the header shows them without diffing the texts.
+  counts?: { added: number; removed: number };
 }
 
 // Persistent "Edited <path>" block. Unlike the ephemeral spinner tool-call

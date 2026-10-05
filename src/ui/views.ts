@@ -4428,7 +4428,7 @@ function diffCacheFor(diff: EditDiff): {
 } {
   let hit = diffComputeCache.get(diff);
   if (!hit) {
-    hit = { counts: countDiffChanges(diff) };
+    hit = { counts: diff.counts ?? countDiffChanges(diff) };
     diffComputeCache.set(diff, hit);
   }
   return hit;

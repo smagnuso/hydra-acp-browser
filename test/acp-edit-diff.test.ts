@@ -185,3 +185,33 @@ test("a multi-file apply_patch completion pushes one block per file", () => {
   assert.equal(items[1]!.diff.oldText, "");
   assert.equal(items[1]!.diff.newText, "fresh\n");
 });
+
+test("an edit carries the line counts the daemon recorded", () => {
+  state.current = makeChatState();
+  handleNotification(
+    toolCallFrame({
+      sessionUpdate: "tool_call",
+      toolCallId: "tc_counts",
+      title: "Edit",
+      status: "completed",
+      rawInput: { file_path: "src/a.ts", old_string: "foo", new_string: "bar" },
+      _meta: { "hydra-acp": { editStats: [{ path: "src/a.ts", added: 7, removed: 2 }] } },
+    }),
+  );
+  assert.deepEqual(editDiffItems()[0]!.diff.counts, { added: 7, removed: 2 });
+});
+
+test("an edit with no recorded counts leaves them to the client", () => {
+  state.current = makeChatState();
+  handleNotification(
+    toolCallFrame({
+      sessionUpdate: "tool_call",
+      toolCallId: "tc_nocounts",
+      title: "Edit",
+      status: "completed",
+      rawInput: { file_path: "src/a.ts", old_string: "foo", new_string: "bar" },
+    }),
+  );
+  assert.equal(editDiffItems()[0]!.diff.counts, undefined);
+});
+

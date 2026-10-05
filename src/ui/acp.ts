@@ -748,7 +748,7 @@ function applyEditDiffUpdate(update: AnyRecord): boolean {
   if (!state.current) return false;
   const toolCallId = String(update.toolCallId ?? "");
   if (!toolCallId) return false;
-  const diff = extractEditDiff(update);
+  const diff = withRecordedCounts(extractEditDiff(update), update);
   const status =
     typeof update.status === "string" ? update.status : undefined;
   const line = extractToolCallLine(update);
@@ -756,13 +756,33 @@ function applyEditDiffUpdate(update: AnyRecord): boolean {
   if (diff === null && !findEditDiffLogItem(toolCallId)) {
     // A multi-file patch gets one block per file, under derived ids so each
     // keeps its own expand state and a repeated update amends in place.
-    const patched = extractPatchDiffs(update);
+    const patched = extractPatchDiffs(update).map((d) => withRecordedCounts(d, update)!);
     patched.forEach((d, i) =>
       upsertEditDiffItem(`${toolCallId}#${i}`, d, status, line, source),
     );
     if (patched.length > 0) return true;
   }
   return upsertEditDiffItem(toolCallId, diff, status, line, source);
+}
+
+// The daemon stamps each edit's line counts on the tool call under
+// _meta["hydra-acp"].editStats; a file edited more than once in the call
+// has one entry per edit.
+function withRecordedCounts(diff: EditDiff | null, update: AnyRecord): EditDiff | null {
+  const meta = (update._meta as AnyRecord | undefined)?.["hydra-acp"] as AnyRecord | undefined;
+  const stats = Array.isArray(meta?.editStats) ? (meta.editStats as AnyRecord[]) : [];
+  const mine = stats.filter(
+    (s) => s.path === diff?.path && typeof s.added === "number" && typeof s.removed === "number",
+  );
+  if (diff === null || mine.length === 0) {
+    return diff;
+  }
+  const counts = { added: 0, removed: 0 };
+  for (const s of mine) {
+    counts.added += s.added as number;
+    counts.removed += s.removed as number;
+  }
+  return { ...diff, counts };
 }
 
 function upsertEditDiffItem(
