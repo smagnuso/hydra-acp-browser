@@ -5064,25 +5064,24 @@ function renderPlan(plan: unknown): Node {
   if (!Array.isArray(plan)) return document.createTextNode("");
   return el(
     "div",
-    { class: "msg agent" },
-    el("div", { class: "body" }, el("strong", null, "Plan")),
-    el(
-      "ul",
-      null,
-      ...(plan as Array<Record<string, unknown>>).map((p) =>
+    { class: "msg agent plan-card" },
+    el("div", { class: "plan-card-title" }, "Plan"),
+    ...(plan as Array<Record<string, unknown>>).map((p) => {
+      const status =
+        p.status === "completed" || p.status === "in_progress"
+          ? (p.status as string)
+          : "pending";
+      return el(
+        "div",
+        { class: `plan-row plan-${status}` },
+        el("span", { class: "plan-icon" }),
         el(
-          "li",
-          null,
-          `${
-            p.status === "completed"
-              ? "✓"
-              : p.status === "in_progress"
-              ? "▸"
-              : "·"
-          } ${(p.content as string) || (p.title as string) || ""}`,
+          "span",
+          { class: "plan-text" },
+          (p.content as string) || (p.title as string) || "",
         ),
-      ),
-    ),
+      );
+    }),
   );
 }
 

@@ -409,6 +409,15 @@ pre code { background: transparent; padding: 0; }
 .msg.system.collapsed .body { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 .msg.error { background: rgba(249,117,131,0.1); border: 1px solid var(--bad); color: var(--bad); }
 .msg .body { margin: 0; }
+.msg.plan-card { padding: 0.45rem 0.7rem; }
+.plan-card-title { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.25rem; }
+.plan-row { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.15rem 0; line-height: 1.4; }
+.plan-icon { flex: none; box-sizing: border-box; width: 1rem; height: 1rem; margin-top: 0.15rem; border-radius: 50%; border: 1.5px solid var(--muted); display: inline-flex; align-items: center; justify-content: center; }
+.plan-completed .plan-icon { background: var(--good); border-color: var(--good); }
+.plan-completed .plan-icon::after { content: ""; width: 0.28rem; height: 0.5rem; margin-top: -0.1rem; border: solid var(--accent-fg); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.plan-in_progress .plan-icon { border-color: var(--busy); }
+.plan-in_progress .plan-icon::after { content: ""; width: 0.46rem; height: 0.46rem; border-radius: 50%; background: var(--busy); }
+.plan-completed .plan-text { color: var(--muted); }
 .msg .body p:first-child { margin-top: 0; }
 .msg .body p:last-child { margin-bottom: 0; }
 .msg .body p { margin: 0.4rem 0; line-height: 1.5; }
