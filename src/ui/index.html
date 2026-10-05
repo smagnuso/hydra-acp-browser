@@ -405,6 +405,8 @@ pre code { background: transparent; padding: 0; }
 .msg-source { display: inline-block; margin-bottom: 0.3rem; padding: 0 0.5rem; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); color: var(--muted); font-size: 0.72rem; text-decoration: none; }
 .msg-source:hover { color: var(--fg); background: var(--panel-2); }
 .toolcard .head .msg-source { margin: 0 0 0 auto; flex: none; }
+.msg > .msg-source { float: right; margin: 0.1rem 0 0.1rem 0.4rem; }
+.msg.agent:has(> .msg-source) { align-self: stretch; }
 .msg-time { margin-top: 0.3rem; font-size: 0.72rem; color: var(--muted); text-align: right; }
 .msg.agent { background: var(--agent-bg); border: 1px solid var(--border); align-self: flex-start; max-width: 97%; }
 .msg.system { background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); font-size: 0.85rem; align-self: flex-start; max-width: 70%; cursor: pointer; }

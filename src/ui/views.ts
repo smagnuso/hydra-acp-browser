@@ -4247,9 +4247,6 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
         });
       });
     }
-    if (item.source) {
-      node.appendChild(sourceChip(item.source));
-    }
     const qe = item.queueEntry;
     // Dim the M1 bubble of an amend pair so the eye lands on the M2.
     // The dim is purely visual — the bubble body and chip both stay
@@ -4352,6 +4349,9 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
       // draft that got superseded, not an abandoned thought.
       if (item.role === "agent" && item.text.length > 0) {
         node.appendChild(copyButton("Copy this message", () => [item.text]));
+      }
+      if (item.source) {
+        node.appendChild(sourceChip(item.source));
       }
       node.appendChild(body);
       if (item.role === "user" && item.sentAt !== undefined) {
