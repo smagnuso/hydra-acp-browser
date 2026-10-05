@@ -307,6 +307,11 @@ export interface ImageLogItem {
   status?: string;
 }
 
+export interface ChunkSource {
+  sessionId?: string;
+  label?: string;
+}
+
 export type LogItem =
   | {
       kind: "stream";
@@ -337,6 +342,7 @@ export type LogItem =
       // prose. Rendered preformatted instead of through markdown so
       // line breaks and indentation survive.
       synthetic?: boolean;
+      source?: ChunkSource;
     }
   // `at` is the daemon's recordedAt for the frame that produced this
   // notice (e.g. an agent waking itself off a finished background

@@ -41,7 +41,7 @@ import {
   sendWorkspaceCommand,
   updateQueuedPrompt,
 } from "./queue.js";
-import { openChat, closeChat, requestFullHistory, warmSession, loadEarlierHistory, isConnectingGrace } from "./routing.js";
+import { openChat, buildSessionHash, closeChat, requestFullHistory, warmSession, loadEarlierHistory, isConnectingGrace } from "./routing.js";
 import { queueDraftWrite } from "./composer-draft.js";
 import {
   requestNotificationPermission,
@@ -3103,6 +3103,8 @@ function logItemSig(c: ChatState, item: ChatState["log"][number]): unknown[] | n
       qe?.amendedByMessageId,
       qe?.amendsMessageId,
       item.attachments?.length ?? 0,
+      item.source?.sessionId,
+      item.source?.label,
       // The bubble is painted with the local send time and restamped
       // with the daemon's enqueuedAt when prompt_queue_added binds it
       // (acp.ts's stampBubbleMessageId). Left out of the sig, that
@@ -4236,6 +4238,24 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
           if (newBody) newBody.scrollTop = desiredScrollTop;
         });
       });
+    }
+    if (item.source) {
+      const { sessionId, label } = item.source;
+      if (sessionId === undefined) {
+        node.appendChild(el("span", { class: "msg-source" }, label ?? ""));
+      } else {
+        const chip = el(
+          "a",
+          { class: "msg-source", href: buildSessionHash(sessionId), title: sessionId },
+          label ?? sessionId.slice(-8),
+        );
+        chip.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openChat(sessionId);
+        });
+        node.appendChild(chip);
+      }
     }
     const qe = item.queueEntry;
     // Dim the M1 bubble of an amend pair so the eye lands on the M2.

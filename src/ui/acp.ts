@@ -21,6 +21,7 @@ import type {
   PlanLogItem,
   QueueEntry,
   ToolCallState,
+  ChunkSource,
 } from "./types.js";
 
 type AnyRecord = Record<string, unknown>;
@@ -324,11 +325,33 @@ export function waitForIdle(): Promise<void> {
 
 // ---- Streaming chunks --------------------------------------------
 
+// Another session's output forwarded into this one (a planner worker's
+// thoughts and messages), or a planner notice tagged with a task id
+// but no source session. Absent for the session's own output.
+export function extractChunkSource(update: AnyRecord): ChunkSource | undefined {
+  const meta = update._meta;
+  if (!meta || typeof meta !== "object") return undefined;
+  const hydra = (meta as AnyRecord)["hydra-acp"];
+  if (!hydra || typeof hydra !== "object") return undefined;
+  const planner = (hydra as AnyRecord).planner;
+  const taskId =
+    planner && typeof planner === "object" ? (planner as AnyRecord).taskId : undefined;
+  const label = typeof taskId === "string" ? taskId : undefined;
+  const raw = (hydra as AnyRecord).sourceSessionId;
+  const sessionId =
+    typeof raw === "string" && raw !== state.current?.sessionId ? raw : undefined;
+  if (sessionId === undefined && label === undefined) {
+    return undefined;
+  }
+  return { sessionId, label };
+}
+
 export function pushChunk(
   role: "user" | "agent" | "thought",
   content: unknown,
   synthetic = false,
   messageId?: string,
+  source?: ChunkSource,
 ): void {
   if (!state.current) return;
   const text = contentToText(content);
@@ -357,6 +380,8 @@ export function pushChunk(
     last.role === role &&
     !last.closed &&
     !!last.synthetic === synthetic &&
+    last.source?.sessionId === source?.sessionId &&
+    last.source?.label === source?.label &&
     // Never merge across a messageId boundary. Two agent messages can run
     // back to back with no tool call between them to close the first, and
     // folding them into one bubble makes that bubble span two groups —
@@ -404,6 +429,7 @@ export function pushChunk(
     synthetic: synthetic || undefined,
     messageId,
     attachments: images,
+    source,
   });
 }
 
@@ -2156,7 +2182,13 @@ export function handleNotification(frame: JsonRpcFrame, fromCache = false): void
       break;
     }
     case "agent_message_chunk":
-      pushChunk("agent", update.content, isSyntheticChunk, updateMessageId);
+      pushChunk(
+        "agent",
+        update.content,
+        isSyntheticChunk,
+        updateMessageId,
+        extractChunkSource(update),
+      );
       break;
     // Browser-bridge-only kind (ws-bridge.ts's turn-end scan), never
     // emitted by the daemon: file paths in the finished message that it
@@ -2168,7 +2200,13 @@ export function handleNotification(frame: JsonRpcFrame, fromCache = false): void
       onFileMentions(update);
       break;
     case "agent_thought_chunk":
-      pushChunk("thought", update.content, false, updateMessageId);
+      pushChunk(
+        "thought",
+        update.content,
+        false,
+        updateMessageId,
+        extractChunkSource(update),
+      );
       break;
     case "tool_call":
       onToolCall(update);
