@@ -16,7 +16,7 @@ function fixture(lineCount: number, marker?: { at: number; text: string }): {
     lines.push(marker && i === marker.at ? marker.text : `line ${i}`);
   }
   writeFileSync(path, lines.join("\n") + "\n");
-  return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return { path, cleanup: () => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };
 }
 
 test("a window starts where asked and reports more beyond it", async () => {

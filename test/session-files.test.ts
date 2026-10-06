@@ -11,7 +11,7 @@ function makeRoot(): { root: string; cleanup: () => void } {
   mkdirSync(join(root, "proj"), { recursive: true });
   writeFileSync(join(root, "outside.md"), "hi");
   writeFileSync(join(root, "secret"), "nope");
-  return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return { root, cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };
 }
 
 test("only a recorded path is allowed", async () => {

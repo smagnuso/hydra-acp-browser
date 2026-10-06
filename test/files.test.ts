@@ -30,7 +30,7 @@ function makeRoot(): { cwd: string; cleanup: () => void } {
   writeFileSync(join(cwd, "sub/b.txt"), "ok");
   return {
     cwd,
-    cleanup: () => rmSync(cwd, { recursive: true, force: true }),
+    cleanup: () => rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
   };
 }
 
@@ -110,7 +110,7 @@ test("resolveScopedPath rejects symlink escape", async (t) => {
   } finally {
     cleanup();
     if (outside !== undefined) {
-      rmSync(outside, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   }
 });

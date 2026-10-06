@@ -98,7 +98,7 @@ test("certExpiryNotice: warns inside 14 days, silent otherwise", { skip: !hasOpe
     assert.equal(certExpiryNotice(cert, later), undefined);
     assert.equal(certExpiryNotice(join(dir, "missing.pem")), undefined);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 

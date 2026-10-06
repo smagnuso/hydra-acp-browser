@@ -14,7 +14,7 @@ function makeRoot(): { cwd: string; cleanup: () => void } {
   mkdirSync(join(cwd, "src"), { recursive: true });
   writeFileSync(join(cwd, "src/foo.ts"), "a\nb\nc\n");
   writeFileSync(join(cwd, "README.md"), "# hi\n");
-  return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
+  return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };
 }
 
 test("a real relative path is confirmed", async () => {
