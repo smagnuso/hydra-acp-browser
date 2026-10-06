@@ -449,6 +449,22 @@ export function requestFullHistory(chat: ChatState): void {
   connectChatSocket(chat);
 }
 
+// A rewind dropped turns this chat shows. Reconnecting with no cursor gets
+// a full replay, which bridge/replay_policy swaps in while holding the
+// current paint; keeping the cursor could resume a delta on top of the
+// dropped turns, and nothing would ever remove them.
+export function reloadAfterRewind(chat: ChatState): void {
+  if (state.current !== chat) {
+    return;
+  }
+  closeChatSocket();
+  resetConnectionStateForReconnect(chat);
+  chat.lastSeenMessageId = undefined;
+  chat.pendingCursorMessageId = undefined;
+  chat.lastSeenSeq = undefined;
+  connectChatSocket(chat);
+}
+
 // Open a WS to /ws for the given chat and wire its event listeners.
 // Called for the initial connect from openChat and for every retry from
 // the reconnect loop. The caller is responsible for resetting the

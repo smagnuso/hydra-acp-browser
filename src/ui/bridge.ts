@@ -21,7 +21,7 @@ import {
   dropPendingCursorGroup,
   resetChatHistoryState,
 } from "./acp.js";
-import { cancelReconnectBanner } from "./routing.js";
+import { cancelReconnectBanner, reloadAfterRewind } from "./routing.js";
 import { resetCachedSession } from "./history-cache.js";
 import { cancelAllQueued, flushOfflineQueue } from "./queue.js";
 import { parseArmedTaskList } from "./acp.js";
@@ -157,6 +157,11 @@ export function reply(id: number | string, result: unknown): void {
     return;
   }
   c.ws.send(JSON.stringify({ jsonrpc: "2.0", id, result }));
+}
+
+function isHistoryTruncated(params: unknown): boolean {
+  const update = (params as { update?: { sessionUpdate?: unknown } } | undefined)?.update;
+  return update?.sessionUpdate === "_hydra_history_truncated";
 }
 
 // Top-level inbound frame router. Called from the chat WS message
@@ -417,6 +422,10 @@ export function handleFrame(frame: JsonRpcFrame): void {
     // bridge/ready handler above does one final render() once the whole
     // backlog is in state.
     if (state.current.ready) render();
+    return;
+  }
+  if (frame.method === "session/update" && isHistoryTruncated(frame.params)) {
+    reloadAfterRewind(state.current);
     return;
   }
   if (frame.method) {

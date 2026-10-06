@@ -45,6 +45,7 @@ const STATE_UPDATE_KINDS = new Set([
   "config_option_update",
   "_hydra_compaction",
   "_hydra_workspace",
+  "_hydra_history_truncated",
   "clarifier_question_asked",
   "clarifier_question_answered",
   "clarifier_question_dismissed",
