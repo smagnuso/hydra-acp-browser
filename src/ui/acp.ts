@@ -3,6 +3,7 @@
 // plumbing — that lives in bridge.ts.
 
 import { state, setState } from "./state.js";
+import { markOpenChatRead } from "./read-state.js";
 import { render } from "./renderer.js";
 import { contentToText } from "./markdown.js";
 import { extractEditDiff, extractPatchDiffs } from "./edit-diff.js";
@@ -2292,6 +2293,7 @@ export function handleNotification(frame: JsonRpcFrame, fromCache = false): void
       break;
     case "stop":
     case "turn_complete": {
+      markOpenChatRead();
       // Daemon attaches _meta["hydra-acp"].amended = { cancelledMessageId,
       // newMessageId } when the turn ended because an amend cancelled
       // it. Promote the M1 bubble from "cancelled" to "amended" before

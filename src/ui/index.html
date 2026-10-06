@@ -280,6 +280,7 @@ pre code { background: transparent; padding: 0; }
    column a straight edge to read down. justify-content handles the
    wrapped rows too, which margin-left:auto alone would not. */
 .card .badges { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; justify-content: flex-end; margin-left: auto; flex-shrink: 0; }
+.card .unread-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--accent); margin-right: 0.4rem; vertical-align: middle; }
 .badge { font-size: 0.75rem; padding: 0.1rem 0.45rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
 .badge.warm { color: var(--temp-warm); border-color: var(--temp-warm); }
 .badge.cold { color: var(--temp-cold); border-color: var(--temp-cold); }

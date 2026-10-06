@@ -84,6 +84,9 @@ export interface SessionInfo {
   // ranking (still below anything actually busy/awaiting input). Persisted
   // on the daemon, so it survives restarts and applies to cold sessions.
   priority?: number;
+  // A turn ended that nobody has marked read since (daemon read state,
+  // shared with every client). See read-state.ts.
+  unread?: boolean;
   // Hostname of the machine that exported the bundle this session was
   // imported from. Undefined for sessions created on this host.
   importedFromMachine?: string;

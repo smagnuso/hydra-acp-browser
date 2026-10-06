@@ -1771,7 +1771,12 @@ function renderSessionCard(s: SessionInfo, showCwd: boolean): HTMLElement {
         openOrFocusChat(s.sessionId);
       }),
     },
-    el("div", { class: "row1" }, title),
+    el(
+      "div",
+      { class: "row1" },
+      s.unread ? el("span", { class: "unread-dot", title: "New since you last looked" }) : null,
+      title,
+    ),
     el(
       "div",
       { class: "card-body" },

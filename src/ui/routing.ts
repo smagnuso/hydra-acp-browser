@@ -9,6 +9,7 @@ import { render, renderNow } from "./renderer.js";
 import { timed } from "./perf.js";
 import { isWideLayout } from "./dom.js";
 import { api, hasLiveSessionList } from "./api.js";
+import { markOpenChatRead } from "./read-state.js";
 import { handleNotification, resetChatHistoryState } from "./acp.js";
 import { loadCachedSession } from "./history-cache.js";
 import { historyEntryToFrame, oldestSeqOf, type HistoryPageEntry } from "./history-page.js";
@@ -265,6 +266,7 @@ export function openChat(sessionId: string, opts: { passive?: boolean } = {}): v
     lastSessionId: sessionId,
     resumeChatOnLoad: true,
   });
+  markOpenChatRead();
   void hydrateFromCacheThenConnect(initial, opts);
 }
 
