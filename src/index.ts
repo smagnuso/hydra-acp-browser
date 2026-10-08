@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import qrcode from "qrcode-terminal";
 import { loadConfig, type Config } from "./config.js";
 import {
+  applyCertNames,
   applyDaemonListen,
   certExpiryNotice,
   fetchDaemonListen,
@@ -70,7 +71,7 @@ async function main(argv: string[]): Promise<void> {
   const fileConfig = loadConfig();
   setDebug(fileConfig.debug);
   const listen = await fetchDaemonListen(fileConfig.hydraDaemonUrl, fileConfig.hydraToken);
-  const config = applyDaemonListen(fileConfig, listen);
+  const config = applyCertNames(applyDaemonListen(fileConfig, listen));
   const ownCert = ownCertNotice(fileConfig, listen, resolve(paths.home(), "tls"));
   if (ownCert) {
     log.info(ownCert);

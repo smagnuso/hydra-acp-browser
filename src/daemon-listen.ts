@@ -4,6 +4,7 @@
 
 import { X509Certificate } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { resolve, sep } from "node:path";
 import type { Config } from "./config.js";
 
@@ -95,4 +96,43 @@ export function certExpiryNotice(certPath: string, now: Date = new Date()): stri
   return days < 0
     ? `TLS cert ${certPath} expired ${-days} day(s) ago.`
     : `TLS cert ${certPath} expires in ${days} day(s).`;
+}
+
+// The names a TLS client can validate: the cert's DNS and IP subject alternative names.
+export function certNames(certPath: string): { dns: string[]; ips: string[] } {
+  const dns: string[] = [];
+  const ips: string[] = [];
+  try {
+    const alt = new X509Certificate(readFileSync(certPath)).subjectAltName ?? "";
+    for (const entry of alt.split(",").map((part) => part.trim())) {
+      if (entry.startsWith("DNS:")) {
+        dns.push(entry.slice(4).toLowerCase());
+      } else if (entry.startsWith("IP Address:")) {
+        ips.push(entry.slice(11).toLowerCase());
+      }
+    }
+  } catch {
+    // an unreadable cert fails at listen time with a clearer error
+  }
+  return { dns, ips };
+}
+
+export function pickDisplayName(dns: readonly string[], machine: string): string | undefined {
+  const concrete = dns.filter((name) => !name.startsWith("*"));
+  const own = machine.toLowerCase();
+  return concrete.find((name) => name === own || name.startsWith(`${own}.`)) ?? concrete[0];
+}
+
+// On a non-loopback bind the cert's own names are the ones a client can use: show one, and accept them all in the Host check.
+export function applyCertNames(config: Config, machine: string = hostname()): Config {
+  if (!config.tls || isLoopbackHost(config.browserHost)) {
+    return config;
+  }
+  const names = certNames(config.tls.cert);
+  const preferredHost = config.preferredHost ?? pickDisplayName(names.dns, machine);
+  return {
+    ...config,
+    ...(preferredHost ? { preferredHost } : {}),
+    allowedHosts: [...config.allowedHosts, ...names.dns, ...names.ips],
+  };
 }

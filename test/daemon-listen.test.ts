@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { DEFAULT_BROWSER_PORT, type Config } from "../src/config.js";
 import {
+  applyCertNames,
   applyDaemonListen,
   certExpiryNotice,
   fetchDaemonListen,
@@ -121,4 +122,32 @@ test("fetchDaemonListen: reads listen with the bearer token, undefined when abse
     server.close();
   }
   assert.equal(await fetchDaemonListen("http://127.0.0.1:1", "tok", 500), undefined);
+});
+
+test("applyCertNames: shows and allows the cert's names on a non-loopback bind only", { skip: !hasOpenssl }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "listen-test-"));
+  try {
+    const cert = join(dir, "cert.pem");
+    const r = spawnSync("openssl", [
+      "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "30",
+      "-keyout", join(dir, "key.pem"), "-out", cert, "-subj", "/CN=t",
+      "-addext", "subjectAltName=DNS:other.example,DNS:box.tail1.ts.net,IP:10.0.0.5",
+    ]);
+    assert.equal(r.status, 0);
+    const tls = { cert, key: join(dir, "key.pem") };
+
+    const open = applyCertNames(fixtureConfig({ browserHost: "0.0.0.0", tls }), "box");
+    assert.equal(open.preferredHost, "box.tail1.ts.net");
+    assert.deepEqual(open.allowedHosts, ["other.example", "box.tail1.ts.net", "10.0.0.5"]);
+
+    const explicit = applyCertNames(fixtureConfig({ browserHost: "0.0.0.0", tls, preferredHost: "me.lan" }), "box");
+    assert.equal(explicit.preferredHost, "me.lan");
+
+    const loop = fixtureConfig({ tls });
+    assert.equal(applyCertNames(loop, "box"), loop);
+    const plain = fixtureConfig({ browserHost: "0.0.0.0" });
+    assert.equal(applyCertNames(plain, "box"), plain);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
 });
