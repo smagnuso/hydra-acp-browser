@@ -46,7 +46,7 @@ async function main(argv: string[]): Promise<void> {
     printHelp();
     return;
   }
-  if (argv[0] === "tailscale" && argv[1] === "setup") {
+  if ((argv[0] === "tailscale" || argv[0] === "tailnet") && argv[1] === "setup") {
     const { runTailscaleSetup } = await import("./setup/tailscale-wizard.js");
     await runTailscaleSetup();
     return;
@@ -235,7 +235,8 @@ Usage:
   hydra-acp-browser run            Force server mode even without
                                       HYDRA_ACP_TOKEN set (e.g. local testing).
   hydra-acp-browser tailscale setup  Mint a Tailscale cert and configure
-                                      HTTPS + Tailscale-only access.
+                                      HTTPS + Tailscale-only access
+                                      (\`tailnet setup\` works too).
   hydra-acp-browser --version      Print version and exit.
   hydra-acp-browser --help         Show this message.
 

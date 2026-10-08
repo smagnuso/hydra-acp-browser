@@ -67,7 +67,7 @@ daemon).
 If you're on Tailscale, this is one command:
 
 ```sh
-hydra-acp-browser tailscale setup
+hydra-acp-browser tailscale setup   # `tailnet setup` works too
 ```
 
 It mints a real Let's Encrypt cert via `tailscale cert`, binds to your
