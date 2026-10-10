@@ -963,6 +963,9 @@ export function finalizeTurn(
   if (!state.current) return;
   if (own) {
     cacheOwnTurnCompleteFrame(stopReason, endedAt);
+    // No turn_complete notification reaches the originator, so the read
+    // mark that case would send has to ride here.
+    markOpenChatRead();
   }
   // Freeze the live spinner in place into a permanent turn-stamp,
   // timing the turn with the daemon's recordedAt when the caller has
