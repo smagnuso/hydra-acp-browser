@@ -68,14 +68,35 @@ export function initReadTracking(): void {
   });
 }
 
+// Mobile read-marking failures only reproduce on a real phone, so each
+// decision is recorded in the extension log via /api/client-log.
+function logRead(line: string): void {
+  void fetch("/api/client-log", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ line: `read: ${line}` }),
+    keepalive: true,
+  }).catch(() => undefined);
+}
+
 function seenSessionId(): string | undefined {
   const sessionId = state.current?.sessionId;
-  if (
-    state.view !== "chat" ||
-    document.visibilityState !== "visible" ||
-    !document.hasFocus() ||
-    isIdle()
-  ) {
+  if (state.view !== "chat") {
+    return undefined;
+  }
+  const why: string[] = [];
+  if (document.visibilityState !== "visible") {
+    why.push(`vis=${document.visibilityState}`);
+  }
+  if (!document.hasFocus()) {
+    why.push("nofocus");
+  }
+  if (isIdle()) {
+    why.push(`idle=${Math.round((Date.now() - lastInputAt) / 1000)}s`);
+  }
+  if (why.length > 0) {
+    logRead(`skip ${sessionId ?? "-"} ${why.join(" ")}`);
     return undefined;
   }
   return sessionId;
@@ -89,5 +110,7 @@ function sendRead(sessionId: string): void {
   void api(`/api/sessions/${encodeURIComponent(sessionId)}/read`, {
     method: "PATCH",
     body: JSON.stringify({ read: true }),
-  }).catch(() => undefined);
+  })
+    .then(() => logRead(`sent ${sessionId}`))
+    .catch((err: unknown) => logRead(`failed ${sessionId} ${String(err)}`));
 }

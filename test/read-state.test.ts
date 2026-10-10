@@ -19,6 +19,9 @@ const doc = {
 
 const calls: { url: string; method?: string; body?: string }[] = [];
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+  if (String(input) === "/api/client-log") {
+    return new Response(null, { status: 204 });
+  }
   calls.push({ url: String(input), method: init?.method, body: init?.body as string });
   return new Response(null, { status: 204 });
 }) as typeof fetch;
