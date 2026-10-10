@@ -1204,15 +1204,36 @@ export function hydrateQueueFromSnapshot(snapshot: unknown[]): void {
         continue;
       }
     }
-    state.current.log.push({
+    const bubble: LogItem = {
       kind: "stream",
       role: "user",
       text,
       closed: true,
       queueEntry: entry,
       attachments: extractImageAttachments(e.prompt),
-    });
+    };
+    const headAt = position === 0 ? orphanedSpinnerIndex() : -1;
+    if (headAt >= 0) {
+      state.current.log.splice(headAt, 0, bubble);
+    } else {
+      state.current.log.push(bubble);
+    }
   }
+}
+
+// Index of the live spinner when it has no prompt bubble above it: the
+// replay began mid-turn, so the head prompt's prompt_received was never
+// delivered and its content is already in the log. -1 if not that case.
+function orphanedSpinnerIndex(): number {
+  if (!state.current) return -1;
+  const log = state.current.log;
+  const idx = log.findIndex((e) => e.kind === "spinner");
+  if (idx < 0) return -1;
+  const above = log[idx - 1];
+  if (above && above.kind === "stream" && above.role === "user") {
+    return -1;
+  }
+  return idx;
 }
 
 // The snapshot is the daemon's whole queue, head included. A bound local
