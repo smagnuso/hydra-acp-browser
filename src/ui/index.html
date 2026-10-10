@@ -459,9 +459,11 @@ pre code { background: transparent; padding: 0; }
 .turn-stamp { align-self: stretch; color: var(--muted); font-size: 0.8rem; padding: 0 0.25rem; }
 .copy-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0.25rem; color: var(--muted); background: transparent; border: none; border-radius: 6px; cursor: pointer; }
 .copy-btn:hover { color: inherit; background: var(--panel-2); }
-/* Absolute, not floated: a float beside a block child adds no width to a shrink-to-fit bubble, so short replies wrapped around it. */
-.msg.agent { position: relative; padding-right: 2.4rem; }
-.msg.agent .copy-btn { position: absolute; top: 0.35rem; right: 0.35rem; opacity: 0; transition: opacity 0.12s; }
+/* The button is absolute; a float spacer inside the first block keeps its line clear while later lines flow under it. A float on the button itself added no width to a shrink-to-fit bubble, so short replies wrapped around it. */
+.msg.agent { position: relative; }
+.msg.agent .copy-btn { position: absolute; top: 0.4rem; right: 0.4rem; opacity: 0; transition: opacity 0.12s; }
+.msg.agent .body > :first-child:not(ul):not(ol)::before,
+.msg.agent .body > :is(ul, ol):first-child > li:first-child::before { content: ""; float: right; width: 1.3rem; height: 1.3rem; }
 .msg.agent:hover .copy-btn, .msg.agent .copy-btn:focus-visible { opacity: 1; }
 @media (hover: none) { .msg.agent .copy-btn { opacity: 0.6; } }
 .turn-stamp { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
