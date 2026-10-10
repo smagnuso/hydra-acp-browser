@@ -3961,6 +3961,10 @@ function renderChat(c: ChatState): HTMLElement {
       // `/hydra ...` becomes `/Hydra ...` and silently fails to match
       // the (case-sensitive) command.
       autocapitalize: "off",
+      // iOS offers "AutoFill Contact" (home/work addresses) on free-text
+      // fields it misclassifies; opt out.
+      autocomplete: "off",
+      name: "hydra-composer-message",
       onkeydown: composerOnKey,
       onpaste: (e: ClipboardEvent) => {
         const items = e.clipboardData?.items;
@@ -4821,6 +4825,7 @@ function renderQueueEditor(
     // replaced, with the surrounding text scrolled out of sight.
     rows: "1",
     autocapitalize: "off",
+    autocomplete: "off",
   }) as HTMLTextAreaElement;
   textarea.value = entry.text;
   // Same trick the composer uses: collapse, then adopt scrollHeight.
