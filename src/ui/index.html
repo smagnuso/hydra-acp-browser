@@ -600,7 +600,12 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
    stretch) turns them into tall slabs. Sized to the text they contain
    rather than to the textarea — they sit on their own row, so matching
    the input's height just made them look oversized. */
-.composer-buttons button { height: 1.9rem; padding-top: 0; padding-bottom: 0; align-self: center; flex: 0 0 auto; }
+.composer-buttons button { position: relative; height: 1.9rem; padding-top: 0; padding-bottom: 0; align-self: center; flex: 0 0 auto; }
+/* Field taps on Send land up to 5px below it, in the composer's bottom
+   padding, which blurs the textarea and drops the keyboard instead. Not
+   upward: that would cover the textarea. */
+.composer-buttons button::before { content: ""; position: absolute; top: 0; bottom: -0.6rem; left: -0.25rem; right: -0.25rem; }
+.composer-buttons button.pressing { filter: brightness(0.8); }
 .composer .stop { color: var(--bad); border-color: var(--bad); }
 
 /* Pasted-image attachments: pending chips above the composer, and

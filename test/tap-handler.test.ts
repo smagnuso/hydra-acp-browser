@@ -376,6 +376,17 @@ test("a pointerup after the rescue already pressed does not fire again", () => {
   assert.equal(fired, 0);
 });
 
+// Field trail: a rescued send re-rendered the button row, and the re-tap's
+// pointerup landed on the new node, which never saw its press, and sent
+// the prompt a second time.
+test("a release on a fresh node right after a rescue does not fire", () => {
+  let fired = 0;
+  noteTapRescued();
+  const fresh = tapHandler(() => fired++) as unknown as Handlers;
+  fresh.onpointerup(evt(340, 700));
+  assert.equal(fired, 0);
+});
+
 test("keyboard activation (detail 0) still fires, pointer clicks do not double-fire", () => {
   let fired = 0;
   const h = tapHandler(() => fired++) as unknown as Handlers;

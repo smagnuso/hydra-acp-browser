@@ -2975,7 +2975,9 @@ function ensureChatView(c: ChatState): ChatView {
 // stationary touch on a composer button that nothing activates counts as
 // the press, and presses the live composer's button.
 const RESCUE_SETTLE_MS = 60;
-const RESCUE_TIMEOUT_MS = 900;
+// iOS sometimes withholds the release until the next touch starts. A
+// normal press on these buttons releases within 200ms in field trails.
+const RESCUE_TIMEOUT_MS = 250;
 const RESCUE_POINTER_SLACK_MS = 150;
 
 function composerButtonKey(btn: Element): string {
@@ -3005,7 +3007,15 @@ function installComposerTapRescue(): void {
     return;
   }
   composerTapRescueInstalled = true;
-  let pending: { key: string; at: number; x: number; y: number; timer: number } | null = null;
+  let pending: { key: string; at: number; x: number; y: number; timer: number; btn: Element } | null = null;
+
+  const drop = (): void => {
+    if (pending) {
+      window.clearTimeout(pending.timer);
+      pending.btn.classList.remove("pressing");
+      pending = null;
+    }
+  };
 
   const press = (key: string): void => {
     const view = liveComposerView();
@@ -3024,6 +3034,7 @@ function installComposerTapRescue(): void {
     window.clearTimeout(p.timer);
     // Let the button's own touchend/pointerup handlers run first.
     window.setTimeout(() => {
+      p.btn.classList.remove("pressing");
       // Only an actual activation settles it. A pointerdown alone does
       // not: on iOS it arrives just before the touchstart, and the press
       // is then routinely cancelled (pointercancel, no pointerup) when the
@@ -3042,10 +3053,7 @@ function installComposerTapRescue(): void {
   document.addEventListener(
     "touchstart",
     (e: TouchEvent) => {
-      if (pending) {
-        window.clearTimeout(pending.timer);
-        pending = null;
-      }
+      drop();
       const t = e.touches[0];
       if (!t || e.touches.length > 1) {
         return;
@@ -3054,12 +3062,14 @@ function installComposerTapRescue(): void {
       if (!btn || (btn as HTMLButtonElement).disabled) {
         return;
       }
+      btn.classList.add("pressing");
       pending = {
         key: composerButtonKey(btn),
         at: performance.now(),
         x: t.screenX,
         y: t.screenY,
         timer: window.setTimeout(decide, RESCUE_TIMEOUT_MS),
+        btn,
       };
     },
     { capture: true, passive: true },
@@ -3074,8 +3084,7 @@ function installComposerTapRescue(): void {
         return;
       }
       if (Math.hypot(t.screenX - pending.x, t.screenY - pending.y) > TAP_MOVE_THRESHOLD) {
-        window.clearTimeout(pending.timer);
-        pending = null;
+        drop();
       }
     },
     { capture: true, passive: true },

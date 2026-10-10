@@ -220,6 +220,7 @@ export function lastTapActivatedAt(): number {
 // Set by that rescue when it presses a control itself, so a touchend
 // arriving late for the same gesture cannot fire the control again.
 let lastRescuedAt = -Infinity;
+const RESCUE_REPEAT_GUARD_MS = 500;
 
 export function noteTapRescued(): void {
   lastRescuedAt = performance.now();
@@ -341,6 +342,9 @@ export function tapHandler(handler: (e: Event) => void): Record<string, unknown>
       }
       if (moved) return;
       if (sawStart && lastRescuedAt >= downAt) return;
+      // A rescued send re-renders the button row, so a re-tap's release
+      // can land on a fresh node that never saw its press.
+      if (!sawStart && performance.now() - lastRescuedAt < RESCUE_REPEAT_GUARD_MS) return;
       if (selectionSuppressesTap(e.target)) return;
       firedViaPointer = true;
       fn(e);

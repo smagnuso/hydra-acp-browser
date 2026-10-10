@@ -65,6 +65,37 @@ function syncComposerFromDom(c: ChatState): void {
   }
 }
 
+// A re-tap while iOS is slow to deliver the first one can arrive after the
+// first has already gone out, with the text still in the box. The same
+// text from the same chat this soon is that, not a deliberate repeat.
+const DUPLICATE_WINDOW_MS = 1500;
+let lastSubmit: { sessionId: string; text: string; at: number } | null = null;
+
+export function isDuplicateSubmit(sessionId: string, text: string, now = Date.now()): boolean {
+  if (
+    lastSubmit &&
+    lastSubmit.sessionId === sessionId &&
+    lastSubmit.text === text &&
+    now - lastSubmit.at < DUPLICATE_WINDOW_MS
+  ) {
+    return true;
+  }
+  lastSubmit = { sessionId, text, at: now };
+  return false;
+}
+
+// render() can be deferred while a composer gesture is in progress, leaving
+// the sent text in the textarea for syncComposerFromDom to adopt again.
+function clearComposerDom(): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+  const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
+  if (ta) {
+    ta.value = "";
+  }
+}
+
 export function sendPrompt(): void {
   const c = state.current;
   if (tapDebugEnabled()) {
@@ -89,11 +120,18 @@ export function sendPrompt(): void {
     tapLog("sendPrompt DROPPED: nothing to send");
     return;
   }
+  if (attachments.length === 0 && isDuplicateSubmit(c.sessionId, text)) {
+    noteSendOutcome("duplicate");
+    c.composerValue = "";
+    clearComposerDom();
+    return;
+  }
   noteSendOutcome("dispatched");
   if (dispatchPrompt(c, text, { attachments })) {
     c.composerValue = "";
     c.attachments = [];
     clearDraft(c.sessionId);
+    clearComposerDom();
   }
   render();
 }
@@ -477,12 +515,18 @@ export function amendPrompt(): void {
     sendPrompt();
     return;
   }
+  if (attachments.length === 0 && isDuplicateSubmit(c.sessionId, text)) {
+    c.composerValue = "";
+    clearComposerDom();
+    return;
+  }
   const target = c.currentHeadMessageId;
   // Stash the typed text up front so we can restore it on rejection.
   const draft = c.composerValue;
   c.composerValue = "";
   c.attachments = [];
   clearDraft(c.sessionId);
+  clearComposerDom();
   pushHistory(c, text);
   // Add an optimistic local entry mirroring sendPrompt's behavior, but
   // pre-tagged with amendsMessageId so the bubble paints the "+"
