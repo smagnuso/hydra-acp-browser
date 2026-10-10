@@ -30,6 +30,7 @@ function fixtureConfig(overrides: Partial<Config> = {}): Config {
     hydraToken: "test-token",
     permissionDisplayDelayMs: 500,
     permissionNotifyDelayMs: 15_000,
+    readIdleSeconds: 180,
     debug: false,
     ...overrides,
   };

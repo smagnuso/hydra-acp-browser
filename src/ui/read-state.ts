@@ -1,10 +1,15 @@
 import { api } from "./api.js";
 import { setState, state } from "./state.js";
 
-// Marks the open chat's session read on the daemon when it is on screen:
-// on open, after a turn ends in it, and when the tab comes back into view.
-// Debounced so a replay's run of turn_completes sends one request.
+// Marks the open chat's session read on the daemon when a person is looking:
+// on open, after a turn ends in it, and when the window comes back into
+// focus. The tab must be visible, the window focused, and input seen within
+// readIdleSeconds (0 disables the check); an abandoned window leaves the
+// session unread for an active client to mark. Debounced so a replay's run
+// of turn_completes sends one request.
 const DEBOUNCE_MS = 300;
+const INPUT_EVENTS = ["keydown", "pointerdown", "pointermove", "wheel", "touchstart"];
+let lastInputAt = Date.now();
 let timer: ReturnType<typeof setTimeout> | undefined;
 
 export function markOpenChatRead(): void {
@@ -17,9 +22,49 @@ export function markOpenChatRead(): void {
   }, DEBOUNCE_MS);
 }
 
+function isIdle(now = Date.now()): boolean {
+  const idleMs = state.readIdleSeconds * 1000;
+  return idleMs > 0 && now - lastInputAt > idleMs;
+}
+
+// Input after an idle stretch marks the open chat read; the first sight of
+// a session that finished while nobody was looking.
+function noteInput(): void {
+  const now = Date.now();
+  const wasIdle = isIdle(now);
+  if (!wasIdle && now - lastInputAt < 1000) {
+    return;
+  }
+  lastInputAt = now;
+  if (wasIdle) {
+    markOpenChatRead();
+  }
+}
+
+export function initReadTracking(): void {
+  for (const type of INPUT_EVENTS) {
+    document.addEventListener(type, noteInput, { capture: true, passive: true });
+  }
+  window.addEventListener("focus", () => {
+    lastInputAt = Date.now();
+    markOpenChatRead();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && document.hasFocus()) {
+      lastInputAt = Date.now();
+    }
+  });
+}
+
 function sendRead(): void {
   const sessionId = state.current?.sessionId;
-  if (state.view !== "chat" || sessionId === undefined || document.visibilityState !== "visible") {
+  if (
+    state.view !== "chat" ||
+    sessionId === undefined ||
+    document.visibilityState !== "visible" ||
+    !document.hasFocus() ||
+    isIdle()
+  ) {
     return;
   }
   const row = state.sessions.find((s) => s.sessionId === sessionId);

@@ -11,7 +11,7 @@ export function registerConfigRoutes(
     const client = HydraRestClient.forRequest(ctx.config.hydraDaemonUrl, token);
     try {
       const result = await client.getConfig();
-      reply.send(result);
+      reply.send({ ...result, readIdleSeconds: ctx.config.readIdleSeconds });
     } catch (err) {
       const status = err instanceof HydraRestError ? err.status : 502;
       reply.code(status).send({ error: (err as Error).message });

@@ -381,8 +381,11 @@ export async function loadRemotes(): Promise<void> {
 
 export async function loadConfig(): Promise<void> {
   try {
-    const data = await api<{ defaultCwd?: string }>("/api/config");
-    setState({ defaultCwd: data.defaultCwd ?? null });
+    const data = await api<{ defaultCwd?: string; readIdleSeconds?: number }>("/api/config");
+    setState({
+      defaultCwd: data.defaultCwd ?? null,
+      ...(data.readIdleSeconds !== undefined ? { readIdleSeconds: data.readIdleSeconds } : {}),
+    });
   } catch {
     // Older daemons don't expose /v1/config; fall through silently and
     // the modal uses its existing fallbacks.

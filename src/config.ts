@@ -43,6 +43,9 @@ export interface Config {
   // auto-approver never fires one — see ws-bridge.ts's
   // pendingPermissionNotifyTimers. 0 disables.
   permissionNotifyDelayMs: number;
+  // Seconds without input after which an open chat stops marking its
+  // session read on its own (see ui/read-state.ts). 0 disables the check.
+  readIdleSeconds: number;
   debug: boolean;
 }
 
@@ -179,6 +182,7 @@ export function loadConfig(
     hydraToken,
     permissionDisplayDelayMs: intVal(map, "PERMISSION_DELAY_MS", 500),
     permissionNotifyDelayMs: intVal(map, "PERMISSION_NOTIFY_DELAY_MS", 15_000),
+    readIdleSeconds: Math.max(0, intVal(map, "READ_IDLE_SECONDS", 180)),
     debug: bool(map, "DEBUG", false),
   };
 }

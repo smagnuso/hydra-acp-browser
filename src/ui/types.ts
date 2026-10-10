@@ -767,6 +767,8 @@ export interface AppState {
   // lifetime is an acceptable tradeoff against refetching constantly.
   remotes: RemoteInfo[];
   defaultCwd: string | null;
+  // Seconds of no input before an open chat stops auto-marking read; 0 never idles.
+  readIdleSeconds: number;
   groupBy: "project" | "recent";
   showCold: boolean;
   // Transient substring filter over the session list (the search box

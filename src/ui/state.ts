@@ -49,6 +49,7 @@ export const state: AppState = {
   agents: [],
   remotes: [],
   defaultCwd: null,
+  readIdleSeconds: 180,
   groupBy: "recent",
   // Show cold (disk-only) sessions by default. The "show cold"
   // toggle in the topbar can hide them; clicking one attaches over

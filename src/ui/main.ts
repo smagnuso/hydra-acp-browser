@@ -27,7 +27,7 @@ import {
   initFileWindowPaging,
 } from "./views.js";
 import { state } from "./state.js";
-import { markOpenChatRead } from "./read-state.js";
+import { initReadTracking, markOpenChatRead } from "./read-state.js";
 import { applyFontScale, initTheme } from "./theme.js";
 import { initPerfObserver } from "./perf.js";
 
@@ -148,6 +148,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 document.addEventListener("visibilitychange", () => reportVisibility());
+initReadTracking();
 document.addEventListener("visibilitychange", () => markOpenChatRead());
 window.addEventListener("focus", () => reportVisibility());
 window.addEventListener("blur", () => reportVisibility());

@@ -1,12 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+const listeners = new Map<string, () => void>();
 const doc = {
   visibilityState: "visible",
-  addEventListener() {},
+  focused: true,
+  hasFocus() {
+    return doc.focused;
+  },
+  addEventListener(type: string, fn: () => void) {
+    listeners.set(type, fn);
+  },
   removeEventListener() {},
 };
 (globalThis as { document?: unknown }).document = doc;
+(globalThis as { window?: unknown }).window = { addEventListener() {} };
 (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame ??= () => 0;
 
 const calls: { url: string; method?: string; body?: string }[] = [];
@@ -16,7 +24,8 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
 }) as typeof fetch;
 
 const { state } = await import("../src/ui/state.js");
-const { markOpenChatRead } = await import("../src/ui/read-state.js");
+const { markOpenChatRead, initReadTracking } = await import("../src/ui/read-state.js");
+initReadTracking();
 import type { ChatState, SessionInfo } from "../src/ui/types.js";
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 400));
@@ -53,4 +62,50 @@ test("leaves a session alone while the tab is hidden or no chat is open", async 
   await settle();
   assert.equal(calls.length, 0);
   assert.equal(state.sessions[0]?.unread, true);
+});
+
+test("leaves a session alone while the window is unfocused", async () => {
+  calls.length = 0;
+  openChat("s3", true);
+  doc.focused = false;
+  markOpenChatRead();
+  await settle();
+  doc.focused = true;
+  assert.equal(calls.length, 0);
+});
+
+test("leaves a session alone once idle, then marks it on the next input", async () => {
+  calls.length = 0;
+  openChat("s4", true);
+  const realNow = Date.now;
+  let offset = 10 * 60_000;
+  Date.now = () => realNow() + offset;
+  try {
+    markOpenChatRead();
+    await settle();
+    assert.equal(calls.length, 0);
+    listeners.get("keydown")?.();
+    await settle();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, "/api/sessions/s4/read");
+  } finally {
+    Date.now = realNow;
+    offset = 0;
+  }
+});
+
+test("never idles when readIdleSeconds is 0", async () => {
+  calls.length = 0;
+  openChat("s5", true);
+  state.readIdleSeconds = 0;
+  const realNow = Date.now;
+  Date.now = () => realNow() + 10 * 60_000;
+  try {
+    markOpenChatRead();
+    await settle();
+    assert.equal(calls.length, 1);
+  } finally {
+    Date.now = realNow;
+    state.readIdleSeconds = 180;
+  }
 });
