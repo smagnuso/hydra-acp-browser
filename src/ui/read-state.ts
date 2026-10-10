@@ -6,19 +6,31 @@ import { setState, state } from "./state.js";
 // focus. The tab must be visible, the window focused, and input seen within
 // readIdleSeconds (0 disables the check); an abandoned window leaves the
 // session unread for an active client to mark. Debounced so a replay's run
-// of turn_completes sends one request.
+// of turn_completes sends one request. Whether the person is looking is
+// decided when the mark is requested, not when the debounce fires, so
+// swiping out of the chat right after a turn ends still marks it.
 const DEBOUNCE_MS = 300;
 const INPUT_EVENTS = ["keydown", "pointerdown", "pointermove", "wheel", "touchstart"];
 let lastInputAt = Date.now();
 let timer: ReturnType<typeof setTimeout> | undefined;
+let pendingId: string | undefined;
 
 export function markOpenChatRead(): void {
+  const sessionId = seenSessionId();
+  if (sessionId === undefined) {
+    return;
+  }
   if (timer !== undefined) {
     clearTimeout(timer);
+    if (pendingId !== undefined && pendingId !== sessionId) {
+      sendRead(pendingId);
+    }
   }
+  pendingId = sessionId;
   timer = setTimeout(() => {
     timer = undefined;
-    sendRead();
+    pendingId = undefined;
+    sendRead(sessionId);
   }, DEBOUNCE_MS);
 }
 
@@ -56,17 +68,20 @@ export function initReadTracking(): void {
   });
 }
 
-function sendRead(): void {
+function seenSessionId(): string | undefined {
   const sessionId = state.current?.sessionId;
   if (
     state.view !== "chat" ||
-    sessionId === undefined ||
     document.visibilityState !== "visible" ||
     !document.hasFocus() ||
     isIdle()
   ) {
-    return;
+    return undefined;
   }
+  return sessionId;
+}
+
+function sendRead(sessionId: string): void {
   const row = state.sessions.find((s) => s.sessionId === sessionId);
   if (row?.unread) {
     setState({ sessions: state.sessions.map((s) => (s === row ? { ...s, unread: false } : s)) });

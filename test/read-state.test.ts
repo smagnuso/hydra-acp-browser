@@ -109,3 +109,14 @@ test("never idles when readIdleSeconds is 0", async () => {
     state.readIdleSeconds = 180;
   }
 });
+
+test("still marks the session read when the chat is left within the debounce", async () => {
+  calls.length = 0;
+  openChat("s6", true);
+  markOpenChatRead();
+  state.view = "list";
+  state.current = null;
+  await settle();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.url, "/api/sessions/s6/read");
+});
