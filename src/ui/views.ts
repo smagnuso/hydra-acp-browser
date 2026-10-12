@@ -2086,6 +2086,9 @@ function saveLastCwd(cwd: string): void {
 }
 
 function openSessionModal(): void {
+  // A live selection (e.g. in the other pane of the split layout) holds
+  // every render, and a tap doesn't clear it, so the dialog never paints.
+  window.getSelection()?.removeAllRanges();
   setState({
     modal: {
       kind: "session",
@@ -3842,6 +3845,10 @@ function renderChat(c: ChatState): HTMLElement {
   const view = ensureChatView(c);
 
   const autosize = (t: HTMLTextAreaElement): void => {
+    if (t.value === "") {
+      t.style.height = "";
+      return;
+    }
     t.style.height = "auto";
     t.style.height = t.scrollHeight + "px";
   };
@@ -4034,6 +4041,18 @@ function renderChat(c: ChatState): HTMLElement {
   if (!textarea) {
     textarea = buildTextarea();
     view.composerTextarea = textarea;
+    // A height measured at a transient width (rail/split transitions,
+    // rotation) goes stale; re-measure whenever the width settles.
+    const ta = textarea;
+    let lastWidth = 0;
+    new ResizeObserver(() => {
+      const w = ta.clientWidth;
+      if (w === 0 || w === lastWidth) {
+        return;
+      }
+      lastWidth = w;
+      autosize(ta);
+    }).observe(ta);
   }
   textarea.placeholder = c.ready || withinConnectingGrace
     ? "Message…"
