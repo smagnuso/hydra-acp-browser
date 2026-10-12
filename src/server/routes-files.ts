@@ -1,5 +1,5 @@
-import { promises as fsp } from "node:fs";
-import { extname, resolve, sep } from "node:path";
+import { createReadStream, promises as fsp } from "node:fs";
+import { basename, extname, resolve, sep } from "node:path";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { HydraRestClient, foreignCwdOwner } from "../hydra/client.js";
 import type { ServerContext } from "./http.js";
@@ -241,6 +241,63 @@ export function registerFileRoutes(
       return;
     }
     reply.send({ path: body.path, ...window });
+  });
+
+  // Raw download of any file under the same scoping as /api/files/read.
+  // GET so the browser's own download UI handles it (cookie auth and the
+  // same-origin check still apply).
+  app.get("/api/files/download", async (request, reply) => {
+    const query = request.query as { sessionId?: string; path?: string };
+    const sessionId = query.sessionId;
+    const path = query.path;
+    if (!sessionId || !path) {
+      reply.code(400).send({ error: "sessionId and path required" });
+      return;
+    }
+    const session = await lookupSession(ctx, request, sessionId);
+    if (!session) {
+      reply.code(404).send({ error: "session not found" });
+      return;
+    }
+    if (session.remote) {
+      reply.code(400).send({
+        error: `files live on "${session.remote}" and cannot be read from here`,
+      });
+      return;
+    }
+    let target: string;
+    try {
+      target = await resolveScopedPath(session.cwd, path);
+    } catch (err) {
+      if (!(err instanceof PathScopeError)) {
+        reply.code(500).send({ error: (err as Error).message });
+        return;
+      }
+      if (!(await isEditedPath(sessionId, path))) {
+        reply.code(400).send({ error: "path out of scope" });
+        return;
+      }
+      target = resolve(path);
+    }
+    let stat;
+    try {
+      stat = await fsp.stat(target);
+    } catch (err) {
+      reply.code(404).send({ error: (err as Error).message });
+      return;
+    }
+    if (!stat.isFile()) {
+      reply.code(400).send({ error: "not a file" });
+      return;
+    }
+    const filename = basename(target).replace(/[^\x20-\x7e]|["\\]/g, "_");
+    reply.header("Pragma", "no-cache");
+    reply.header(
+      "Content-Disposition",
+      `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(basename(target))}`,
+    );
+    reply.header("Content-Length", stat.size);
+    reply.type("application/octet-stream").send(createReadStream(target));
   });
 
   // Serves an image referenced by a chat resource_link (agent-generated

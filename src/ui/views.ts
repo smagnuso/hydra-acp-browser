@@ -5981,6 +5981,15 @@ function imagePreviewEl(src: string): HTMLElement {
   return container;
 }
 
+function downloadFile(sessionId: string, path: string): void {
+  const a = document.createElement("a");
+  a.href = `/api/files/download?sessionId=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(path)}`;
+  a.download = path.split("/").pop() ?? "download";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 function renderFileOverlay(c: ChatState): Node {
   const fo = c.fileOverlay;
   if (!fo) return document.createTextNode("");
@@ -6026,6 +6035,14 @@ function renderFileOverlay(c: ChatState): Node {
         ),
       );
     }
+    actionChildren.push(el("span", { class: "crumb-sep" }, "·"));
+    actionChildren.push(
+      el(
+        "span",
+        { class: "crumb", ...tapHandler(() => downloadFile(c.sessionId, path)) },
+        "download",
+      ),
+    );
     let contentEl: HTMLElement;
     if (showRendered) {
       contentEl = el("div", { class: "md-view", html: renderMarkdown(content) });

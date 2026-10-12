@@ -228,6 +228,36 @@ window.addEventListener("keydown", (e) => {
   closeFiles();
 });
 
+// Cmd/Ctrl-A inside the Files overlay selects just the previewed file, not
+// the chat page behind it. Left alone in form fields.
+window.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() !== "a" || !(e.metaKey || e.ctrlKey) || e.altKey) {
+    return;
+  }
+  if (!state.current?.fileOverlay) {
+    return;
+  }
+  const active = document.activeElement;
+  if (
+    active instanceof HTMLInputElement ||
+    active instanceof HTMLTextAreaElement
+  ) {
+    return;
+  }
+  const content = document.querySelector<HTMLElement>(
+    ".files .preview .md-view, .files .preview .code-view pre",
+  );
+  if (!content) {
+    return;
+  }
+  e.preventDefault();
+  const range = document.createRange();
+  range.selectNodeContents(content);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+});
+
 // Up/Down to move a cursor over the session list, Enter to open it —
 // same idea as the TUI's session picker. See views.ts's
 // handleListKeydown for the actual logic.
