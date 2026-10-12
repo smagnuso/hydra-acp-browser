@@ -296,8 +296,9 @@ export function registerFileRoutes(
       "Content-Disposition",
       `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(basename(target))}`,
     );
-    reply.header("Content-Length", stat.size);
-    reply.type("application/octet-stream").send(createReadStream(target));
+    return reply
+      .type("application/octet-stream")
+      .send(createReadStream(target));
   });
 
   // Serves an image referenced by a chat resource_link (agent-generated
