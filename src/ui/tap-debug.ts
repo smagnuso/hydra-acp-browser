@@ -118,6 +118,10 @@ const MAX_TRAILS_PER_SESSION = 300;
 let trailsThisSession = 0;
 const trail: { at: number; text: string }[] = [];
 
+export function noteTrail(text: string): void {
+  trailPush(text);
+}
+
 function trailPush(text: string): void {
   const now = performance.now();
   const last = trail[trail.length - 1];

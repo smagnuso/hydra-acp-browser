@@ -16,7 +16,7 @@ import {
   noteTapRescued,
   TAP_MOVE_THRESHOLD,
 } from "./dom.js";
-import { noteTouchFallback } from "./tap-debug.js";
+import { noteTouchFallback, noteTrail } from "./tap-debug.js";
 import { renderMarkdown, renderInlineMarkdown, escapeHtml, linkifyFilePaths } from "./markdown.js";
 import { highlightCode } from "./hljs.js";
 import {
@@ -3003,6 +3003,58 @@ function liveComposerView(): ChatView | null {
   return c ? (chatViews.get(c) ?? null) : null;
 }
 
+// Experiment. With the keyboard up, iOS occasionally stops delivering taps
+// on Send to the page at all (no touch, pointer or click event reaches the
+// document) while scrolls still arrive. Moving the cursor, backspacing or
+// toggling the keyboard ends it, so after a typing pause this moves the
+// caret one character and back, to put iOS through the same reset.
+const CARET_NUDGE_IDLE_MS = 750;
+let caretNudgeTimer: number | undefined;
+let caretNudgeComposing = false;
+let caretNudgeTouches = 0;
+let caretNudgeInstalled = false;
+
+function installCaretNudgeTracking(): void {
+  if (caretNudgeInstalled) {
+    return;
+  }
+  caretNudgeInstalled = true;
+  document.addEventListener("compositionstart", () => { caretNudgeComposing = true; }, true);
+  document.addEventListener("compositionend", () => { caretNudgeComposing = false; }, true);
+  const track = (e: TouchEvent): void => {
+    caretNudgeTouches = e.touches.length;
+  };
+  for (const type of ["touchstart", "touchend", "touchcancel"]) {
+    document.addEventListener(type, track as EventListener, { capture: true, passive: true });
+  }
+}
+
+function scheduleCaretNudge(ta: HTMLTextAreaElement): void {
+  if (isDesktopPointer()) {
+    return;
+  }
+  installCaretNudgeTracking();
+  window.clearTimeout(caretNudgeTimer);
+  caretNudgeTimer = window.setTimeout(() => {
+    if (document.activeElement !== ta || caretNudgeComposing || caretNudgeTouches > 0) {
+      return;
+    }
+    const pos = ta.selectionStart;
+    if (pos !== ta.selectionEnd || ta.value.length === 0) {
+      return;
+    }
+    const away = pos > 0 ? pos - 1 : pos + 1;
+    ta.setSelectionRange(away, away);
+    // A separate frame, so the two changes are not coalesced into none.
+    requestAnimationFrame(() => {
+      if (document.activeElement === ta && ta.selectionStart === away && ta.selectionEnd === away) {
+        ta.setSelectionRange(pos, pos);
+        noteTrail("nudge");
+      }
+    });
+  }, CARET_NUDGE_IDLE_MS);
+}
+
 let composerTapRescueInstalled = false;
 
 function installComposerTapRescue(): void {
@@ -3990,6 +4042,7 @@ function renderChat(c: ChatState): HTMLElement {
       oninput: (e: Event) => {
         noteTypingActivity();
         const t = e.target as HTMLTextAreaElement;
+        scheduleCaretNudge(t);
         c.composerValue = t.value;
         queueDraftWrite(c.sessionId, t.value);
         // User typed — they're off the history rail. Drop the nav
