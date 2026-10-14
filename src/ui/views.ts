@@ -4114,6 +4114,9 @@ function renderChat(c: ChatState): HTMLElement {
     : c.cold
     ? "Message… (wakes the session)"
     : "Connecting…";
+  if (textarea.value === "" && textarea.style.height !== "") {
+    textarea.style.height = "";
+  }
   if (textarea.value !== c.composerValue) {
     textarea.value = c.composerValue;
     const ta = textarea;

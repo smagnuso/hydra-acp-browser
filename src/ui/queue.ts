@@ -93,6 +93,7 @@ function clearComposerDom(): void {
   const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
   if (ta) {
     ta.value = "";
+    ta.style.height = "";
   }
 }
 
