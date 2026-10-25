@@ -307,13 +307,16 @@ function renderChart(m: Model, currency: string): HTMLElement {
         return;
       }
       const top0 = y(acc + v);
+      const base = view.selected === -1 || view.selected === i ? 1 : 0.45;
       const rect = svg("rect", {
         x,
         y: top0,
         width: barW,
         height: Math.max(0, y(acc) - top0),
         fill: s.color,
-        opacity: view.selected === -1 || view.selected === i ? 1 : 0.45,
+        opacity: base,
+        "data-s": s.label,
+        "data-o": base,
       });
       root.appendChild(rect);
       segs[i]?.push({ lo: acc, hi: acc + v, series: si, rect });
@@ -464,35 +467,98 @@ function renderDetail(m: Model, currency: string): HTMLElement {
   );
 }
 
+function seriesStats(m: Model, s: Series, currency: string): HTMLElement[] {
+  const total = s.values.reduce((a, b) => a + b, 0);
+  const grand = m.all.reduce((a, x) => a + x.values.reduce((p, q) => p + q, 0), 0);
+  const per = m.hourly ? "hour" : "day";
+  const n = m.days.length;
+  let peak = 0;
+  for (let i = 1; i < s.values.length; i++) {
+    if ((s.values[i] ?? 0) > (s.values[peak] ?? 0)) {
+      peak = i;
+    }
+  }
+  const peakDay = m.days[peak];
+  const active = s.values.filter((v) => v > 0).length;
+
+  const swatch = el("span", { class: "usage-swatch" });
+  swatch.style.background = s.color;
+  const row = (k: string, v: string): HTMLElement =>
+    el("div", { class: "row" }, k, el("span", { class: "v" }, v));
+
+  return [
+    el("div", { class: "hd" }, swatch, ` ${s.label}`),
+    row("Total", `${fmt(total, currency)}${unit()}${grand > 0 ? ` (${Math.round((total / grand) * 100)}%)` : ""}`),
+    row("Average", `${fmt(total / n, currency)}/${per}`),
+    row(
+      "Peak",
+      total > 0 && peakDay
+        ? `${fmt(s.values[peak] ?? 0, currency)} on ${fullSlotLabel(peakDay, m.hourly)}`
+        : "none",
+    ),
+    row("Active", `${active} of ${n} ${per}s`),
+  ];
+}
+
+// Dim every other series in the chart in place; render() is a full teardown.
+function emphasizeSeries(label: string | null): void {
+  document.querySelectorAll(".usage-chart rect[data-s]").forEach((r) => {
+    if (label === null) {
+      r.setAttribute("opacity", r.getAttribute("data-o") ?? "1");
+    } else {
+      r.setAttribute("opacity", r.getAttribute("data-s") === label ? "1" : "0.18");
+    }
+  });
+}
+
 function renderLegend(m: Model, currency: string): HTMLElement {
-  return el(
-    "div",
-    { class: "usage-legend" },
-    m.all.map((s) => {
-      const off = view.hidden.has(s.label);
-      // CSP blocks inline style attributes; CSSOM assignment is allowed.
-      const swatch = el("span", { class: "usage-swatch" });
-      swatch.style.background = s.color;
-      return el(
-        "span",
-        {
-          class: off ? "usage-key off" : "usage-key",
-          title: off ? "Show" : "Hide",
-          ...tapHandler(() => {
-            if (off) {
-              view.hidden.delete(s.label);
-            } else {
-              view.hidden.add(s.label);
-            }
-            view.selected = -1;
-            render();
-          }),
-        },
-        swatch,
-        `${s.label} ${fmt(s.values.reduce((a, b) => a + b, 0), currency)}`,
-      );
-    }),
-  );
+  const tip = el("div", { class: "usage-tip" });
+  const hideTip = (): void => {
+    tip.classList.remove("on");
+    emphasizeSeries(null);
+  };
+  const keys = m.all.map((s) => {
+    const off = view.hidden.has(s.label);
+    // CSP blocks inline style attributes; CSSOM assignment is allowed.
+    const swatch = el("span", { class: "usage-swatch" });
+    swatch.style.background = s.color;
+    const key = el(
+      "span",
+      {
+        class: off ? "usage-key off" : "usage-key",
+        title: off ? "Show" : "Hide",
+        ...tapHandler(() => {
+          hideTip();
+          if (off) {
+            view.hidden.delete(s.label);
+          } else {
+            view.hidden.add(s.label);
+          }
+          view.selected = -1;
+          render();
+        }),
+      },
+      swatch,
+      `${s.label} ${fmt(s.values.reduce((a, b) => a + b, 0), currency)}`,
+    );
+    key.addEventListener("pointerenter", (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") {
+        return;
+      }
+      tip.textContent = "";
+      for (const node of seriesStats(m, s, currency)) {
+        tip.appendChild(node);
+      }
+      tip.classList.add("on");
+      const wrapW = tip.parentElement?.clientWidth ?? 0;
+      tip.style.left = `${Math.max(0, Math.min(key.offsetLeft, wrapW - tip.offsetWidth))}px`;
+      tip.style.top = `${key.offsetTop - tip.offsetHeight - 6}px`;
+      emphasizeSeries(off ? null : s.label);
+    });
+    key.addEventListener("pointerleave", hideTip);
+    return key;
+  });
+  return el("div", { class: "usage-legend-wrap" }, el("div", { class: "usage-legend" }, keys), tip);
 }
 
 function renderBody(): HTMLElement | string {
