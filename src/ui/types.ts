@@ -743,6 +743,7 @@ export type ModalState =
   | { kind: "modes" }
   | { kind: "models" }
   | { kind: "options" }
+  | { kind: "usage" }
   | null;
 
 export type Banner = {

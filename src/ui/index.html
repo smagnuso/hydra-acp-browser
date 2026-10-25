@@ -629,6 +629,25 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
 .modal .field label { font-size: 0.85rem; color: var(--muted); }
 .modal .actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.5rem; }
 .modal .err { color: var(--bad); font-size: 0.85rem; margin-top: 0.4rem; }
+.modal.usage-modal { width: 40rem; overscroll-behavior: contain; }
+.usage-pickers { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.6rem; }
+.usage-pickers select { min-width: 0; }
+.usage-detail { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.4rem; min-height: 1.2em; }
+.usage-chart { width: 100%; height: auto; display: block; }
+.usage-chart-wrap { position: relative; }
+.usage-tip { position: absolute; display: none; pointer-events: none; z-index: 5; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.55rem; font-size: 0.78rem; color: var(--fg); box-shadow: 0 4px 14px rgba(0,0,0,0.35); white-space: nowrap; }
+.usage-tip.on { display: block; }
+.usage-tip .hd { font-weight: 600; margin-bottom: 0.25rem; }
+.usage-tip .row { display: flex; align-items: center; gap: 0.4rem; padding: 1px 0; }
+.usage-tip .row .v { margin-left: auto; padding-left: 1rem; font-variant-numeric: tabular-nums; }
+.usage-tip .row.hot { font-weight: 600; }
+.usage-grid { stroke: var(--border); stroke-width: 1; }
+.usage-axis { fill: var(--muted); font-size: 11px; }
+.usage-hit { cursor: pointer; }
+.usage-legend { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; margin-top: 0.5rem; font-size: 0.8rem; color: var(--muted); }
+.usage-key { display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
+.usage-key.off { opacity: 0.45; text-decoration: line-through; }
+.usage-swatch { width: 0.7rem; height: 0.7rem; border-radius: 2px; display: inline-block; }
 
 /* File overlay */
 .file-modal { width: 80vw; max-width: 80vw; height: 80vh; display: flex; flex-direction: column; padding: 0; }

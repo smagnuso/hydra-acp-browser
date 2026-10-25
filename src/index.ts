@@ -20,6 +20,7 @@ import { registerAgentRoutes } from "./server/routes-agents.js";
 import { registerFileRoutes } from "./server/routes-files.js";
 import { registerRootRoutes } from "./server/routes-root.js";
 import { registerConfigRoutes } from "./server/routes-config.js";
+import { registerUsageRoutes } from "./server/routes-usage.js";
 import { registerPushRoutes } from "./server/routes-push.js";
 import { registerClientLogRoutes } from "./server/routes-client-log.js";
 import { startTurnNotifyCallbackServer } from "./server/turn-notify-callback.js";
@@ -96,6 +97,7 @@ async function main(argv: string[]): Promise<void> {
   registerAgentRoutes(app, ctx);
   registerFileRoutes(app, ctx);
   registerConfigRoutes(app, ctx);
+  registerUsageRoutes(app, ctx);
   registerPushRoutes(app, ctx);
   registerClientLogRoutes(app, ctx);
 

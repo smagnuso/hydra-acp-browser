@@ -19,6 +19,7 @@ import {
 import { noteTouchFallback } from "./tap-debug.js";
 import { renderMarkdown, renderInlineMarkdown, escapeHtml, linkifyFilePaths } from "./markdown.js";
 import { highlightCode } from "./hljs.js";
+import { openUsageModal, renderUsageModal } from "./usage-view.js";
 import {
   api,
   importBundle,
@@ -311,6 +312,8 @@ export function renderApp(root: HTMLElement, s: AppState): void {
       );
     } else if (s.modal.kind === "options") {
       root.appendChild(renderOptionsModal());
+    } else if (s.modal.kind === "usage") {
+      root.appendChild(renderUsageModal());
     }
   }
 }
@@ -638,6 +641,7 @@ function renderTopbar(): HTMLElement {
     ),
     renderHostFilter(),
     el("span", { class: "spacer" }),
+    el("button", { ...tapHandler(openUsageModal), title: "Usage" }, "📊"),
     el("button", { ...tapHandler(openOptionsModal), title: "Options" }, "⚙"),
     el(
       "button",
