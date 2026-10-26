@@ -72,11 +72,14 @@ export function openUsageModal(): void {
   void load();
 }
 
-async function load(): Promise<void> {
+async function load(refresh = false): Promise<void> {
   const seq = ++view.seq;
   view.selected = -1;
   const hourly = isHourly();
   const key = `${view.metric}|${view.split}|${hourly ? "h" : "d"}`;
+  if (refresh) {
+    view.cache.clear();
+  }
   const hit = view.cache.get(key);
   if (hit !== undefined) {
     view.data = hit;
@@ -88,7 +91,7 @@ async function load(): Promise<void> {
   render();
   try {
     const data = await api<UsageResponse>(
-      `/api/usage?since=${hourly ? "24h" : "90d"}&bucket=${hourly ? "hour" : "day"}&by=${view.split}&metric=${view.metric}`,
+      `/api/usage?since=${hourly ? "24h" : "90d"}&bucket=${hourly ? "hour" : "day"}&by=${view.split}&metric=${view.metric}${refresh ? "&refresh=1" : ""}`,
       { timeoutMs: 120_000 },
     );
     if (seq !== view.seq) {
@@ -649,6 +652,14 @@ export function renderUsageModal(): HTMLElement {
       el(
         "div",
         { class: "actions" },
+        el(
+          "button",
+          {
+            title: "Re-download all usage events instead of only the new ones",
+            ...tapHandler(() => void load(true)),
+          },
+          "Refresh",
+        ),
         el("button", { class: "primary", ...tapHandler(close) }, "Close"),
       ),
     ),

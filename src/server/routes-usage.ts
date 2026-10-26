@@ -11,7 +11,8 @@ const SINCE_RE = /^\d{1,3}[hdwmy]$/;
 
 const CACHE_TTL_MS = 60_000;
 const CACHE_MAX = 64;
-// Raw sessions and events are shared across metric/split/range combinations.
+// Raw sessions and events are shared across metric/split/range combinations;
+// events are also kept on disk so a restart only fetches what is new.
 const SNAPSHOT_TTL_MS = 120_000;
 
 interface CacheEntry {
@@ -32,6 +33,7 @@ export function registerUsageRoutes(
     const by = q.by;
     const metric = q.metric ?? "cost";
     const depth = q.depth === undefined ? 2 : Number(q.depth);
+    const refresh = q.refresh === "1";
 
     if (!SINCE_RE.test(since)) {
       reply.code(400).send({ error: "invalid since" });
@@ -59,6 +61,9 @@ export function registerUsageRoutes(
     const key = [tokenId, since, bucket ?? "", by ?? "", metric, depth].join("|");
 
     const now = Date.now();
+    if (refresh) {
+      cache.clear();
+    }
     let entry = cache.get(key);
     if (entry === undefined || now - entry.at > CACHE_TTL_MS) {
       const value = computeUsage(
@@ -70,7 +75,7 @@ export function registerUsageRoutes(
           metric: metric as "cost" | "tokens" | "loc",
         },
         { daemonUrl: ctx.config.hydraDaemonUrl, token },
-        { cacheMs: SNAPSHOT_TTL_MS },
+        { cacheMs: SNAPSHOT_TTL_MS, persist: true, refresh },
       );
       entry = { at: now, value };
       cache.set(key, entry);
