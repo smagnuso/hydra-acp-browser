@@ -1,10 +1,12 @@
 // Usage modal: daily cost stacked by model, fed by /api/usage. The chart
 // is plain SVG; no chart library.
 
-import { el, tapHandler } from "./dom.js";
+import { el, tapHandler, TAP_MOVE_THRESHOLD } from "./dom.js";
 import { api } from "./api.js";
 import { render } from "./renderer.js";
-import { setState } from "./state.js";
+import { setState, state } from "./state.js";
+import { openChat } from "./routing.js";
+import type { SessionInfo } from "./types.js";
 
 interface UsageItem {
   bucket: string;
@@ -18,6 +20,8 @@ interface UsageItem {
 interface UsageGroup {
   label: string;
   items: UsageItem[];
+  // Only on by=session groups; lets the list follow the legend's filter.
+  attrs?: { model: string; agent: string; dir: string };
 }
 
 interface UsageResponse {
@@ -49,6 +53,7 @@ const RANGES: Array<{ value: Range; label: string }> = [
 ];
 const RANGE_DAYS: Record<Range, number> = { "24h": 1, "7d": 7, "30d": 30, "90d": 90 };
 const MAX_SERIES = 5;
+const LONG_PRESS_MS = 350;
 const PALETTE = ["#5b8def", "#e8a33d", "#4cb58a", "#c26bd1", "#e0645c", "#8a8f98"];
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -100,7 +105,39 @@ const view = {
   error: "",
   selected: -1,
   seq: 0,
+  sessions: { status: "idle" as "idle" | "loading" | "ready" | "error", data: null as UsageResponse | null, error: "" },
+  sseq: 0,
+  listScroll: 0,
 };
+
+async function loadSessions(refresh: boolean): Promise<void> {
+  const seq = ++view.sseq;
+  const hourly = isHourly();
+  const key = `sessions|${view.metric}|${hourly ? "h" : "d"}`;
+  const hit = refresh ? undefined : view.cache.get(key);
+  if (hit !== undefined) {
+    view.sessions = { status: "ready", data: hit, error: "" };
+    return;
+  }
+  view.sessions = { status: "loading", data: null, error: "" };
+  try {
+    const data = await api<UsageResponse>(
+      `/api/usage?since=${hourly ? "24h" : "90d"}&bucket=${hourly ? "hour" : "day"}&by=session&metric=${view.metric}`,
+      { timeoutMs: 120_000 },
+    );
+    if (seq !== view.sseq) {
+      return;
+    }
+    view.cache.set(key, data);
+    view.sessions = { status: "ready", data, error: "" };
+  } catch (err) {
+    if (seq !== view.sseq) {
+      return;
+    }
+    view.sessions = { status: "error", data: null, error: (err as Error).message };
+  }
+  render();
+}
 
 export function openUsageModal(): void {
   view.cache.clear();
@@ -116,6 +153,10 @@ async function load(refresh = false): Promise<void> {
   const key = `${view.metric}|${view.split}|${hourly ? "h" : "d"}`;
   if (refresh) {
     view.cache.clear();
+  }
+  view.listScroll = 0;
+  if (!refresh) {
+    void loadSessions(false);
   }
   const hit = view.cache.get(key);
   if (hit !== undefined) {
@@ -137,6 +178,9 @@ async function load(refresh = false): Promise<void> {
     view.cache.set(key, data);
     view.data = data;
     view.status = "ready";
+    if (refresh) {
+      void loadSessions(false);
+    }
   } catch (err) {
     if (seq !== view.seq) {
       return;
@@ -233,13 +277,14 @@ interface Series {
 
 interface Model {
   days: Date[];
+  keys: string[];
   hourly: boolean;
   all: Series[];
   series: Series[];
   totals: number[];
 }
 
-function buildModel(data: UsageResponse, range: Range, hidden: Set<string>): Model {
+function rangeSlots(range: Range): { days: Date[]; hourly: boolean; keys: string[] } {
   const hourly = range === "24h";
   const n = hourly ? 24 : RANGE_DAYS[range];
   const days: Date[] = [];
@@ -251,7 +296,12 @@ function buildModel(data: UsageResponse, range: Range, hidden: Set<string>): Mod
         : new Date(today.getFullYear(), today.getMonth(), today.getDate() - i),
     );
   }
-  const index = new Map(days.map((d, i) => [hourly ? hourKey(d) : dayKey(d), i]));
+  return { days, hourly, keys: days.map((d) => (hourly ? hourKey(d) : dayKey(d))) };
+}
+
+function buildModel(data: UsageResponse, range: Range, hidden: Set<string>): Model {
+  const { days, hourly, keys } = rangeSlots(range);
+  const index = new Map(keys.map((k, i) => [k, i]));
 
   const byModel = (data.groups ?? []).map((g) => {
     const values = days.map(() => 0);
@@ -281,7 +331,7 @@ function buildModel(data: UsageResponse, range: Range, hidden: Set<string>): Mod
   }
   const shown = series.filter((s) => !hidden.has(s.label));
   const totals = days.map((_, i) => shown.reduce((a, s) => a + (s.values[i] ?? 0), 0));
-  return { days, hourly, all: series, series: shown, totals };
+  return { days, keys, hourly, all: series, series: shown, totals };
 }
 
 interface Seg {
@@ -372,6 +422,7 @@ function renderChart(m: Model, currency: string): HTMLElement {
     });
     const t = tapHandler(() => {
       view.selected = view.selected === i ? -1 : i;
+      view.listScroll = 0;
       render();
     });
     for (const [k, v] of Object.entries(t)) {
@@ -440,9 +491,48 @@ function renderChart(m: Model, currency: string): HTMLElement {
     });
   };
 
+  // Touch: a horizontal drag scrubs the card across the bars. tapHandler stops
+  // pointerdown/up from bubbling, so these listen in the capture phase.
+  let touchStart: { x: number } | null = null;
+  let scrubbing = false;
+  const endTouch = (): void => {
+    touchStart = null;
+    scrubbing = false;
+    hideTip();
+  };
+  root.addEventListener(
+    "pointerdown",
+    (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") {
+        touchStart = { x: e.clientX };
+        scrubbing = false;
+      }
+    },
+    true,
+  );
+  root.addEventListener(
+    "pointerup",
+    (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") {
+        endTouch();
+      }
+    },
+    true,
+  );
+  root.addEventListener("pointercancel", endTouch, true);
+
   root.addEventListener("pointermove", (e: PointerEvent) => {
-    if (e.pointerType !== "mouse") {
-      return;
+    const touch = e.pointerType !== "mouse";
+    if (touch) {
+      if (touchStart === null) {
+        return;
+      }
+      if (!scrubbing) {
+        if (Math.abs(e.clientX - touchStart.x) <= TAP_MOVE_THRESHOLD) {
+          return;
+        }
+        scrubbing = true;
+      }
     }
     const box = root.getBoundingClientRect();
     const sx = ((e.clientX - box.left) / box.width) * W;
@@ -472,14 +562,25 @@ function renderChart(m: Model, currency: string): HTMLElement {
     const wb = wrap.getBoundingClientRect();
     let tx = e.clientX - wb.left + 14;
     let ty = e.clientY - wb.top + 14;
-    if (tx + tip.offsetWidth > wb.width) {
-      tx = e.clientX - wb.left - tip.offsetWidth - 14;
-    }
-    if (ty + tip.offsetHeight > wb.height) {
-      ty = e.clientY - wb.top - tip.offsetHeight - 14;
+    if (touch) {
+      // Above the finger so it isn't covered, clamped to the chart's width.
+      tx = Math.min(Math.max(0, e.clientX - wb.left - tip.offsetWidth / 2), wb.width - tip.offsetWidth);
+      ty = e.clientY - wb.top - tip.offsetHeight - 28;
+      // May rise above the chart, but not out of the modal.
+      const mb = root.closest(".modal")?.getBoundingClientRect();
+      if (mb) {
+        ty = Math.max(ty, mb.top - wb.top + 4);
+      }
+    } else {
+      if (tx + tip.offsetWidth > wb.width) {
+        tx = e.clientX - wb.left - tip.offsetWidth - 14;
+      }
+      if (ty + tip.offsetHeight > wb.height) {
+        ty = e.clientY - wb.top - tip.offsetHeight - 14;
+      }
     }
     tip.style.left = `${Math.max(0, tx)}px`;
-    tip.style.top = `${Math.max(0, ty)}px`;
+    tip.style.top = `${touch ? ty : Math.max(0, ty)}px`;
   });
   root.addEventListener("pointerleave", hideTip);
   return wrap;
@@ -557,8 +658,25 @@ function renderLegend(m: Model, currency: string): HTMLElement {
     tip.classList.remove("on");
     emphasizeSeries(null);
   };
+  const showStats = (key: HTMLElement, s: Series, off: boolean): void => {
+    tip.textContent = "";
+    for (const node of seriesStats(m, s, currency)) {
+      tip.appendChild(node);
+    }
+    tip.classList.add("on");
+    const wrapW = tip.parentElement?.clientWidth ?? 0;
+    tip.style.left = `${Math.max(0, Math.min(key.offsetLeft, wrapW - tip.offsetWidth))}px`;
+    tip.style.top = `${key.offsetTop - tip.offsetHeight - 6}px`;
+    emphasizeSeries(off ? null : s.label);
+  };
   const keys = m.all.map((s) => {
     const off = view.hidden.has(s.label);
+    let longPressed = false;
+    // tapHandler consumes longPressed on release, so the card needs its own flag.
+    let cardUp = false;
+    let pressTimer: ReturnType<typeof setTimeout> | undefined;
+    let pressX = 0;
+    let pressY = 0;
     // CSP blocks inline style attributes; CSSOM assignment is allowed.
     const swatch = el("span", { class: "usage-swatch" });
     swatch.style.background = s.color;
@@ -568,6 +686,10 @@ function renderLegend(m: Model, currency: string): HTMLElement {
         class: off ? "usage-key off" : "usage-key",
         title: off ? "Show" : "Hide",
         ...tapHandler(() => {
+          if (longPressed) {
+            longPressed = false;
+            return;
+          }
           hideTip();
           if (off) {
             view.hidden.delete(s.label);
@@ -575,6 +697,7 @@ function renderLegend(m: Model, currency: string): HTMLElement {
             view.hidden.add(s.label);
           }
           view.selected = -1;
+          view.listScroll = 0;
           render();
         }),
       },
@@ -582,23 +705,184 @@ function renderLegend(m: Model, currency: string): HTMLElement {
       `${s.label} ${fmt(s.values.reduce((a, b) => a + b, 0), currency)}`,
     );
     key.addEventListener("pointerenter", (e: PointerEvent) => {
-      if (e.pointerType !== "mouse") {
+      if (e.pointerType === "mouse") {
+        showStats(key, s, off);
+      }
+    });
+    key.addEventListener("pointerleave", (e: PointerEvent) => {
+      if (e.pointerType === "mouse") {
+        hideTip();
+      }
+    });
+
+    // Touch: a tap still toggles; holding shows the stats card until release.
+    const cancelPress = (): void => {
+      if (pressTimer !== undefined) {
+        clearTimeout(pressTimer);
+        pressTimer = undefined;
+      }
+    };
+    key.addEventListener("pointerdown", (e: PointerEvent) => {
+      if (e.pointerType === "mouse") {
         return;
       }
-      tip.textContent = "";
-      for (const node of seriesStats(m, s, currency)) {
-        tip.appendChild(node);
-      }
-      tip.classList.add("on");
-      const wrapW = tip.parentElement?.clientWidth ?? 0;
-      tip.style.left = `${Math.max(0, Math.min(key.offsetLeft, wrapW - tip.offsetWidth))}px`;
-      tip.style.top = `${key.offsetTop - tip.offsetHeight - 6}px`;
-      emphasizeSeries(off ? null : s.label);
+      longPressed = false;
+      cardUp = false;
+      pressX = e.clientX;
+      pressY = e.clientY;
+      cancelPress();
+      pressTimer = setTimeout(() => {
+        pressTimer = undefined;
+        longPressed = true;
+        cardUp = true;
+        showStats(key, s, off);
+      }, LONG_PRESS_MS);
     });
-    key.addEventListener("pointerleave", hideTip);
+    key.addEventListener("pointermove", (e: PointerEvent) => {
+      if (pressTimer !== undefined && Math.hypot(e.clientX - pressX, e.clientY - pressY) > TAP_MOVE_THRESHOLD) {
+        cancelPress();
+      }
+    });
+    key.addEventListener("pointerup", (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") {
+        cancelPress();
+        if (cardUp) {
+          cardUp = false;
+          hideTip();
+        }
+      }
+    });
+    key.addEventListener("pointercancel", () => {
+      cancelPress();
+      longPressed = false;
+      cardUp = false;
+      hideTip();
+    });
+    key.addEventListener("contextmenu", (e: Event) => {
+      if (longPressed) {
+        e.preventDefault();
+      }
+    });
     return key;
   });
   return el("div", { class: "usage-legend-wrap" }, el("div", { class: "usage-legend" }, keys), tip);
+}
+
+const SESSIONS_MAX = 200;
+
+function tailPath(cwd: string): string {
+  return cwd.split("/").filter((p) => p.length > 0).slice(-2).join("/");
+}
+
+function sessionKey(id: string): string {
+  return id.replace(/^.*hydra_session_/, "");
+}
+
+function openSessionFromUsage(sessionId: string): void {
+  setState({ modal: null });
+  if (state.current?.sessionId !== sessionId) {
+    openChat(sessionId);
+  }
+}
+
+function renderSessions(m: Model, currency: string): HTMLElement {
+  const box = el("div", { class: "usage-sessions" });
+  const sel = view.selected;
+  const day = sel >= 0 ? m.days[sel] : undefined;
+  const scopeLabel = day
+    ? fullSlotLabel(day, m.hourly)
+    : (RANGES.find((r) => r.value === view.range)?.label ?? view.range);
+  const metricNote =
+    (view.metric === "tokens" ? ", tokens" : view.metric === "loc" ? ", lines" : "") +
+    (view.hidden.size > 0 ? ", filtered" : "");
+  const sv = view.sessions;
+  if (sv.status === "error") {
+    box.appendChild(el("div", { class: "usage-sessions-h" }, "Top sessions"));
+    box.appendChild(el("div", { class: "err" }, sv.error || "Failed to load sessions"));
+    return box;
+  }
+  if (sv.status !== "ready" || sv.data === null) {
+    box.appendChild(el("div", { class: "usage-sessions-h" }, "Top sessions"));
+    box.appendChild(el("div", { class: "usage-detail" }, "Loading…"));
+    return box;
+  }
+
+  const scope = new Set(day && sel >= 0 ? [m.keys[sel] ?? ""] : m.keys);
+  // A session counts toward the series its split attribute falls under.
+  const shownLabels = new Set(m.all.map((s) => s.label));
+  const rows = (sv.data.groups ?? [])
+    .map((g) => {
+      const attr = g.attrs?.[view.split];
+      if (attr !== undefined && view.hidden.has(shownLabels.has(attr) ? attr : "other")) {
+        return { id: g.label, v: 0 };
+      }
+      let v = 0;
+      for (const item of g.items) {
+        if (scope.has(item.bucket)) {
+          v += valueOf(item);
+        }
+      }
+      return { id: g.label, v };
+    })
+    .filter((r) => r.v > 0)
+    .sort((a, b) => b.v - a.v);
+  const total = rows.reduce((a, r) => a + r.v, 0);
+
+  box.appendChild(
+    el("div", { class: "usage-sessions-h" }, `Top sessions, ${scopeLabel}${metricNote} (${rows.length})`),
+  );
+  if (rows.length === 0) {
+    box.appendChild(
+      el(
+        "div",
+        { class: "usage-detail" },
+        view.hidden.size > 0 ? "No sessions match the visible series." : "No sessions in this slice.",
+      ),
+    );
+    return box;
+  }
+
+  const info = new Map<string, SessionInfo>();
+  for (const s of state.sessions) {
+    info.set(sessionKey(s.sessionId), s);
+  }
+  const top = rows[0]?.v ?? 1;
+  const list = el("div", { class: "usage-sessions-list" });
+  for (const r of rows.slice(0, SESSIONS_MAX)) {
+    const s = info.get(r.id);
+    const sub = s
+      ? [s.agentId, s.cwd ? tailPath(s.cwd) : ""].filter((p) => p).join(" \u00b7 ")
+      : r.id;
+    const bar = el("i");
+    bar.style.width = `${Math.max(2, (r.v / top) * 100)}%`;
+    list.appendChild(
+      el(
+        "div",
+        {
+          class: s ? "usage-srow link" : "usage-srow",
+          ...(s ? tapHandler(() => openSessionFromUsage(s.sessionId)) : {}),
+        },
+        el("div", { class: "t" }, s?.title || r.id),
+        el("div", { class: "v" }, fmt(r.v, currency)),
+        el("div", { class: "s" }, sub),
+        el("div", { class: "p" }, `${Math.round((r.v / total) * 100)}%`),
+        el("div", { class: "bar" }, bar),
+      ),
+    );
+  }
+  if (rows.length > SESSIONS_MAX) {
+    list.appendChild(el("div", { class: "usage-more" }, `${rows.length - SESSIONS_MAX} more not shown`));
+  }
+  // render() rebuilds the modal on any poll or socket event, so remember where
+  // the list was scrolled and put it back once the new element is attached.
+  list.addEventListener("scroll", () => {
+    view.listScroll = list.scrollTop;
+  });
+  queueMicrotask(() => {
+    list.scrollTop = view.listScroll;
+  });
+  box.appendChild(list);
+  return box;
 }
 
 function renderBody(): HTMLElement | string {
@@ -623,10 +907,11 @@ function renderBody(): HTMLElement | string {
   }
   return el(
     "div",
-    null,
+    { class: "usage-body" },
     renderDetail(model, currency),
     renderChart(model, currency),
     renderLegend(model, currency),
+    renderSessions(model, currency),
   );
 }
 
