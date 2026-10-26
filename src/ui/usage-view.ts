@@ -52,10 +52,47 @@ const MAX_SERIES = 5;
 const PALETTE = ["#5b8def", "#e8a33d", "#4cb58a", "#c26bd1", "#e0645c", "#8a8f98"];
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+const STORAGE_KEY = "hydra-acp-browser:usage";
+
+interface Saved {
+  range: Range;
+  metric: Metric;
+  split: SplitBy;
+}
+
+function loadSaved(): Partial<Saved> {
+  const out: Partial<Saved> = {};
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, unknown>;
+    if (RANGES.some((r) => r.value === raw.range)) {
+      out.range = raw.range as Range;
+    }
+    if (METRICS.some((m) => m.value === raw.metric)) {
+      out.metric = raw.metric as Metric;
+    }
+    if (SPLITS.some((s) => s.value === raw.split)) {
+      out.split = raw.split as SplitBy;
+    }
+  } catch {
+    // Unreadable or unavailable storage: fall back to the defaults.
+  }
+  return out;
+}
+
+function saveSettings(): void {
+  try {
+    const saved: Saved = { range: view.range, metric: view.metric, split: view.split };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+  } catch {
+    // Private browsing or quota: the choices just won't persist.
+  }
+}
+
 const view = {
   range: "30d" as Range,
   metric: "cost" as Metric,
   split: "model" as SplitBy,
+  ...loadSaved(),
   cache: new Map<string, UsageResponse>(),
   hidden: new Set<string>(),
   status: "idle" as "idle" | "loading" | "ready" | "error",
@@ -636,15 +673,18 @@ export function renderUsageModal(): HTMLElement {
         { class: "usage-pickers" },
         picker(METRICS, view.metric, (v) => {
           view.metric = v;
+          saveSettings();
           void load();
         }),
         picker(SPLITS, view.split, (v) => {
           view.split = v;
+          saveSettings();
           view.hidden.clear();
           void load();
         }),
         picker(RANGES, view.range, (v) => {
           view.range = v;
+          saveSettings();
           void load();
         }),
       ),
