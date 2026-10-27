@@ -115,9 +115,11 @@ export function extractPatchDiffs(update: AnyRecord): EditDiff[] {
   for (const entry of files) {
     if (!entry || typeof entry !== "object") continue;
     const e = entry as AnyRecord;
-    if (typeof e.filePath !== "string" || e.filePath.length === 0) continue;
+    // opencode names the file `filePath` in one version and `file` in another.
+    const path = typeof e.filePath === "string" && e.filePath.length > 0 ? e.filePath : e.file;
+    if (typeof path !== "string" || path.length === 0) continue;
     if (typeof e.patch !== "string") continue;
-    out.push({ path: e.filePath, ...parseUnifiedPatch(e.patch) });
+    out.push({ path, ...parseUnifiedPatch(e.patch) });
   }
   return out;
 }

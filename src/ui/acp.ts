@@ -755,9 +755,10 @@ function applyEditDiffUpdate(update: AnyRecord): boolean {
     typeof update.status === "string" ? update.status : undefined;
   const line = extractToolCallLine(update);
   const source = extractChunkSource(update);
-  if (diff === null && !findEditDiffLogItem(toolCallId)) {
+  if (!findEditDiffLogItem(toolCallId)) {
     // A multi-file patch gets one block per file, under derived ids so each
-    // keeps its own expand state and a repeated update amends in place.
+    // keeps its own expand state and a repeated update amends in place. The
+    // call's diff block is only its first file, so the patch list wins.
     const patched = extractPatchDiffs(update).map((d) => withRecordedCounts(d, update)!);
     patched.forEach((d, i) =>
       upsertEditDiffItem(`${toolCallId}#${i}`, d, status, line, source),

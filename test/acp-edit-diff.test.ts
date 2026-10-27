@@ -186,6 +186,32 @@ test("a multi-file apply_patch completion pushes one block per file", () => {
   assert.equal(items[1]!.diff.newText, "fresh\n");
 });
 
+test("a multi-file patch that also carries a diff block still shows every file", () => {
+  state.current = makeChatState();
+  handleNotification(
+    toolCallFrame({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tc_multi",
+      status: "completed",
+      content: [
+        { type: "diff", path: "/r/a.ts", oldText: "old\n", newText: "new\n" },
+        { type: "diff", path: "/r/b.ts", oldText: "", newText: "fresh\n" },
+      ],
+      rawOutput: {
+        metadata: {
+          files: [
+            { file: "a.ts", patch: "@@ -1 +1 @@\n-old\n+new", status: "modified" },
+            { file: "b.ts", patch: "@@ -0,0 +1 @@\n+fresh", status: "added" },
+          ],
+        },
+      },
+    }),
+  );
+  const items = editDiffItems();
+  assert.equal(items.length, 2);
+  assert.deepEqual(items.map((item) => item.diff.path), ["a.ts", "b.ts"]);
+});
+
 test("an edit carries the line counts the daemon recorded", () => {
   state.current = makeChatState();
   handleNotification(
