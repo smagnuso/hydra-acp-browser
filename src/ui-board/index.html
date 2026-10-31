@@ -7,9 +7,10 @@
 <title>Hydra board</title>
 <style nonce="__CSP_NONCE__">
 :root { --bg:#0e1116; --card:#171c26; --line:#2b3346; --fg:#d6deeb; --dim:#8b95a8; --accent:#6ea8fe; --warn:#e8a33d; --good:#4cb58a; --bad:#e0645c; --code:#0b0e13; }
-@media (prefers-color-scheme: light) {
-  :root { --bg:#f6f7f9; --card:#fff; --line:#d9dde3; --fg:#1b1f27; --dim:#667085; --accent:#2563eb; --warn:#b7791f; --good:#1f9d6a; --bad:#c0392b; --code:#f0f2f5; }
+html[data-theme="light"] {
+  --bg:#f6f7f9; --card:#fff; --line:#d9dde3; --fg:#1b1f27; --dim:#667085; --accent:#2563eb; --warn:#b7791f; --good:#1f9d6a; --bad:#c0392b; --code:#f0f2f5; color-scheme: light;
 }
+html[data-theme="dark"] { color-scheme: dark; }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }

@@ -64,7 +64,14 @@ const app = document.getElementById("app")!;
 const title = el("h1", {}, "Hydra board");
 const back = el("button", { hidden: "" }, "Back");
 const uiSelect = el("select", { hidden: "", title: "Switch UI" });
-const header = el("header", {}, back, title, uiSelect);
+const themeSelect = el(
+  "select",
+  { title: "Theme" },
+  el("option", { value: "system" }, "system"),
+  el("option", { value: "dark" }, "dark"),
+  el("option", { value: "light" }, "light"),
+);
+const header = el("header", {}, back, title, themeSelect, uiSelect);
 const filters = el("div", { class: "filters" });
 const search = el("input", { type: "search", placeholder: "Search sessions", "aria-label": "Search sessions" });
 const chips = el("span", {});
@@ -89,6 +96,23 @@ installUiHooks({
     input.value = "";
   },
 });
+
+function applyTheme(): void {
+  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const resolved = state.theme === "system" ? (dark ? "dark" : "light") : state.theme;
+  document.documentElement.setAttribute("data-theme", resolved);
+}
+themeSelect.value = state.theme;
+themeSelect.addEventListener("change", () => {
+  setState({ theme: themeSelect.value as typeof state.theme });
+  applyTheme();
+});
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (state.theme === "system") {
+    applyTheme();
+  }
+});
+applyTheme();
 
 back.addEventListener("click", () => closeChat());
 input.addEventListener("input", () => {
