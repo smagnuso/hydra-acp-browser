@@ -46,9 +46,11 @@ export interface Config {
   // Seconds without input after which an open chat stops marking its
   // session read on its own (see ui/read-state.ts). 0 disables the check.
   readIdleSeconds: number;
-  // Directory holding an alternate UI build (index.html, sw.js, assets/).
-  // Unset serves the bundled UI from dist/ui.
+  // Extra UI build (index.html, sw.js, assets/) offered as "custom" and,
+  // when set, served by default in place of the bundled UIs.
   uiDir: string | undefined;
+  // Bundled UI served when the browser has not picked one (dist/ui/<name>).
+  defaultUi: string;
   debug: boolean;
 }
 
@@ -189,6 +191,7 @@ export function loadConfig(
     permissionNotifyDelayMs: intVal(map, "PERMISSION_NOTIFY_DELAY_MS", 15_000),
     readIdleSeconds: Math.max(0, intVal(map, "READ_IDLE_SECONDS", 180)),
     uiDir: uiDirRaw ? expandHome(uiDirRaw) : undefined,
+    defaultUi: map.get("BROWSER_UI") || "classic",
     debug: bool(map, "DEBUG", false),
   };
 }

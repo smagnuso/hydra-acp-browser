@@ -16,8 +16,11 @@ const log = logger("routes-root");
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-// In dist layout: dist/server/routes-root.js → ../ui/index.html
-const DEFAULT_UI_DIR = resolve(here, "..", "ui");
+// In dist layout: dist/server/routes-root.js → ../ui/<name>/index.html
+const UI_ROOT = resolve(here, "..", "ui");
+const UI_COOKIE = "hb_ui";
+const UI_NAME_RE = /^[a-z0-9-]{1,32}$/;
+const CUSTOM_UI = "custom";
 
 const MIME: Record<string, string> = {
   ".js": "application/javascript; charset=utf-8",
@@ -39,20 +42,62 @@ const MIME: Record<string, string> = {
   ".wasm": "application/wasm",
 };
 
-// A custom UI dir is re-read on every request so a rebuild shows up on
-// reload without restarting the server; the bundled UI is cached.
-function makeUiLoader(uiDir: string | undefined) {
-  const dir = uiDir ? resolve(uiDir) : DEFAULT_UI_DIR;
+// Bundled UIs are cached; the custom dir is re-read on every request so a
+// rebuild shows up on reload without restarting the server.
+function makeUiRegistry(config: ServerContext["config"], uiRoot: string) {
   const cache = new Map<string, string>();
+  let bundledNames: string[] | undefined;
+
+  async function names(): Promise<string[]> {
+    if (bundledNames === undefined) {
+      bundledNames = [];
+      try {
+        for (const e of await fsp.readdir(uiRoot, { withFileTypes: true })) {
+          if (e.isDirectory() && UI_NAME_RE.test(e.name)) {
+            const html = resolve(uiRoot, e.name, "index.html");
+            if (await fsp.stat(html).then(() => true, () => false)) {
+              bundledNames.push(e.name);
+            }
+          }
+        }
+      } catch {
+        void 0;
+      }
+      bundledNames.sort();
+    }
+    return config.uiDir ? [...bundledNames, CUSTOM_UI] : bundledNames;
+  }
+
+  function dirOf(name: string): string {
+    return name === CUSTOM_UI && config.uiDir
+      ? resolve(config.uiDir)
+      : resolve(uiRoot, name);
+  }
+
   return {
-    dir,
-    async text(name: string): Promise<string> {
-      const hit = uiDir ? undefined : cache.get(name);
+    names,
+    dirOf,
+    async select(request: FastifyRequest): Promise<string> {
+      const available = await names();
+      const picked = parseCookies(request.headers.cookie).get(UI_COOKIE);
+      if (picked && available.includes(picked)) {
+        return picked;
+      }
+      if (config.uiDir) {
+        return CUSTOM_UI;
+      }
+      return available.includes(config.defaultUi)
+        ? config.defaultUi
+        : (available[0] ?? config.defaultUi);
+    },
+    async text(name: string, file: string): Promise<string> {
+      const key = `${name}/${file}`;
+      const hit = name === CUSTOM_UI ? undefined : cache.get(key);
       if (hit !== undefined) {
         return hit;
       }
-      const body = await fsp.readFile(resolve(dir, name), "utf8");
-      cache.set(name, body);
+      const body = await fsp.readFile(resolve(dirOf(name), file), "utf8");
+      cache.set(key, body);
       return body;
     },
   };
@@ -61,8 +106,9 @@ function makeUiLoader(uiDir: string | undefined) {
 export function registerRootRoutes(
   app: FastifyInstance,
   ctx: ServerContext,
+  uiRoot: string = UI_ROOT,
 ): void {
-  const ui = makeUiLoader(ctx.config.uiDir);
+  const ui = makeUiRegistry(ctx.config, uiRoot);
 
   app.get(
     "/",
@@ -70,9 +116,23 @@ export function registerRootRoutes(
       config: { skipAuth: true, skipCsrf: true },
     },
     async (request, reply) => {
+      const wanted = (request.query as { ui?: string } | undefined)?.ui;
+      if (wanted !== undefined) {
+        if ((await ui.names()).includes(wanted)) {
+          reply.header(
+            "Set-Cookie",
+            `${UI_COOKIE}=${wanted}; Path=/; Max-Age=31536000; SameSite=Lax${ctx.scheme === "https" ? "; Secure" : ""}`,
+          );
+        }
+        const rest = new URLSearchParams(new URL(request.url, "http://internal").search);
+        rest.delete("ui");
+        const qs = rest.toString();
+        reply.code(303).header("Location", qs ? `/?${qs}` : "/").send();
+        return;
+      }
       reply.header("Content-Type", "text/html; charset=utf-8");
       if (request.sessionToken) {
-        const html = await ui.text("index.html");
+        const html = await ui.text(await ui.select(request), "index.html");
         reply.send(injectNonce(html, request.cspNonce ?? ""));
         return;
       }
@@ -122,7 +182,7 @@ export function registerRootRoutes(
   // those checks the same as a normal fetch.
   app.get("/assets/*", async (request, reply) => {
     const rel = (request.params as { "*": string })["*"];
-    const assetsDir = resolve(ui.dir, "assets");
+    const assetsDir = resolve(ui.dirOf(await ui.select(request)), "assets");
     const full = resolve(assetsDir, rel);
     if (rel.includes("\0") || !full.startsWith(assetsDir + sep)) {
       reply.code(404).send({ error: "not found" });
@@ -140,9 +200,16 @@ export function registerRootRoutes(
       .send(bytes);
   });
 
-  app.get("/sw.js", async (_request, reply) => {
+  app.get("/sw.js", async (request, reply) => {
+    let body: string;
+    try {
+      body = await ui.text(await ui.select(request), "sw.js");
+    } catch {
+      reply.code(404).send({ error: "not found" });
+      return;
+    }
     reply.header("Content-Type", "application/javascript; charset=utf-8");
-    reply.send(await ui.text("sw.js"));
+    reply.send(body);
   });
 }
 

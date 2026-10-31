@@ -23,6 +23,7 @@ function fixtureConfig(uiDir: string): Config {
     permissionNotifyDelayMs: 15_000,
     readIdleSeconds: 180,
     uiDir,
+    defaultUi: "classic",
     debug: false,
   };
 }
@@ -75,4 +76,46 @@ test("assets require the session cookie", async () => {
     headers: { host: headers.host },
   });
   assert.equal(res.statusCode, 401);
+});
+
+async function setupMulti() {
+  const root = mkdtempSync(join(tmpdir(), "multi-ui-"));
+  for (const name of ["alpha", "beta"]) {
+    mkdirSync(join(root, name, "assets"), { recursive: true });
+    writeFileSync(join(root, name, "index.html"), `<p>${name}</p>`);
+    writeFileSync(join(root, name, "assets", "a.js"), name);
+  }
+  const ctx = buildContext({ ...fixtureConfig(""), uiDir: undefined, defaultUi: "beta" });
+  const app = createServer(ctx);
+  registerRootRoutes(app, ctx, root);
+  await app.ready();
+  return app;
+}
+
+test("serves the default bundled UI, then the one picked by cookie", async () => {
+  const app = await setupMulti();
+  const def = await app.inject({ method: "GET", url: "/", headers });
+  assert.match(def.body, /beta/);
+  const picked = await app.inject({
+    method: "GET",
+    url: "/",
+    headers: { ...headers, cookie: "hb_session=tok; hb_ui=alpha" },
+  });
+  assert.match(picked.body, /alpha/);
+  const asset = await app.inject({
+    method: "GET",
+    url: "/assets/a.js",
+    headers: { ...headers, cookie: "hb_session=tok; hb_ui=alpha" },
+  });
+  assert.equal(asset.body, "alpha");
+});
+
+test("?ui= sets the cookie and redirects, ignoring unknown names", async () => {
+  const app = await setupMulti();
+  const ok = await app.inject({ method: "GET", url: "/?ui=alpha", headers });
+  assert.equal(ok.statusCode, 303);
+  assert.match(String(ok.headers["set-cookie"]), /hb_ui=alpha/);
+  const bad = await app.inject({ method: "GET", url: "/?ui=../etc", headers });
+  assert.equal(bad.statusCode, 303);
+  assert.equal(bad.headers["set-cookie"], undefined);
 });

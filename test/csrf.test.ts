@@ -29,6 +29,7 @@ function fixtureConfig(overrides: Partial<Config> = {}): Config {
     permissionNotifyDelayMs: 15_000,
     readIdleSeconds: 180,
     uiDir: undefined,
+    defaultUi: "classic",
     debug: false,
     ...overrides,
   };
