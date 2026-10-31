@@ -8,7 +8,7 @@
 // element tree.
 
 import { noteTapActivated, noteTapHandlerDown, noteTouchFallback, tapDebugEnabled, tapLog } from "./tap-debug.js";
-import type { ChatState } from "./types.js";
+import type { ChatState } from "../core/types.js";
 
 type Attrs = Record<string, unknown> | null | undefined;
 type Child = Node | string | number | false | null | undefined | Child[];

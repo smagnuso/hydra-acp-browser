@@ -1,11 +1,11 @@
 // Boot. Wires up DOM events that drive the rest of the SPA.
 
-import { startPolling, seedSessionCache, loadAgents, loadConfig, loadRemotes } from "./api.js";
+import { startPolling, seedSessionCache, loadAgents, loadConfig, loadRemotes } from "../core/api.js";
 import {
   closeChat,
   forceReconnect,
   maybeRestoreLastSession,
-} from "./routing.js";
+} from "../core/routing.js";
 import {
   render,
   renderNow,
@@ -13,7 +13,7 @@ import {
   beginReplayPaintHold,
   endReplayPaintHold,
 } from "./renderer.js";
-import { installUiHooks } from "./hooks.js";
+import { installUiHooks } from "../core/hooks.js";
 import {
   applyHashRoute,
   applyProtocolLaunch,
@@ -26,8 +26,8 @@ import { initSwipeBack } from "./swipe-nav.js";
 import { initViewportHeight } from "./viewport.js";
 import { initTapWatchdog, tapDebugEnabled, tapLog, noteSendOutcome } from "./tap-debug.js";
 import { delegatedTap, initWideLayoutWatcher, isWideLayout, hasActiveSelection, captureScrollAnchor } from "./dom.js";
-import { ensureServiceWorker, subscribeForPush } from "./notifications.js";
-import { reportPushEndpoint, reportVisibility } from "./bridge.js";
+import { ensureServiceWorker, subscribeForPush } from "../core/notifications.js";
+import { reportPushEndpoint, reportVisibility } from "../core/bridge.js";
 import {
   handleListKeydown,
   focusListRail,
@@ -41,10 +41,10 @@ import {
   closeFiles,
   initFileWindowPaging,
 } from "./views.js";
-import { state, subscribe } from "./state.js";
-import { initReadTracking, markOpenChatRead } from "./read-state.js";
+import { state, subscribe } from "../core/state.js";
+import { initReadTracking, markOpenChatRead } from "../core/read-state.js";
 import { applyFontScale, initTheme } from "./theme.js";
-import { initPerfObserver } from "./perf.js";
+import { initPerfObserver } from "../core/perf.js";
 
 function readComposerDom(): string | null {
   const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');

@@ -2,11 +2,11 @@
 // is plain SVG; no chart library.
 
 import { el, tapHandler, TAP_MOVE_THRESHOLD } from "./dom.js";
-import { api } from "./api.js";
+import { api } from "../core/api.js";
 import { render } from "./renderer.js";
-import { setState, state } from "./state.js";
-import { openChat } from "./routing.js";
-import type { SessionInfo } from "./types.js";
+import { setState, state } from "../core/state.js";
+import { openChat } from "../core/routing.js";
+import type { SessionInfo } from "../core/types.js";
 
 interface UsageItem {
   bucket: string;

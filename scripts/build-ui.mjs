@@ -5,14 +5,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const htmlIn = join(root, "src", "ui", "index.html");
+const htmlIn = join(root, "src", "ui-classic", "index.html");
 const htmlOut = join(root, "dist", "ui", "index.html");
-const entry = join(root, "src", "ui", "main.ts");
+const entry = join(root, "src", "ui-classic", "main.ts");
 const appVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 // Deliberately NOT bundled with main.ts — a service worker must be
 // servable at its own URL to register, so it's copied through as-is
 // rather than inlined into index.html like the rest of the app.
-const swIn = join(root, "src", "ui", "sw.js");
+const swIn = join(root, "src", "ui-classic", "sw.js");
 const swOut = join(root, "dist", "ui", "sw.js");
 
 // Stamped into the bundle so a running client can report which build it

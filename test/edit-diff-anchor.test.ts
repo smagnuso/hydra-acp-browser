@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { editAnchor } = await import("../src/ui/edit-diff.js");
+const { editAnchor } = await import("../src/core/edit-diff.js");
 
 test("the anchor is the first line of newText that differs", () => {
   const a = editAnchor({

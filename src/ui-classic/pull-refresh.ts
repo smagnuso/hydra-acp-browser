@@ -6,7 +6,7 @@
 // OS task switcher. A full location.reload() also naturally re-runs
 // startPolling()/WS setup, so this doubles as "reconnect everything."
 
-import { state } from "./state.js";
+import { state } from "../core/state.js";
 
 const THRESHOLD_PX = 70;
 const MAX_PULL_PX = 110;

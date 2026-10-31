@@ -51,18 +51,18 @@
 // locked in, since a passive listener never gets the chance to say
 // otherwise — the two visibly fighting over the one finger.
 
-import { state } from "./state.js";
+import { state } from "../core/state.js";
 import {
   openChat,
   closeChat,
   getLastClosedChat,
   getLastClosedScrollTop,
   reopenClosedChat,
-} from "./routing.js";
+} from "../core/routing.js";
 import { hasActiveSelection, isFormControl, isWideLayout } from "./dom.js";
 import { buildChatPreviewPane, buildListPreviewPane, closeFiles, peekChatViewRoot } from "./views.js";
 import { beginExternalRenderHold, endExternalRenderHold } from "./renderer.js";
-import type { ChatState } from "./types.js";
+import type { ChatState } from "../core/types.js";
 
 const THRESHOLD_PX = 80;
 const DIRECTION_LOCK_PX = 12;

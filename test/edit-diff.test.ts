@@ -4,7 +4,7 @@ import {
   buildDiffDisplayLines,
   countDiffChanges,
   extractEditDiff,
-} from "../src/ui/edit-diff.js";
+} from "../src/core/edit-diff.js";
 
 test("extractEditDiff reads the canonical content[] diff carrier", () => {
   const diff = extractEditDiff({

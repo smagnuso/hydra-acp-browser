@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sortForCache, trimForCache } from "../src/ui/session-cache.js";
-import type { SessionInfo } from "../src/ui/types.js";
+import { sortForCache, trimForCache } from "../src/core/session-cache.js";
+import type { SessionInfo } from "../src/core/types.js";
 
 test("sortForCache ranks a busy warm session above idle cold ones, using real status", () => {
   const sessions: SessionInfo[] = [

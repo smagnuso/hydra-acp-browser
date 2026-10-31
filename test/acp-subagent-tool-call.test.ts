@@ -8,9 +8,9 @@ import assert from "node:assert/strict";
   removeEventListener() {},
 };
 
-const { state } = await import("../src/ui/state.js");
-const { handleNotification } = await import("../src/ui/acp.js");
-import type { ChatState } from "../src/ui/types.js";
+const { state } = await import("../src/core/state.js");
+const { handleNotification } = await import("../src/core/acp.js");
+import type { ChatState } from "../src/core/types.js";
 
 // Minimal valid ChatState, matching the shape routing.ts's openChat builds.
 function makeChatState(): ChatState {

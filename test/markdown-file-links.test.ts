@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { renderMarkdown, linkifyFilePaths } = await import("../src/ui/markdown.js");
+const { renderMarkdown, linkifyFilePaths } = await import("../src/core/markdown.js");
 
 const mentions = new Map([
   ["src/foo.ts", { relPath: "src/foo.ts" }],

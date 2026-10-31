@@ -32,9 +32,9 @@ import { join } from "node:path";
 ) => setTimeout(fn, 0);
 (globalThis as { indexedDB?: unknown }).indexedDB ??= undefined;
 
-const { state } = await import("../src/ui/state.js");
-const { handleNotification } = await import("../src/ui/acp.js");
-import type { ChatState } from "../src/ui/types.js";
+const { state } = await import("../src/core/state.js");
+const { handleNotification } = await import("../src/core/acp.js");
+import type { ChatState } from "../src/core/types.js";
 
 function makeChatState(sessionId: string): ChatState {
   return {

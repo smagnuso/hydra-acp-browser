@@ -8,8 +8,8 @@ import assert from "node:assert/strict";
   removeEventListener() {},
 };
 
-const { cancelUnboundQueued } = await import("../src/ui/queue.js");
-import type { ChatState, QueueEntry } from "../src/ui/types.js";
+const { cancelUnboundQueued } = await import("../src/core/queue.js");
+import type { ChatState, QueueEntry } from "../src/core/types.js";
 
 function chatWith(entries: QueueEntry[]): ChatState {
   return { promptQueue: entries } as unknown as ChatState;

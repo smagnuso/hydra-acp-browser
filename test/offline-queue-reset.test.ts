@@ -8,8 +8,8 @@ import assert from "node:assert/strict";
   removeEventListener() {},
 };
 
-const { resetChatHistoryState } = await import("../src/ui/acp.js");
-import type { ChatState, LogItem, QueueEntry } from "../src/ui/types.js";
+const { resetChatHistoryState } = await import("../src/core/acp.js");
+import type { ChatState, LogItem, QueueEntry } from "../src/core/types.js";
 
 function entry(status: QueueEntry["status"], id: string): QueueEntry {
   return { id, text: id, status, aheadAtEnqueue: 0 };

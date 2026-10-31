@@ -26,10 +26,10 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   return new Response(null, { status: 204 });
 }) as typeof fetch;
 
-const { state } = await import("../src/ui/state.js");
-const { markOpenChatRead, initReadTracking } = await import("../src/ui/read-state.js");
+const { state } = await import("../src/core/state.js");
+const { markOpenChatRead, initReadTracking } = await import("../src/core/read-state.js");
 initReadTracking();
-import type { ChatState, SessionInfo } from "../src/ui/types.js";
+import type { ChatState, SessionInfo } from "../src/core/types.js";
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 400));
 

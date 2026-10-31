@@ -3,8 +3,8 @@
 // focus/caret on any element with a `data-focus-key` so re-renders
 // don't blow away the user's typing position.
 
-import { state } from "./state.js";
-import { bump, timed } from "./perf.js";
+import { state } from "../core/state.js";
+import { bump, timed } from "../core/perf.js";
 import { hasActiveSelection } from "./dom.js";
 import {
   captureListAnchor,

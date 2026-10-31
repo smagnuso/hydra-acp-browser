@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compareSessions } from "../src/ui/session-sort.js";
-import type { SessionInfo } from "../src/ui/types.js";
+import { compareSessions } from "../src/core/session-sort.js";
+import type { SessionInfo } from "../src/core/types.js";
 
 function sortIds(sessions: SessionInfo[]): string[] {
   return sessions

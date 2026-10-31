@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { renderMarkdown } = await import("../src/ui/markdown.js");
+const { renderMarkdown } = await import("../src/core/markdown.js");
 
 test("bare URLs become links", () => {
   const html = renderMarkdown("see https://example.com/a for detail");

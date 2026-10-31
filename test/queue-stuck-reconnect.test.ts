@@ -8,11 +8,11 @@ import assert from "node:assert/strict";
   removeEventListener() {},
 };
 
-const { state } = await import("../src/ui/state.js");
+const { state } = await import("../src/core/state.js");
 const { handleNotification, hydrateQueueFromSnapshot } = await import(
-  "../src/ui/acp.js"
+  "../src/core/acp.js"
 );
-import type { ChatState, QueueEntry } from "../src/ui/types.js";
+import type { ChatState, QueueEntry } from "../src/core/types.js";
 
 function makeChatState(): ChatState {
   return {

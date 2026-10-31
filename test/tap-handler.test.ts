@@ -42,7 +42,7 @@ let selection: { isCollapsed: boolean; anchorNode: unknown; text: string } | nul
         },
 };
 
-const { tapHandler, TAP_MOVE_THRESHOLD, noteTapRescued } = await import("../src/ui/dom.js");
+const { tapHandler, TAP_MOVE_THRESHOLD, noteTapRescued } = await import("../src/ui-classic/dom.js");
 
 interface Handlers {
   onpointerdown: (e: unknown) => void;

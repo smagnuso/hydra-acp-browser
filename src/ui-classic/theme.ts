@@ -5,7 +5,7 @@
 // there too) — this module's only job is deciding which one applies and
 // keeping it in sync with state.theme / the OS preference.
 
-import { state } from "./state.js";
+import { state } from "../core/state.js";
 
 // Query built fresh inside each function, not hoisted to a module-level
 // constant — this module is reachable (via views.ts) from plain-Node

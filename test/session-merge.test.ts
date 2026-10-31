@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mergeSessionListPage } from "../src/ui/session-merge.js";
-import type { SessionInfo } from "../src/ui/types.js";
+import { mergeSessionListPage } from "../src/core/session-merge.js";
+import type { SessionInfo } from "../src/core/types.js";
 
 const warm = (id: string): SessionInfo => ({
   sessionId: id,

@@ -15,9 +15,9 @@ import { join } from "node:path";
 };
 (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame ??= (f: () => void) => setTimeout(f, 0);
 
-const { state } = await import("../src/ui/state.js");
-const { handleNotification } = await import("../src/ui/acp.js");
-import type { ChatState } from "../src/ui/types.js";
+const { state } = await import("../src/core/state.js");
+const { handleNotification } = await import("../src/core/acp.js");
+import type { ChatState } from "../src/core/types.js";
 
 const MAX_BYTES = 6_000_000;
 const STATE_KINDS = new Set([

@@ -3,7 +3,7 @@
 // largest module by design — keeping all the DOM-shaping code together
 // makes UX iteration easier than chasing pieces across files.
 
-import { state, setState, isRailDirty, markRailClean, markRailDirty } from "./state.js";
+import { state, setState, isRailDirty, markRailClean, markRailDirty } from "../core/state.js";
 import { render, noteTypingActivity, isPointerDownNow } from "./renderer.js";
 import {
   el,
@@ -17,8 +17,8 @@ import {
   TAP_MOVE_THRESHOLD,
 } from "./dom.js";
 import { noteTouchFallback } from "./tap-debug.js";
-import { renderMarkdown, renderInlineMarkdown, escapeHtml, linkifyFilePaths } from "./markdown.js";
-import { highlightCode } from "./hljs.js";
+import { renderMarkdown, renderInlineMarkdown, escapeHtml, linkifyFilePaths } from "../core/markdown.js";
+import { highlightCode } from "../core/hljs.js";
 import { openUsageModal, renderUsageModal } from "./usage-view.js";
 import {
   api,
@@ -26,8 +26,8 @@ import {
   markSessionKillRequested,
   pollSessions,
   tryImportBundleWith409,
-} from "./api.js";
-import { reportPushEndpoint, respondPermission } from "./bridge.js";
+} from "../core/api.js";
+import { reportPushEndpoint, respondPermission } from "../core/bridge.js";
 import {
   amendPrompt,
   amendQueuedPrompt,
@@ -41,21 +41,21 @@ import {
   sendSetModel,
   sendWorkspaceCommand,
   updateQueuedPrompt,
-} from "./queue.js";
+} from "../core/queue.js";
 import { buildSessionHash } from "./url-routing.js";
-import { openChat, closeChat, requestFullHistory, warmSession, loadEarlierHistory, isConnectingGrace } from "./routing.js";
-import { queueDraftWrite } from "./composer-draft.js";
+import { openChat, closeChat, requestFullHistory, warmSession, loadEarlierHistory, isConnectingGrace } from "../core/routing.js";
+import { queueDraftWrite } from "../core/composer-draft.js";
 import {
   requestNotificationPermission,
   subscribeForPush,
   unsubscribeFromPush,
-} from "./notifications.js";
-import { buildDiffDisplayLines, countDiffChanges, editAnchor } from "./edit-diff.js";
+} from "../core/notifications.js";
+import { buildDiffDisplayLines, countDiffChanges, editAnchor } from "../core/edit-diff.js";
 import { applyFontScale, applyTheme } from "./theme.js";
-import { describeCachedSession } from "./history-cache.js";
-import { bump, describeSlow, describeCounts } from "./perf.js";
-import { compareSessions } from "./session-sort.js";
-import type { DiffDisplayLine, EditAnchor } from "./edit-diff.js";
+import { describeCachedSession } from "../core/history-cache.js";
+import { bump, describeSlow, describeCounts } from "../core/perf.js";
+import { compareSessions } from "../core/session-sort.js";
+import type { DiffDisplayLine, EditAnchor } from "../core/edit-diff.js";
 import type {
   AppState,
   ArmedTask,
@@ -73,7 +73,7 @@ import type {
   SessionInfo,
   SessionModalData,
   SpinnerState,
-} from "./types.js";
+} from "../core/types.js";
 
 // Mirrors cli/src/tui/attachments.ts MAX_ATTACHMENT_BYTES — keeps the two
 // clients' caps in sync without a shared package.

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { historyEntryToFrame, oldestSeqOf } = await import("../src/ui/history-page.js");
+const { historyEntryToFrame, oldestSeqOf } = await import("../src/core/history-page.js");
 
 test("historyEntryToFrame folds seq and recordedAt into params._meta", () => {
   const frame = historyEntryToFrame({

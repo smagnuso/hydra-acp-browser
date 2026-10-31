@@ -2,8 +2,8 @@
 // back/forward navigation. Browser-UI specific; routing.ts reaches it
 // only through uiHooks.
 
-import { state } from "./state.js";
-import { openChat, closeChat } from "./routing.js";
+import { state } from "../core/state.js";
+import { openChat, closeChat } from "../core/routing.js";
 
 // Reflect the current session in the URL fragment so a reload (or
 // copy-pasted link) drops the user back into the same chat.

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
   removeEventListener() {},
 };
 
-const { isDuplicateSubmit } = await import("../src/ui/queue.js");
+const { isDuplicateSubmit } = await import("../src/core/queue.js");
 
 // Field trail: the rescue sent a prompt and the user's impatient re-tap
 // sent the same text again 7ms later.

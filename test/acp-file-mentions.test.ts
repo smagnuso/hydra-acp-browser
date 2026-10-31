@@ -12,10 +12,10 @@ import assert from "node:assert/strict";
 // renderer would consume, without needing a DOM to paint into.
 (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame ??= () => 0;
 
-const { state } = await import("../src/ui/state.js");
-const { handleNotification } = await import("../src/ui/acp.js");
-const { renderMarkdown, linkifyFilePaths } = await import("../src/ui/markdown.js");
-import type { ChatState } from "../src/ui/types.js";
+const { state } = await import("../src/core/state.js");
+const { handleNotification } = await import("../src/core/acp.js");
+const { renderMarkdown, linkifyFilePaths } = await import("../src/core/markdown.js");
+import type { ChatState } from "../src/core/types.js";
 
 function makeChatState(): ChatState {
   return {
