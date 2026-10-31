@@ -46,6 +46,8 @@ export {
   createSession,
   killSession,
   setSessionTitle,
+  importBundleFromText,
+  type ImportOutcome,
   setSessionPriority,
   sessionExportUrl,
   type CreateSessionParams,
@@ -57,6 +59,7 @@ export {
   hostFilterSources,
   matchesSessionSearch,
   describeHostFilter,
+  isFederatedSession,
   shortSessionId,
   shortenCwd,
   displayCwd,
@@ -111,6 +114,21 @@ export {
   type Metric as UsageMetric,
   type SplitBy as UsageSplit,
 } from "./usage.js";
+export {
+  shortenModel,
+  agentWithModel,
+  formatDuration,
+  formatRelativeAge,
+  fmtTokens,
+  fmtCost,
+  baseName,
+  dirName,
+  formatDateTime,
+  formatElapsed,
+  turnAgentParts,
+} from "./format.js";
+export { permissionDetails, type PermissionDetail } from "./permission.js";
+export { loadCwdHistory, loadLastCwd, saveLastCwd } from "./cwd-history.js";
 export { markOpenChatRead, initReadTracking } from "./read-state.js";
 export {
   ensureServiceWorker,

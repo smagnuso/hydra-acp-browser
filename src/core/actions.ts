@@ -1,7 +1,8 @@
 // Session-level actions that need no view state, so any UI can call them.
 // Failures throw; the caller decides how to surface them.
 
-import { api, markSessionKillRequested, pollSessions } from "./api.js";
+import { api, importBundle, markSessionKillRequested, pollSessions, tryImportBundleWith409 } from "./api.js";
+import { saveLastCwd } from "./cwd-history.js";
 import { state, markRailDirty, notifyChange } from "./state.js";
 
 export interface CreateSessionParams {
@@ -41,6 +42,9 @@ export async function createSession(
     body: JSON.stringify(body),
     timeoutMs: 60_000,
   });
+  if (!params.remote && params.cwd) {
+    saveLastCwd(params.cwd);
+  }
   void pollSessions();
   return data ?? {};
 }
@@ -89,4 +93,43 @@ export async function setSessionPriority(
 // GET target for a bundle download; the session cookie carries auth.
 export function sessionExportUrl(sessionId: string): string {
   return `/api/sessions/${encodeURIComponent(sessionId)}/export`;
+}
+
+export type ImportOutcome =
+  | { kind: "imported"; sessionId: string; replaced: boolean }
+  | { kind: "cancelled" }
+  | { kind: "invalid"; message: string }
+  | { kind: "failed"; message: string };
+
+// Imports a *.hydra bundle from its JSON text. If the daemon reports the
+// session is already imported (409), confirmReplace decides whether to
+// replace it; declining yields "cancelled".
+export async function importBundleFromText(
+  text: string,
+  confirmReplace: (existingSessionId: string) => boolean | Promise<boolean>,
+): Promise<ImportOutcome> {
+  let bundle: unknown;
+  try {
+    bundle = JSON.parse(text);
+  } catch (err) {
+    return { kind: "invalid", message: (err as Error).message };
+  }
+  const first = await tryImportBundleWith409(bundle);
+  if (first.ok) {
+    void pollSessions();
+    return { kind: "imported", sessionId: first.result.sessionId, replaced: first.result.replaced };
+  }
+  if (first.status === 409 && first.existingSessionId) {
+    if (!(await confirmReplace(first.existingSessionId))) {
+      return { kind: "cancelled" };
+    }
+    try {
+      const result = await importBundle(bundle, { replace: true });
+      void pollSessions();
+      return { kind: "imported", sessionId: result.sessionId, replaced: true };
+    } catch (err) {
+      return { kind: "failed", message: (err as Error).message };
+    }
+  }
+  return { kind: "failed", message: first.message };
 }

@@ -9,6 +9,14 @@ import assert from "node:assert/strict";
 };
 (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame ??= () => 0;
 
+const lsStore = new Map<string, string>();
+(globalThis as { localStorage?: unknown }).localStorage = {
+  getItem: (k: string) => lsStore.get(k) ?? null,
+  setItem: (k: string, v: string) => void lsStore.set(k, v),
+  removeItem: (k: string) => void lsStore.delete(k),
+};
+const importReplies: Response[] = [];
+
 interface Call {
   url: string;
   method: string;
@@ -31,6 +39,9 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
     method,
     body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined,
   });
+  if (url === "/api/sessions/import") {
+    return importReplies.shift() ?? Response.json({ sessionId: "imp", replaced: false });
+  }
   if (failNext) {
     const f = failNext;
     failNext = null;
@@ -42,7 +53,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   return new Response(null, { status: 204 });
 }) as typeof fetch;
 
-const { createSession, killSession, setSessionTitle, setSessionPriority, sessionExportUrl } =
+const { createSession, killSession, importBundleFromText, setSessionTitle, setSessionPriority, sessionExportUrl } =
   await import("../src/core/actions.js");
 const { state } = await import("../src/core/state.js");
 import type { SessionInfo } from "../src/core/types.js";
@@ -115,4 +126,48 @@ test("a rejected title update surfaces the error", async () => {
 
 test("sessionExportUrl encodes the id", () => {
   assert.equal(sessionExportUrl("a/b"), "/api/sessions/a%2Fb/export");
+});
+
+test("a successful local create remembers the cwd, a remote one does not", async () => {
+  lsStore.clear();
+  await createSession({ remote: "peer" });
+  assert.equal(lsStore.size, 0);
+  await createSession({ cwd: "/proj" });
+  assert.deepEqual(JSON.parse(lsStore.get("hydra-acp-browser:cwdHistory")!), ["/proj"]);
+});
+
+test("importing: invalid JSON, plain success, and a failure", async () => {
+  const bad = await importBundleFromText("{nope", () => true);
+  assert.equal(bad.kind, "invalid");
+  importReplies.push(Response.json({ sessionId: "s9", replaced: false }));
+  assert.deepEqual(await importBundleFromText("{}", () => true), {
+    kind: "imported",
+    sessionId: "s9",
+    replaced: false,
+  });
+  importReplies.push(Response.json({ error: "bad bundle" }, { status: 400 }));
+  assert.deepEqual(await importBundleFromText("{}", () => true), {
+    kind: "failed",
+    message: "bad bundle",
+  });
+});
+
+test("a 409 asks before replacing, and declining cancels", async () => {
+  const asked: string[] = [];
+  importReplies.push(Response.json({ error: "exists", existingSessionId: "old1" }, { status: 409 }));
+  assert.deepEqual(
+    await importBundleFromText("{}", (id) => {
+      asked.push(id);
+      return false;
+    }),
+    { kind: "cancelled" },
+  );
+  assert.deepEqual(asked, ["old1"]);
+  importReplies.push(Response.json({ error: "exists", existingSessionId: "old1" }, { status: 409 }));
+  importReplies.push(Response.json({ sessionId: "old1", replaced: true }));
+  assert.deepEqual(await importBundleFromText("{}", async () => true), {
+    kind: "imported",
+    sessionId: "old1",
+    replaced: true,
+  });
 });

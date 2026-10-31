@@ -53,6 +53,13 @@ and set `BROWSER_UI_DIR=/path`. `src/ui-min/` is a ~200 line example.
   refresh). `buildUsageModel(data, range, metric, hidden)` returns the
   chart series, totals and day slots; `formatUsage` and `usageUnit` format
   values. Drawing the chart is the UI's job.
+- Display strings: `core/format.ts` (`formatDuration`, `fmtTokens`,
+  `fmtCost`, `agentWithModel`, `formatElapsed`, ...) so every UI words
+  things the same way. `permissionDetails(toolCall)` returns the
+  label/value rows to show under a permission request.
+- Import/new-session helpers: `importBundleFromText(text, confirmReplace)`
+  returns an outcome (`imported`, `cancelled`, `invalid`, `failed`);
+  `loadCwdHistory()` feeds a cwd picker, and `createSession` records the cwd.
 - Hooks (`UiHooks`) cover view behavior core needs: scrolling, paint holds,
   navigation (URL), composer DOM sync. Unset hooks are inert no-ops.
 - `platform.ts` is the only core file allowed to touch `document` or

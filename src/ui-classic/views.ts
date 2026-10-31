@@ -54,6 +54,7 @@ import {
   hostFilterSources,
   visibleFilteredSessions,
   groupSessions as groupSessionsCore,
+  isFederatedSession,
   type SessionGroup,
 } from "../core/session-list.js";
 import {
@@ -73,6 +74,21 @@ import {
   extendFileWindow,
 } from "../core/files.js";
 import {
+  shortenModel,
+  agentWithModel,
+  formatDuration,
+  formatRelativeAge,
+  fmtTokens,
+  fmtCost,
+  baseName,
+  dirName,
+  formatDateTime,
+  formatElapsed,
+  turnAgentParts,
+} from "../core/format.js";
+import { loadCwdHistory, loadLastCwd } from "../core/cwd-history.js";
+import { permissionDetails } from "../core/permission.js";
+import {
   formatAttachmentSize,
   attachmentSrc,
   addImageAttachments,
@@ -81,6 +97,7 @@ import {
 import {
   killSession as killSessionAction,
   createSession as createSessionAction,
+  importBundleFromText,
   setSessionTitle,
   setSessionPriority as setSessionPriorityAction,
   sessionExportUrl,
@@ -158,91 +175,6 @@ function renderAttachmentChips(c: ChatState): Node | null {
 // id alongside agent/cwd, so the title row can stay clean.
 function fallbackTitle(_sessionId: string): string {
   return "untitled";
-}
-
-// Drop the provider prefix on a model id ("openai/gpt-4o-mini" →
-// "gpt-4o-mini") so subtitle rows stay narrow.
-function shortenModel(model: string | undefined): string | undefined {
-  if (!model) return undefined;
-  const idx = model.lastIndexOf("/");
-  return idx === -1 ? model : model.slice(idx + 1);
-}
-
-// "agent•model" when both are known, just the agent (or "?") otherwise.
-// Matches the CLI's TUI header (see cli/src/core/agent-display.ts).
-function agentWithModel(
-  agent: string | undefined,
-  model: string | undefined,
-): string {
-  const a = agent || "?";
-  const m = shortenModel(model);
-  return m ? `${a}•${m}` : a;
-}
-
-// Abbreviated duration. Matches the CLI/TUI style: "<1m", "12m", "3h",
-// "2d", "5w", "11mo", "2y".
-function formatDuration(ms: number): string {
-  const sec = Math.floor(Math.max(0, ms) / 1000);
-  if (sec < 60) return "<1m";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h`;
-  const day = Math.floor(hr / 24);
-  if (day < 14) return `${day}d`;
-  const week = Math.floor(day / 7);
-  if (week < 9) return `${week}w`;
-  const month = Math.floor(day / 30);
-  if (month < 12) return `${month}mo`;
-  const year = Math.floor(day / 365);
-  return `${year}y`;
-}
-
-// "Time since" hint for the subtitle row.
-function formatRelativeAge(iso: string | undefined, now: number = Date.now()): string {
-  if (!iso) return "?";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "?";
-  return formatDuration(now - t);
-}
-
-// Compact-format a token count: <1k → "n", <1M → "n.nk", else "n.nM".
-// Used in the chat header where horizontal space is scarce.
-function fmtTokens(n: number): string {
-  if (!Number.isFinite(n)) return "?";
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) {
-    const v = (n / 1000).toFixed(n < 10_000 ? 1 : 0);
-    return v.replace(/\.0$/, "") + "k";
-  }
-  return (n / 1_000_000).toFixed(2).replace(/\.?0+$/, "") + "M";
-}
-
-// Format an ACP cost field. The agent-side shape varies — sometimes
-// a bare number (assumed USD), sometimes { amount, currency }, and
-// some agents nest under { total: { amount, currency } }. We probe
-// each layout, fall back to USD, and stretch decimals based on
-// magnitude so sub-dollar costs stay readable.
-function fmtCost(cost: unknown): string | null {
-  let amount: number | null = null;
-  let currency = "USD";
-  if (typeof cost === "number") {
-    amount = cost;
-  } else if (cost && typeof cost === "object") {
-    const c = cost as { amount?: unknown; currency?: unknown; total?: unknown };
-    if (typeof c.amount === "number") amount = c.amount;
-    else if (typeof c.total === "number") amount = c.total;
-    else if (c.total && typeof c.total === "object") {
-      const t = c.total as { amount?: unknown; currency?: unknown };
-      if (typeof t.amount === "number") amount = t.amount;
-      if (typeof t.currency === "string") currency = t.currency;
-    }
-    if (typeof c.currency === "string") currency = c.currency;
-  }
-  if (amount === null) return null;
-  const decimals = amount < 0.01 ? 4 : amount < 1 ? 3 : 2;
-  if (currency === "USD") return `$${amount.toFixed(decimals)}`;
-  return `${amount.toFixed(decimals)} ${currency}`;
 }
 
 // ---- Top-level shell ---------------------------------------------
@@ -886,47 +818,6 @@ function renderList(): HTMLElement {
   return list;
 }
 
-// Collapse a leading home directory into "~" so the session list has
-// room to actually show the rest of the path instead of truncating it.
-function baseName(path: string): string {
-  const slash = path.lastIndexOf("/");
-  return slash === -1 ? path : path.slice(slash + 1);
-}
-
-// The directory to show beside the filename. Kept as short as it can be
-// while still locating the file: in-project paths show their directory
-// relative to the cwd ("src/server"), which is the part the reader
-// doesn't already know, and anything outside falls back to the absolute
-// directory with $HOME collapsed. A file at the cwd root has no
-// directory of its own, so the cwd stands in rather than leaving it
-// blank.
-//
-// Matters because this pill is the one thing in the header allowed to
-// shrink (index.html's .file-modal .topbar .pill), and it ellipsizes at
-// the end — so a long absolute path would show the useless head and cut
-// the part that tells you where you are.
-function dirName(path: string, cwd: string): string {
-  const slash = path.lastIndexOf("/");
-  if (slash === -1) return shortenCwd(cwd);
-  const dir = path.slice(0, slash);
-  return dir.startsWith("/") ? shortenCwd(dir) : dir;
-}
-
-// From the session list's own `remote` field rather than the shape of
-// the id, OR isDormantOnPeer: a bundle import nobody has forked into a
-// real local cwd yet has the identical hazard (import only copies the
-// conversation record, not the project's files, so cwd is still whatever
-// the exporting machine had — see foreignCwdOwner in hydra/client.ts).
-// Undefined/unset before the first poll lands, which reads as local and
-// can leave an edit link rendered for a moment — harmless, because the
-// Files API refuses the read authoritatively and says why. The client's
-// job here is only to avoid offering something that cannot work.
-function isFederatedSession(sessionId: string): boolean {
-  const session = state.sessions.find((s) => s.sessionId === sessionId);
-  if (session === undefined) return false;
-  return !!session.remote || isDormantOnPeer(session);
-}
-
 function detailRow(label: string, value: string): HTMLElement {
   return el(
     "div",
@@ -1296,26 +1187,6 @@ function copyButton(title: string, getParts: () => string[]): HTMLElement {
   );
   btn.innerHTML = COPY_ICON;
   return btn;
-}
-
-// Agent prose of the turn that `stamp` opens: every agent message up to
-// the next prompt or turn boundary, in order.
-function turnAgentParts(c: ChatState, stamp: ChatState["log"][number]): string[] {
-  const start = c.log.indexOf(stamp);
-  if (start < 0) {
-    return [];
-  }
-  const parts: string[] = [];
-  for (let i = start + 1; i < c.log.length; i++) {
-    const it = c.log[i]!;
-    if (it.kind === "turn-stamp" || (it.kind === "stream" && it.role === "user")) {
-      break;
-    }
-    if (it.kind === "stream" && it.role === "agent") {
-      parts.push(it.text);
-    }
-  }
-  return parts;
 }
 
 // No clipboard API — select the text so a long-press "Copy" still works.
@@ -1808,108 +1679,45 @@ function openImportPicker(): void {
 }
 
 async function importBundleFromFile(file: File): Promise<void> {
-  let bundle: unknown;
+  let text: string;
   try {
-    const text = await file.text();
-    bundle = JSON.parse(text);
+    text = await file.text();
   } catch (err) {
-    setState({
-      banner: {
-        kind: "bad",
-        text: "import: bundle is not valid JSON: " + (err as Error).message,
-      },
-    });
+    setState({ banner: { kind: "bad", text: "import failed: " + (err as Error).message } });
     return;
   }
-  const first = await tryImportBundleWith409(bundle);
-  if (first.ok) {
-    const r = first.result;
-    setState({
-      banner: {
-        kind: "good",
-        text: r.replaced
-          ? `Replaced ${shortSessionId(r.sessionId)} from bundle`
-          : `Imported as ${shortSessionId(r.sessionId)}`,
-      },
-    });
-    void pollSessions();
-    return;
-  }
-  if (first.status === 409 && first.existingSessionId) {
-    const existing = first.existingSessionId;
-    const ok = confirm(
+  const outcome = await importBundleFromText(text, (existing) =>
+    confirm(
       `This session is already imported locally as ${shortSessionId(existing)}.\n\nReplace it? (Any live attach will be closed.)`,
-    );
-    if (!ok) {
-      setState({
-        banner: { kind: "warn", text: "Import cancelled." },
-      });
-      return;
-    }
-    try {
-      const result = await importBundle(bundle, { replace: true });
+    ),
+  );
+  switch (outcome.kind) {
+    case "imported":
       setState({
         banner: {
           kind: "good",
-          text: `Replaced ${shortSessionId(result.sessionId)} from bundle`,
+          text: outcome.replaced
+            ? `Replaced ${shortSessionId(outcome.sessionId)} from bundle`
+            : `Imported as ${shortSessionId(outcome.sessionId)}`,
         },
       });
-      void pollSessions();
-    } catch (err) {
+      return;
+    case "cancelled":
+      setState({ banner: { kind: "warn", text: "Import cancelled." } });
+      return;
+    case "invalid":
       setState({
-        banner: {
-          kind: "bad",
-          text: "import failed: " + (err as Error).message,
-        },
+        banner: { kind: "bad", text: "import: bundle is not valid JSON: " + outcome.message },
       });
-    }
-    return;
+      return;
+    case "failed":
+      setState({ banner: { kind: "bad", text: "import failed: " + outcome.message } });
+      return;
   }
-  setState({
-    banner: { kind: "bad", text: "import failed: " + first.message },
-  });
 }
+
 
 // ---- New-session modal -------------------------------------------
-
-const LAST_CWD_KEY = "hydra-acp-browser:lastCwd";
-const CWD_HISTORY_KEY = "hydra-acp-browser:cwdHistory";
-const CWD_HISTORY_LIMIT = 20;
-
-// Most-recent-first, deduplicated. Seeded from the older single-value
-// lastCwd key on first read so upgrading doesn't lose the one cwd
-// someone already had remembered.
-function loadCwdHistory(): string[] {
-  try {
-    const raw = localStorage.getItem(CWD_HISTORY_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed.filter((v) => typeof v === "string");
-    }
-    const legacy = localStorage.getItem(LAST_CWD_KEY);
-    return legacy ? [legacy] : [];
-  } catch {
-    return [];
-  }
-}
-
-function loadLastCwd(): string | null {
-  return loadCwdHistory()[0] ?? null;
-}
-
-function saveLastCwd(cwd: string): void {
-  try {
-    const history = loadCwdHistory().filter((v) => v !== cwd);
-    history.unshift(cwd);
-    localStorage.setItem(
-      CWD_HISTORY_KEY,
-      JSON.stringify(history.slice(0, CWD_HISTORY_LIMIT)),
-    );
-    localStorage.removeItem(LAST_CWD_KEY);
-  } catch {
-    // Private browsing / quota — the field just won't persist.
-  }
-}
 
 function openSessionModal(): void {
   // A live selection (e.g. in the other pane of the split layout) holds
@@ -2130,9 +1938,6 @@ async function createSession(): Promise<void> {
       name: m.name,
       prompt: m.prompt,
     });
-    if (!m.remote && m.cwd) {
-      saveLastCwd(m.cwd);
-    }
     // The dialog is dismissable while this is in flight, so it may
     // already be gone. If the user gave up on it, don't yank them into
     // a session they stopped waiting for — it's in the list either way.
@@ -4719,33 +4524,6 @@ function renderQueueEditor(
   );
 }
 
-// Wall-clock stamp for a prompt or a finished turn (mirrors the TUI's
-// formatWallClock, cli/src/tui/format.ts). Always carries both date and
-// time — a session gets revisited long after the fact often enough that
-// a bare time-of-day would be ambiguous, so unlike a typical chat app's
-// "today" special-case, the date never drops out. The year itself is
-// the one thing elided in the common case (this year), coming back
-// once a stamp is actually old enough for that to matter.
-function formatDateTime(ms: number): string {
-  const d = new Date(ms);
-  const sameYear = d.getFullYear() === new Date().getFullYear();
-  const dateStr = d.toLocaleDateString(
-    undefined,
-    sameYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" },
-  );
-  const timeStr = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  return `${dateStr}, ${timeStr}`;
-}
-
-function formatElapsed(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${s % 60}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
-}
-
 // The frozen remains of a turn's spinner (see acp.ts finalizeTurn) —
 // a dim, permanent marker under the prompt recording how long the turn
 // took, TUI-style. A non-natural end ("cancelled", "refusal", …) stamps
@@ -4847,73 +4625,17 @@ function renderSpinner(spinner: SpinnerState): HTMLElement {
   );
 }
 
-// Best-effort extraction of what a tool call wants to touch, so the
-// permission card shows the path / command / url instead of leaning on a
-// terse title like "external_directory". Agents populate these fields
-// inconsistently; an empty array means "nothing beyond the title".
 function permissionDetailRows(tc: Record<string, unknown>): HTMLElement[] {
-  const asStr = (v: unknown): string | undefined =>
-    typeof v === "string" && v.length > 0 ? v : undefined;
-  const rows: HTMLElement[] = [];
-  const row = (label: string, value: string): HTMLElement =>
-    el(
-      "div",
-      { class: "detail" },
-      el("span", { class: "k" }, label),
-      el("code", null, value),
-    );
-
-  const kind = asStr(tc.kind);
-  if (kind) {
-    rows.push(row("kind", kind));
-  }
-
-  const seen = new Set<string>();
-  const paths: string[] = [];
-  const addPath = (v: unknown): void => {
-    const s = asStr(v);
-    if (s && !seen.has(s)) {
-      seen.add(s);
-      paths.push(s);
-    }
-  };
-  const locations = tc.locations;
-  if (Array.isArray(locations)) {
-    for (const loc of locations) {
-      if (loc && typeof loc === "object") {
-        addPath((loc as Record<string, unknown>).path);
-      }
-    }
-  }
-  const rawInput =
-    tc.rawInput && typeof tc.rawInput === "object"
-      ? (tc.rawInput as Record<string, unknown>)
-      : undefined;
-  if (rawInput) {
-    addPath(rawInput.file_path);
-    addPath(rawInput.filePath);
-    addPath(rawInput.path);
-  }
-  for (const p of paths) {
-    rows.push(row("path", p));
-  }
-
-  if (rawInput) {
-    const command = asStr(rawInput.command);
-    if (command) {
-      rows.push(row("command", command));
-    }
-    const url = asStr(rawInput.url);
-    if (url) {
-      rows.push(row("url", url));
-    }
-    const description = asStr(rawInput.description);
-    if (description) {
-      rows.push(el("div", { class: "detail note" }, description));
-    }
-  }
-
-  return rows;
+  return permissionDetails(tc).map((d) =>
+    d.note
+      ? el("div", { class: "detail note" }, d.value)
+      : el(
+          "div",
+          { class: "detail" },
+          el("span", { class: "k" }, d.label ?? ""),
+          el("code", null, d.value),
+        ),
+  );
 }
 
 function renderPermission(entry: PermissionEntry): HTMLElement {
