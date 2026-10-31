@@ -6,12 +6,10 @@ state. It renders nothing. A UI lives in its own `src/ui-<name>/` with
 `index.html` (containing `/*BUNDLE*/` and `__CSP_NONCE__`), `main.ts`, and
 optionally `sw.js`. `src/ui-classic/` is the reference.
 
-Build and serve:
-
-```
-npm run build:ui -- ui-<name> --out /path/to/dir
-# BROWSER_UI_DIR=/path/to/dir in ~/.hydra-acp/browser.conf
-```
+Build and serve: `npm run build:ui` builds every `src/ui-*` into
+`dist/ui/<name>/`; open `/?ui=<name>` to select one (stored in a cookie).
+For a UI outside the repo, `npm run build:ui -- ui-<name> --out /path`
+and set `BROWSER_UI_DIR=/path`. `src/ui-min/` is a ~200 line example.
 
 ## Contract
 

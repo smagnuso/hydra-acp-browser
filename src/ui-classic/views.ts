@@ -643,6 +643,11 @@ function renderTopbar(): HTMLElement {
     ),
     renderHostFilter(),
     el("span", { class: "spacer" }),
+    el(
+      "button",
+      { ...tapHandler(() => window.location.assign("/?ui=min")), title: "Switch to the minimal UI" },
+      "🔀",
+    ),
     el("button", { ...tapHandler(openUsageModal), title: "Usage" }, "📊"),
     el("button", { ...tapHandler(openOptionsModal), title: "Options" }, "⚙"),
     el(

@@ -5,17 +5,21 @@ What a UI served by `hydra-acp-browser` can rely on. The bundled SPA in
 
 ## Serving a UI
 
-Set `BROWSER_UI_DIR` (in `~/.hydra-acp/browser.conf`) to a directory
-containing:
+`npm run build` writes every `src/ui-<name>/` to `dist/ui/<name>/`, and
+the server serves all of them. Each directory holds:
 
 - `index.html`: served at `/` once the `hb_session` cookie exists.
   Every `__CSP_NONCE__` in it is replaced per request with the CSP nonce.
 - `sw.js` (optional): served at `/sw.js`.
-- `assets/**`: served at `/assets/**` with a content type by extension.
-  Requires the session cookie.
+- `assets/**` (optional): served at `/assets/**` with a content type by
+  extension. Requires the session cookie.
 
-Files are re-read on every request, so rebuilding is enough; no restart.
-Unset, the bundled `dist/ui` is served (cached).
+Which UI a browser gets: the `hb_ui` cookie, set by visiting `/?ui=<name>`
+(unknown names are ignored), else `BROWSER_UI` (default `classic`). Each
+UI links to the others, e.g. `/?ui=min`.
+
+`BROWSER_UI_DIR` adds one extra directory as UI `custom` and makes it the
+default. It is re-read on every request, so rebuilding is enough.
 
 CSP: `default-src 'self'`, scripts and styles from `'self'` or the
 nonce, `connect-src 'self'`, `img-src 'self' data:`. Inline `<script>` and
