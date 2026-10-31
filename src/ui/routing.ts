@@ -5,9 +5,8 @@
 import { setState, state, notifyChange } from "./state.js";
 import { handleFrame, stopHeartbeat } from "./bridge.js";
 import { cancelUnboundQueued } from "./queue.js";
-import { renderNow } from "./renderer.js";
+import { uiHooks } from "./hooks.js";
 import { timed } from "./perf.js";
-import { isWideLayout } from "./dom.js";
 import { api, hasLiveSessionList } from "./api.js";
 import { markOpenChatRead } from "./read-state.js";
 import { handleNotification, resetChatHistoryState } from "./acp.js";
@@ -15,7 +14,6 @@ import { loadCachedSession } from "./history-cache.js";
 import { historyEntryToFrame, oldestSeqOf, type HistoryPageEntry } from "./history-page.js";
 import { loadDraft } from "./composer-draft.js";
 import { loadOfflineEntries } from "./offline-queue.js";
-import { peekChatScrollTop } from "./views.js";
 import type { ChatState, QueueEntry, SessionInfo } from "./types.js";
 
 // Exponential backoff for WS reconnect: 1s, 2s, 4s, 8s, 16s, 30s cap.
@@ -728,7 +726,7 @@ export function maybeRestoreLastSession(): void {
   const id = state.lastSessionId;
   if (!id) return;
   setState({ listHighlightedSessionId: id });
-  if (!isWideLayout() && !state.resumeChatOnLoad) return;
+  if (!uiHooks.isWideLayout() && !state.resumeChatOnLoad) return;
   const attempt = (n: number): void => {
     // The user got there first, or navigated away while we waited.
     if (state.view === "chat") return;
@@ -812,7 +810,7 @@ export function closeChat(): void {
   closeChatSocket();
   const returningFrom = state.current?.sessionId ?? state.lastSessionId;
   lastClosedChat = state.current;
-  lastClosedScrollTop = state.current ? peekChatScrollTop(state.current) : 0;
+  lastClosedScrollTop = state.current ? uiHooks.peekChatScrollTop(state.current) : 0;
   setState({
     view: "list",
     current: null,
@@ -826,7 +824,7 @@ export function closeChat(): void {
   // Paint the list and its highlight together on the next frame — see
   // renderNow. setState's own render is throttled, which is what made
   // the highlight arrive after the list it belongs to.
-  renderNow();
+  uiHooks.renderNow();
 }
 
 // Called from main.ts's `online` listener. A WebSocket left open

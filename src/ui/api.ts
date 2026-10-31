@@ -3,12 +3,10 @@
 // presents its session cookie.
 
 import { setState, state, sameValue, markRailDirty, notifyChange } from "./state.js";
-import { isActivelyTyping } from "./renderer.js";
-import { isWideLayout } from "./dom.js";
+import { uiHooks } from "./hooks.js";
 import { forceReconnect } from "./routing.js";
 import { mergeSessionListPage } from "./session-merge.js";
 import { loadPersistedSessionCache, queueSessionCacheWrite } from "./session-cache.js";
-import { seedInitialSessionOrder } from "./views.js";
 import type { SessionInfo } from "./types.js";
 
 function hasActiveSelection(): boolean {
@@ -94,7 +92,7 @@ export async function seedSessionCache(): Promise<void> {
     // session downgraded to "cold" for storage doesn't visibly jump to
     // the bottom of the list and back the instant the first live poll
     // restores its real warm/busy status.
-    seedInitialSessionOrder(cached.sessions.map((s) => s.sessionId));
+    uiHooks.seedInitialSessionOrder(cached.sessions.map((s) => s.sessionId));
   }
 }
 
@@ -119,7 +117,7 @@ export async function pollSessions(): Promise<void> {
   // session was open, not just while typing, and the rail would never
   // pick up e.g. a turn starting elsewhere. isActivelyTyping's recency
   // window fixes that while still protecting actual keystroke bursts.
-  if (isActivelyTyping()) {
+  if (uiHooks.isActivelyTyping()) {
     return;
   }
   // While viewing a single session, only that session's own metadata
@@ -132,7 +130,7 @@ export async function pollSessions(): Promise<void> {
   // single-session endpoint instead — except in the wide-layout split
   // view, where the session-list rail is on screen the whole time
   // alongside the chat and genuinely needs the full list kept fresh.
-  if (state.view === "chat" && state.current && !isWideLayout()) {
+  if (state.view === "chat" && state.current && !uiHooks.isWideLayout()) {
     await pollCurrentSessionOnly(state.current.sessionId);
     return;
   }

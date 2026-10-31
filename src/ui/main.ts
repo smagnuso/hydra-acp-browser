@@ -8,17 +8,27 @@ import {
   forceReconnect,
   maybeRestoreLastSession,
 } from "./routing.js";
-import { render, renderNow } from "./renderer.js";
+import {
+  render,
+  renderNow,
+  isActivelyTyping,
+  beginReplayPaintHold,
+  endReplayPaintHold,
+} from "./renderer.js";
+import { installUiHooks } from "./hooks.js";
 import { initPullToRefresh } from "./pull-refresh.js";
 import { initSwipeBack } from "./swipe-nav.js";
 import { initViewportHeight } from "./viewport.js";
-import { initTapWatchdog } from "./tap-debug.js";
+import { initTapWatchdog, tapDebugEnabled, tapLog, noteSendOutcome } from "./tap-debug.js";
 import { delegatedTap, initWideLayoutWatcher, isWideLayout } from "./dom.js";
 import { ensureServiceWorker, subscribeForPush } from "./notifications.js";
 import { reportPushEndpoint, reportVisibility } from "./bridge.js";
 import {
   handleListKeydown,
   focusListRail,
+  seedInitialSessionOrder,
+  jumpToBottom,
+  peekChatScrollTop,
   closeModal,
   scrollToTurn,
   openFileAtLine,
@@ -32,6 +42,19 @@ import { applyFontScale, initTheme } from "./theme.js";
 import { initPerfObserver } from "./perf.js";
 
 subscribe(render);
+installUiHooks({
+  isActivelyTyping,
+  seedInitialSessionOrder,
+  beginReplayPaintHold,
+  endReplayPaintHold,
+  jumpToBottom,
+  peekChatScrollTop,
+  renderNow,
+  isWideLayout,
+  tapDebugEnabled,
+  tapLog,
+  noteSendOutcome,
+});
 
 // As early as possible, before the first render() — applying the
 // persisted theme after paint would flash the wrong one.

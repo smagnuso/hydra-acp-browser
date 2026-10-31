@@ -4,10 +4,7 @@
 // frame router that fans out to acp.ts and queue.ts.
 
 import { state, notifyChange } from "./state.js";
-import {
-  beginReplayPaintHold,
-  endReplayPaintHold,
-} from "./renderer.js";
+import { uiHooks } from "./hooks.js";
 import {
   ensureSpinner,
   finalizeTurn,
@@ -184,7 +181,7 @@ export function handleFrame(frame: JsonRpcFrame): void {
       // historical frame has landed. Only worth holding when there is
       // actually a paint to keep.
       if (state.current.log.length > 0) {
-        beginReplayPaintHold();
+        uiHooks.beginReplayPaintHold();
       }
       // The swap replaces every node in the scroller, which is exactly
       // the situation pinIfDue's guards misread — see pinAfterSwap.
@@ -357,7 +354,7 @@ export function handleFrame(frame: JsonRpcFrame): void {
     // The replay is complete and the log is authoritative again, so this
     // is the moment to swap. Releases the hold begun at replay_policy and
     // paints once; a no-op when no hold was taken.
-    endReplayPaintHold();
+    uiHooks.endReplayPaintHold();
     notifyChange();
     return;
   }

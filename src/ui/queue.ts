@@ -21,10 +21,9 @@ import {
   reseatBubbleAtEnd,
   startTurnSpinner,
 } from "./acp.js";
-import { jumpToBottom } from "./views.js";
+import { uiHooks } from "./hooks.js";
 import { clearDraft, queueDraftWrite } from "./composer-draft.js";
 import { removeOfflineEntry, saveOfflineEntry } from "./offline-queue.js";
-import { noteSendOutcome, tapDebugEnabled, tapLog } from "./tap-debug.js";
 import type { Attachment, ChatState, QueueEntry } from "./types.js";
 
 // Build an ACP ContentBlock[] for session/prompt et al. Text block is
@@ -98,35 +97,35 @@ function clearComposerDom(): void {
 
 export function sendPrompt(): void {
   const c = state.current;
-  if (tapDebugEnabled()) {
+  if (uiHooks.tapDebugEnabled()) {
     const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
     const domLen = ta ? ta.value.trim().length : -1;
     const stateLen = c ? c.composerValue.trim().length : -1;
-    tapLog(
+    uiHooks.tapLog(
       `sendPrompt cur=${c ? "y" : "n"} stateLen=${stateLen} domLen=${domLen} ` +
         `att=${c ? c.attachments.length : -1} inTurn=${c ? c.inTurn : "?"}` +
         (domLen > 0 && stateLen === 0 ? " <<< DOM HAS TEXT, STATE EMPTY" : ""),
     );
   }
   if (!c) {
-    noteSendOutcome("no-current-chat");
+    uiHooks.noteSendOutcome("no-current-chat");
     return;
   }
   syncComposerFromDom(c);
   const text = c.composerValue.trim();
   const attachments = c.attachments;
   if (!text && attachments.length === 0) {
-    noteSendOutcome("empty");
-    tapLog("sendPrompt DROPPED: nothing to send");
+    uiHooks.noteSendOutcome("empty");
+    uiHooks.tapLog("sendPrompt DROPPED: nothing to send");
     return;
   }
   if (attachments.length === 0 && isDuplicateSubmit(c.sessionId, text)) {
-    noteSendOutcome("duplicate");
+    uiHooks.noteSendOutcome("duplicate");
     c.composerValue = "";
     clearComposerDom();
     return;
   }
-  noteSendOutcome("dispatched");
+  uiHooks.noteSendOutcome("dispatched");
   if (dispatchPrompt(c, text, { attachments })) {
     c.composerValue = "";
     c.attachments = [];
@@ -233,7 +232,7 @@ function dispatchPrompt(
     // send does below.
     startTurnSpinner(undefined, entry.id, true);
     markActive();
-    jumpToBottom(c);
+    uiHooks.jumpToBottom(c);
     if (opts.addToHistory ?? true) {
       pushHistory(c, text);
     }
@@ -268,7 +267,7 @@ function dispatchPrompt(
     ensureSpinner();
   }
   markActive();
-  jumpToBottom(c);
+  uiHooks.jumpToBottom(c);
   if (opts.addToHistory ?? true) {
     pushHistory(c, text);
   }
@@ -426,7 +425,7 @@ export function amendQueuedPrompt(entry: QueueEntry): void {
     messageId: oldMessageId,
   });
   sendSteerRequest(entry, entry.text, target, entry.text);
-  jumpToBottom(c);
+  uiHooks.jumpToBottom(c);
   notifyChange();
 }
 
@@ -562,7 +561,7 @@ export function amendPrompt(): void {
   c.recentOwnPrompts = c.recentOwnPrompts.filter((p) => p.at >= cutoff).slice(-16);
   ensureSpinner();
   markActive();
-  jumpToBottom(c);
+  uiHooks.jumpToBottom(c);
   sendSteerRequest(entry, draft, target, text);
   notifyChange();
 }
