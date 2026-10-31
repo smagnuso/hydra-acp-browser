@@ -81,6 +81,13 @@ export {
   imageUrl,
   relativeToCwd,
 } from "./files.js";
+export {
+  addImageAttachments,
+  removeAttachment,
+  attachmentSrc,
+  formatAttachmentSize,
+  MAX_ATTACHMENT_BYTES,
+} from "./attachments.js";
 export { markOpenChatRead, initReadTracking } from "./read-state.js";
 export {
   ensureServiceWorker,

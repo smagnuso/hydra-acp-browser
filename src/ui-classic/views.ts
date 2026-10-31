@@ -73,6 +73,12 @@ import {
   extendFileWindow,
 } from "../core/files.js";
 import {
+  formatAttachmentSize,
+  attachmentSrc,
+  addImageAttachments,
+  removeAttachment,
+} from "../core/attachments.js";
+import {
   killSession as killSessionAction,
   createSession as createSessionAction,
   setSessionTitle,
@@ -112,61 +118,11 @@ import type {
   SpinnerState,
 } from "../core/types.js";
 
-// Mirrors cli/src/tui/attachments.ts MAX_ATTACHMENT_BYTES — keeps the two
-// clients' caps in sync without a shared package.
-const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
-
 // Tracks which thought bubbles the user has collapsed. Keyed by log item
 // object reference, which is stable across re-renders (mutated in place).
 const collapsedThoughts = new WeakSet<object>();
 
 // ---- Attachments ---------------------------------------------
-
-// Mirrors cli/src/tui/attachments.ts formatSize.
-function formatAttachmentSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  }
-  if (bytes >= 1024) {
-    return `${(bytes / 1024).toFixed(0)}KB`;
-  }
-  return `${bytes}B`;
-}
-
-// Read pasted image files into base64 Attachments and append them to the
-// composer's pending list. Oversized files are rejected with a banner
-// rather than silently dropped, mirroring the TUI's clipboard-read errors.
-function addPastedImages(c: ChatState, files: File[]): void {
-  for (const file of files) {
-    if (file.size > MAX_ATTACHMENT_BYTES) {
-      setState({
-        banner: {
-          kind: "warn",
-          text: `pasted image is ${formatAttachmentSize(file.size)}, max ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)}`,
-        },
-      });
-      continue;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result !== "string") return;
-      const comma = result.indexOf(",");
-      if (comma < 0) return;
-      c.attachments.push({
-        mimeType: file.type || "image/png",
-        data: result.slice(comma + 1),
-        sizeBytes: file.size,
-      });
-      render();
-    };
-    reader.readAsDataURL(file);
-  }
-}
-
-function attachmentSrc(a: Attachment): string {
-  return a.url ?? `data:${a.mimeType};base64,${a.data}`;
-}
 
 // Pending-attachment chips shown above the composer textarea, each with a
 // thumbnail and a remove button. Returns null when there's nothing to show
@@ -186,10 +142,7 @@ function renderAttachmentChips(c: ChatState): Node | null {
           {
             class: "attachment-remove",
             title: "Remove image",
-            ...tapHandler(() => {
-              c.attachments.splice(i, 1);
-              render();
-            }),
+            ...tapHandler(() => removeAttachment(c, i)),
           },
           "×",
         ),
@@ -3845,7 +3798,7 @@ function renderChat(c: ChatState): HTMLElement {
         // No image items — let the browser handle a normal text paste.
         if (files.length === 0) return;
         e.preventDefault();
-        addPastedImages(c, files);
+        void addImageAttachments(c, files);
       },
       oninput: (e: Event) => {
         noteTypingActivity();

@@ -42,6 +42,10 @@ and set `BROWSER_UI_DIR=/path`. `src/ui-min/` is a ~200 line example.
   `afterFileOverlayOpen`, `fileOverlayClosing`, and `captureFileAnchor`
   (return the visible line and its offset so prepending keeps the reader
   in place; core then sets `keepLine` for you to apply).
+- Attachments: collect images as `Blob`/`File` (paste, picker, drag) and
+  call `addImageAttachments(chat, files)`; it enforces the size cap with a
+  banner. Pending ones are `chat.attachments`; `removeAttachment`,
+  `attachmentSrc` for thumbnails. `sendPrompt()` sends them.
 - Hooks (`UiHooks`) cover view behavior core needs: scrolling, paint holds,
   navigation (URL), composer DOM sync. Unset hooks are inert no-ops.
 - `platform.ts` is the only core file allowed to touch `document` or

@@ -89,8 +89,8 @@ that needs no DOM), export it from `core/index.ts`, document it in
 `docs/ui-core.md` if it changes the contract, then wire it into the view
 that asked for it. Other UIs can adopt it later without rework.
 
-Known gap: some logic still lives in `ui-classic/views.ts` (attachments,
-model/mode pickers, usage data shaping). Extract it into
+Known gap: some logic still lives in `ui-classic/views.ts` (model/mode
+pickers, usage data shaping). Extract it into
 `core/` when you next need it from a second UI or when you are already
 changing it; do not copy it.
 
