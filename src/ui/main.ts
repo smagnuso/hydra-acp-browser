@@ -26,10 +26,12 @@ import {
   closeFiles,
   initFileWindowPaging,
 } from "./views.js";
-import { state } from "./state.js";
+import { state, subscribe } from "./state.js";
 import { initReadTracking, markOpenChatRead } from "./read-state.js";
 import { applyFontScale, initTheme } from "./theme.js";
 import { initPerfObserver } from "./perf.js";
+
+subscribe(render);
 
 // As early as possible, before the first render() — applying the
 // persisted theme after paint would flash the wrong one.

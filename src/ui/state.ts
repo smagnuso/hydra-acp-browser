@@ -4,7 +4,6 @@
 // add ceremony with little payoff.
 
 import type { AppState } from "./types.js";
-import { render } from "./renderer.js";
 
 // Topbar filters survive a reload so switching devices/tabs doesn't
 // reset how the session list is sliced.
@@ -108,6 +107,19 @@ export function markRailClean(): void {
   railDirty = false;
 }
 
+const changeListeners = new Set<() => void>();
+
+export function subscribe(fn: () => void): () => void {
+  changeListeners.add(fn);
+  return () => changeListeners.delete(fn);
+}
+
+export function notify(): void {
+  for (const fn of changeListeners) {
+    fn();
+  }
+}
+
 export function setState(patch: Partial<AppState>): void {
   let changed = false;
   let filtersChanged = false;
@@ -128,7 +140,7 @@ export function setState(patch: Partial<AppState>): void {
     savePersistedFilters();
   }
   if (changed) {
-    render();
+    notify();
   }
 }
 
