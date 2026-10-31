@@ -643,11 +643,6 @@ function renderTopbar(): HTMLElement {
     ),
     renderHostFilter(),
     el("span", { class: "spacer" }),
-    el(
-      "button",
-      { ...tapHandler(() => window.location.assign("/?ui=min")), title: "Switch to the minimal UI" },
-      "🔀",
-    ),
     el("button", { ...tapHandler(openUsageModal), title: "Usage" }, "📊"),
     el("button", { ...tapHandler(openOptionsModal), title: "Options" }, "⚙"),
     el(
@@ -1308,7 +1303,15 @@ function notifyOnTurnEndRow(): HTMLElement {
   );
 }
 
+let uiChoices: { uis: string[]; current: string } | null = null;
+
 function openOptionsModal(): void {
+  void api<{ uis: string[]; current: string }>("/api/uis")
+    .then((res) => {
+      uiChoices = res;
+      render();
+    })
+    .catch(() => undefined);
   const sid = state.current?.sessionId;
   state.cacheInfo = sid ? "…" : "no session open";
   if (sid) {
@@ -1540,6 +1543,23 @@ function themeRow(): HTMLElement {
   return el("div", { class: "detail" }, el("span", { class: "k" }, "theme"), select);
 }
 
+function uiRow(): HTMLElement | null {
+  if (!uiChoices || uiChoices.uis.length < 2) {
+    return null;
+  }
+  const select = el(
+    "select",
+    {
+      onchange: (e: Event) => {
+        window.location.assign(`/?ui=${encodeURIComponent((e.target as HTMLSelectElement).value)}`);
+      },
+    },
+    ...uiChoices.uis.map((name) => el("option", { value: name }, name)),
+  ) as HTMLSelectElement;
+  select.value = uiChoices.current;
+  return el("div", { class: "detail" }, el("span", { class: "k" }, "ui"), select);
+}
+
 // Global, device-wide preferences — as opposed to the per-session
 // chat-details panel, which holds settings scoped to one session
 // (title, cwd, model/mode/agent). Reachable from the gear button on
@@ -1558,6 +1578,7 @@ function renderOptionsModal(): HTMLElement {
       "div",
       { class: "modal" },
       el("h2", null, "Options"),
+      uiRow(),
       themeRow(),
       fontSizeRow(),
       hideThoughtsRow(),

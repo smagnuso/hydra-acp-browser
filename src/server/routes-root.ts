@@ -180,6 +180,10 @@ export function registerRootRoutes(
   // Notification()`. Same auth/CSRF posture as any other authenticated
   // GET; a same-origin navigator.serviceWorker.register() call passes
   // those checks the same as a normal fetch.
+  app.get("/api/uis", async (request, reply) => {
+    reply.send({ uis: await ui.names(), current: await ui.select(request) });
+  });
+
   app.get("/assets/*", async (request, reply) => {
     const rel = (request.params as { "*": string })["*"];
     const assetsDir = resolve(ui.dirOf(await ui.select(request)), "assets");

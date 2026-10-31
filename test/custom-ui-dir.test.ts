@@ -119,3 +119,13 @@ test("?ui= sets the cookie and redirects, ignoring unknown names", async () => {
   assert.equal(bad.statusCode, 303);
   assert.equal(bad.headers["set-cookie"], undefined);
 });
+
+test("/api/uis lists the bundled UIs and the current pick", async () => {
+  const app = await setupMulti();
+  const res = await app.inject({
+    method: "GET",
+    url: "/api/uis",
+    headers: { ...headers, cookie: "hb_session=tok; hb_ui=alpha" },
+  });
+  assert.deepEqual(JSON.parse(res.body), { uis: ["alpha", "beta"], current: "alpha" });
+});
