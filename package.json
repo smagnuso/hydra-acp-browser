@@ -43,7 +43,8 @@
     "dev": "npm run build && node dist/index.js",
     "test": "node scripts/run-tests.mjs",
     "lint": "tsc -p . --noEmit && tsc -p tsconfig.ui.json --noEmit",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run build && npm test",
+    "smoke": "node scripts/smoke-ui.mjs"
   },
   "engines": {
     "node": ">=20"

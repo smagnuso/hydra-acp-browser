@@ -1,0 +1,150 @@
+#!/usr/bin/env node
+// Drives each bundled UI in headless Chrome against a running server and
+// fails on uncaught exceptions, console errors, or an empty page.
+//   node scripts/smoke-ui.mjs [baseUrl]    (default https://localhost:5514)
+// Auth: the daemon token from ~/.hydra-acp/auth-token is used as the
+// hb_session cookie (the browser server only checks the cookie exists).
+import WebSocket from "ws";
+import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir, homedir } from "node:os";
+import { join } from "node:path";
+
+const base = process.argv[2] ?? "https://localhost:5514";
+const token = readFileSync(join(homedir(), ".hydra-acp", "auth-token"), "utf8").trim();
+const port = 9400 + Math.floor(Math.random() * 400);
+const profile = mkdtempSync(join(tmpdir(), "smoke-ui-"));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const chrome = spawn(
+  "google-chrome",
+  [
+    "--headless=new",
+    `--remote-debugging-port=${port}`,
+    "--ignore-certificate-errors",
+    "--disable-gpu",
+    "--no-sandbox",
+    `--user-data-dir=${profile}`,
+  ],
+  { stdio: "ignore" },
+);
+
+async function connect() {
+  for (let i = 0; i < 40; i++) {
+    try {
+      const v = await (await fetch(`http://localhost:${port}/json/version`)).json();
+      const ws = new WebSocket(v.webSocketDebuggerUrl);
+      await new Promise((res, rej) => {
+        ws.once("open", res);
+        ws.once("error", rej);
+      });
+      return ws;
+    } catch {
+      await sleep(250);
+    }
+  }
+  throw new Error("could not reach headless Chrome");
+}
+
+const ws = await connect();
+let nextId = 1;
+const waiting = new Map();
+const events = [];
+ws.on("message", (data) => {
+  const msg = JSON.parse(data.toString());
+  if (msg.id && waiting.has(msg.id)) {
+    const { resolve, reject } = waiting.get(msg.id);
+    waiting.delete(msg.id);
+    if (msg.error) {
+      reject(new Error(JSON.stringify(msg.error)));
+    } else {
+      resolve(msg.result);
+    }
+    return;
+  }
+  events.push(msg);
+});
+const rpc = (method, params = {}, sessionId) =>
+  new Promise((resolve, reject) => {
+    const id = nextId++;
+    waiting.set(id, { resolve, reject });
+    ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+  });
+
+const failures = [];
+
+async function smoke(ui) {
+  const { targetId } = await rpc("Target.createTarget", { url: "about:blank" });
+  const { sessionId } = await rpc("Target.attachToTarget", { targetId, flatten: true });
+  const send = (m, p) => rpc(m, p, sessionId);
+  const evalJs = async (expression) =>
+    (await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true })).result.value;
+  await send("Runtime.enable");
+  await send("Network.enable");
+  await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 800, deviceScaleFactor: 2, mobile: true });
+  const host = new URL(base).hostname;
+  for (const [name, value] of [["hb_session", token], ["hb_ui", ui]]) {
+    await send("Network.setCookie", { name, value, domain: host, path: "/" });
+  }
+  const mark = events.length;
+  await send("Page.navigate", { url: base + "/" });
+  await sleep(4000);
+
+  const mine = events.slice(mark).filter((e) => e.sessionId === sessionId);
+  for (const e of mine) {
+    if (e.method === "Runtime.exceptionThrown") {
+      failures.push(`${ui}: exception ${e.params.exceptionDetails.exception?.description ?? e.params.exceptionDetails.text}`);
+    }
+    if (e.method === "Runtime.consoleAPICalled" && e.params.type === "error") {
+      failures.push(`${ui}: console.error ${e.params.args.map((a) => a.value ?? a.description).join(" ")}`);
+    }
+  }
+  const rendered = await evalJs("document.getElementById('app')?.childElementCount ?? 0");
+  if (!rendered) {
+    failures.push(`${ui}: #app is empty`);
+  }
+
+  // Open the first session via each UI's own mechanism, then check the
+  // socket attached and the transcript area exists.
+  const sel = ui === "min" ? ".row" : ".card, .session-card, [data-session-id]";
+  const clicked = await evalJs(
+    `(() => { const n = document.querySelector(${JSON.stringify(sel)}); if (!n) return false; n.dispatchEvent(new PointerEvent('pointerup', {bubbles:true})); n.click(); return true; })()`,
+  );
+  if (clicked) {
+    await sleep(4000);
+    const wsOpened = events.slice(mark).some(
+      (e) => e.sessionId === sessionId && e.method === "Network.webSocketCreated" && e.params.url.includes("/ws?session="),
+    );
+    if (!wsOpened) {
+      failures.push(`${ui}: opening a session did not create a /ws connection`);
+    }
+    const chatShown = await evalJs(
+      ui === "min"
+        ? "!document.querySelector('footer')?.hidden"
+        : "!!document.querySelector('.chat-body')",
+    );
+    if (!chatShown) {
+      failures.push(`${ui}: chat view not shown after opening a session`);
+    }
+  } else {
+    console.log(`${ui}: no sessions to open, skipped chat check`);
+  }
+  console.log(`${ui}: loaded${clicked ? ", opened a session" : ""}`);
+  await rpc("Target.closeTarget", { targetId });
+}
+
+try {
+  for (const ui of ["classic", "min"]) {
+    await smoke(ui);
+  }
+} finally {
+  ws.close();
+  chrome.kill();
+  rmSync(profile, { recursive: true, force: true });
+}
+
+if (failures.length > 0) {
+  console.error("FAIL\n" + failures.map((f) => "  " + f).join("\n"));
+  process.exit(1);
+}
+console.log("ok");
