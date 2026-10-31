@@ -139,8 +139,10 @@ try {
   }
 } finally {
   ws.close();
+  const exited = new Promise((resolve) => chrome.once("exit", resolve));
   chrome.kill();
-  rmSync(profile, { recursive: true, force: true });
+  await Promise.race([exited, sleep(5000)]);
+  rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 
 if (failures.length > 0) {
