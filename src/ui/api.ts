@@ -9,14 +9,6 @@ import { mergeSessionListPage } from "./session-merge.js";
 import { loadPersistedSessionCache, queueSessionCacheWrite } from "./session-cache.js";
 import type { SessionInfo } from "./types.js";
 
-function hasActiveSelection(): boolean {
-  const sel = window.getSelection();
-  if (!sel || sel.isCollapsed) {
-    return false;
-  }
-  return sel.toString().length > 0;
-}
-
 // `timeoutMs` guards against a request that never settles. A bare fetch
 // has no timeout: if the connection stalls (a cell/wifi handoff, the tab
 // backgrounded mid-flight) the promise simply never resolves, and any UI
@@ -325,7 +317,7 @@ async function pollAllSessions(): Promise<void> {
     }
     // Don't disrupt the user mid-selection. Skip this cycle; the next
     // poll re-checks. Banner changes still render so errors surface.
-    if (!clearedBanner && hasActiveSelection()) {
+    if (!clearedBanner && uiHooks.hasActiveSelection()) {
       return;
     }
     // While a modal is open the list is hidden behind a backdrop and

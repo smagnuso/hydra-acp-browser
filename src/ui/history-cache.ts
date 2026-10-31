@@ -38,6 +38,7 @@
 
 import type { JsonRpcFrame } from "./acp.js";
 import { timed } from "./perf.js";
+import { platform } from "./platform.js";
 
 const DB_NAME = "hydra-acp-history-cache";
 // Frozen at 4. Earlier bumps existed to discard caches holding transcripts
@@ -455,14 +456,7 @@ function enforceSessionLru(db: IDBDatabase): Promise<void> {
 // or torn down. pagehide covers iOS Safari (which doesn't reliably fire
 // beforeunload); visibilitychange covers the general "tab hidden" case
 // (switching apps, locking the phone) that isn't a full unload at all.
-// Guarded — this module is reachable from acp.ts, which the server-side
-// test suite imports under Node, where window/document don't exist.
-if (typeof window !== "undefined" && typeof document !== "undefined") {
-  window.addEventListener("pagehide", flushHistoryCacheNow);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flushHistoryCacheNow();
-  });
-}
+platform.onPageHidden(flushHistoryCacheNow);
 
 // Ask the browser not to evict this origin's storage under disk
 // pressure — otherwise the whole point of this cache (surviving a cold

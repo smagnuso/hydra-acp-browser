@@ -13,6 +13,9 @@ export interface UiHooks {
   peekChatScrollTop(c: ChatState): number;
   renderNow(): void;
   isWideLayout(): boolean;
+  hasActiveSelection(): boolean;
+  readComposerDom(): string | null;
+  clearComposerDom(): void;
   tapDebugEnabled(): boolean;
   tapLog(line: string): void;
   noteSendOutcome(outcome: string): void;
@@ -27,6 +30,9 @@ export const uiHooks: UiHooks = {
   peekChatScrollTop: () => 0,
   renderNow: () => {},
   isWideLayout: () => false,
+  hasActiveSelection: () => false,
+  readComposerDom: () => null,
+  clearComposerDom: () => {},
   tapDebugEnabled: () => false,
   tapLog: () => {},
   noteSendOutcome: () => {},

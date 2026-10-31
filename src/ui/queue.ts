@@ -54,12 +54,9 @@ interface AmendPromptResult {
 // on screen. Only ever adopt a non-empty field: an empty value is what that
 // same uncommitted state reads as, and must not wipe the real draft.
 function syncComposerFromDom(c: ChatState): void {
-  if (typeof document === "undefined") {
-    return;
-  }
-  const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
-  if (ta && ta.value.trim().length > 0 && ta.value !== c.composerValue) {
-    c.composerValue = ta.value;
+  const value = uiHooks.readComposerDom();
+  if (value !== null && value.trim().length > 0 && value !== c.composerValue) {
+    c.composerValue = value;
   }
 }
 
@@ -84,22 +81,11 @@ export function isDuplicateSubmit(sessionId: string, text: string, now = Date.no
 
 // render() can be deferred while a composer gesture is in progress, leaving
 // the sent text in the textarea for syncComposerFromDom to adopt again.
-function clearComposerDom(): void {
-  if (typeof document === "undefined") {
-    return;
-  }
-  const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
-  if (ta) {
-    ta.value = "";
-    ta.style.height = "";
-  }
-}
-
 export function sendPrompt(): void {
   const c = state.current;
   if (uiHooks.tapDebugEnabled()) {
-    const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
-    const domLen = ta ? ta.value.trim().length : -1;
+    const domText = uiHooks.readComposerDom();
+    const domLen = domText !== null ? domText.trim().length : -1;
     const stateLen = c ? c.composerValue.trim().length : -1;
     uiHooks.tapLog(
       `sendPrompt cur=${c ? "y" : "n"} stateLen=${stateLen} domLen=${domLen} ` +
@@ -122,7 +108,7 @@ export function sendPrompt(): void {
   if (attachments.length === 0 && isDuplicateSubmit(c.sessionId, text)) {
     uiHooks.noteSendOutcome("duplicate");
     c.composerValue = "";
-    clearComposerDom();
+    uiHooks.clearComposerDom();
     return;
   }
   uiHooks.noteSendOutcome("dispatched");
@@ -130,7 +116,7 @@ export function sendPrompt(): void {
     c.composerValue = "";
     c.attachments = [];
     clearDraft(c.sessionId);
-    clearComposerDom();
+    uiHooks.clearComposerDom();
   }
   notifyChange();
 }
@@ -516,7 +502,7 @@ export function amendPrompt(): void {
   }
   if (attachments.length === 0 && isDuplicateSubmit(c.sessionId, text)) {
     c.composerValue = "";
-    clearComposerDom();
+    uiHooks.clearComposerDom();
     return;
   }
   const target = c.currentHeadMessageId;
@@ -525,7 +511,7 @@ export function amendPrompt(): void {
   c.composerValue = "";
   c.attachments = [];
   clearDraft(c.sessionId);
-  clearComposerDom();
+  uiHooks.clearComposerDom();
   pushHistory(c, text);
   // Add an optimistic local entry mirroring sendPrompt's behavior, but
   // pre-tagged with amendsMessageId so the bubble paints the "+"

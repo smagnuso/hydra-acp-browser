@@ -16,6 +16,7 @@
 // for bringing the tab to front on click.
 
 import { api } from "./api.js";
+import { platform } from "./platform.js";
 
 let swRegistration: ServiceWorkerRegistration | null = null;
 
@@ -50,7 +51,7 @@ export async function requestNotificationPermission(): Promise<boolean> {
 // Fed to the server (see reportVisibility in bridge.ts) so it can skip
 // a push when this tab is the one currently looking at the session.
 export function tabIsHidden(): boolean {
-  return document.visibilityState !== "visible" || !document.hasFocus();
+  return platform.pageVisibility() !== "visible" || !platform.pageHasFocus();
 }
 
 // Fed to the server (see reportPushEndpoint in bridge.ts) so a turn-end

@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { setState, state } from "./state.js";
+import { platform } from "./platform.js";
 
 // Marks the open chat's session read on the daemon when a person is looking:
 // on open, after a turn ends in it, and when the window comes back into
@@ -10,7 +11,6 @@ import { setState, state } from "./state.js";
 // decided when the mark is requested, not when the debounce fires, so
 // swiping out of the chat right after a turn ends still marks it.
 const DEBOUNCE_MS = 300;
-const INPUT_EVENTS = ["keydown", "pointerdown", "pointermove", "wheel", "touchstart"];
 let lastInputAt = Date.now();
 let timer: ReturnType<typeof setTimeout> | undefined;
 let pendingId: string | undefined;
@@ -54,15 +54,13 @@ function noteInput(): void {
 }
 
 export function initReadTracking(): void {
-  for (const type of INPUT_EVENTS) {
-    document.addEventListener(type, noteInput, { capture: true, passive: true });
-  }
-  window.addEventListener("focus", () => {
+  platform.onUserInput(noteInput);
+  platform.onWindowFocus(() => {
     lastInputAt = Date.now();
     markOpenChatRead();
   });
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && document.hasFocus()) {
+  platform.onVisibilityChange(() => {
+    if (platform.pageVisibility() === "visible" && platform.pageHasFocus()) {
       lastInputAt = Date.now();
     }
   });
@@ -86,10 +84,10 @@ function seenSessionId(): string | undefined {
     return undefined;
   }
   const why: string[] = [];
-  if (document.visibilityState !== "visible") {
-    why.push(`vis=${document.visibilityState}`);
+  if (platform.pageVisibility() !== "visible") {
+    why.push(`vis=${platform.pageVisibility()}`);
   }
-  if (!document.hasFocus()) {
+  if (!platform.pageHasFocus()) {
     why.push("nofocus");
   }
   if (isIdle()) {

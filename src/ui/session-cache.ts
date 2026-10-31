@@ -38,6 +38,7 @@
 
 import type { SessionInfo } from "./types.js";
 import { compareSessions } from "./session-sort.js";
+import { platform } from "./platform.js";
 
 const DB_NAME = "hydra-acp-session-cache";
 const DB_VERSION = 1;
@@ -242,11 +243,4 @@ async function flushPending(): Promise<void> {
   });
 }
 
-// Guarded — trimForCache above is unit tested directly under Node
-// (test/session-cache.test.ts), where window/document don't exist.
-if (typeof window !== "undefined" && typeof document !== "undefined") {
-  window.addEventListener("pagehide", flushSessionCacheNow);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flushSessionCacheNow();
-  });
-}
+platform.onPageHidden(flushSessionCacheNow);

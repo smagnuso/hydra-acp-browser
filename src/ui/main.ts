@@ -20,7 +20,7 @@ import { initPullToRefresh } from "./pull-refresh.js";
 import { initSwipeBack } from "./swipe-nav.js";
 import { initViewportHeight } from "./viewport.js";
 import { initTapWatchdog, tapDebugEnabled, tapLog, noteSendOutcome } from "./tap-debug.js";
-import { delegatedTap, initWideLayoutWatcher, isWideLayout } from "./dom.js";
+import { delegatedTap, initWideLayoutWatcher, isWideLayout, hasActiveSelection } from "./dom.js";
 import { ensureServiceWorker, subscribeForPush } from "./notifications.js";
 import { reportPushEndpoint, reportVisibility } from "./bridge.js";
 import {
@@ -41,6 +41,19 @@ import { initReadTracking, markOpenChatRead } from "./read-state.js";
 import { applyFontScale, initTheme } from "./theme.js";
 import { initPerfObserver } from "./perf.js";
 
+function readComposerDom(): string | null {
+  const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
+  return ta ? ta.value : null;
+}
+
+function clearComposerDom(): void {
+  const ta = document.querySelector<HTMLTextAreaElement>('[data-focus-key="composer"]');
+  if (ta) {
+    ta.value = "";
+    ta.style.height = "";
+  }
+}
+
 subscribe(render);
 installUiHooks({
   isActivelyTyping,
@@ -51,6 +64,9 @@ installUiHooks({
   peekChatScrollTop,
   renderNow,
   isWideLayout,
+  hasActiveSelection,
+  readComposerDom,
+  clearComposerDom,
   tapDebugEnabled,
   tapLog,
   noteSendOutcome,

@@ -11,6 +11,7 @@
 // persisted here; those can run to hundreds of KB each and would need
 // IndexedDB to be safe against localStorage's much smaller per-origin
 // quota, for what's a rarer interruption case than "was mid-sentence."
+import { platform } from "./platform.js";
 
 const KEY_PREFIX = "hydra-acp-draft:";
 const WRITE_DEBOUNCE_MS = 400;
@@ -87,12 +88,4 @@ export function flushDraftWritesNow(): void {
   flushDraftWrites();
 }
 
-// Guarded — this module is reachable from acp.ts's import graph, which
-// the server-side test suite imports under Node, where window/document
-// don't exist (see history-cache.ts for the same pattern).
-if (typeof window !== "undefined" && typeof document !== "undefined") {
-  window.addEventListener("pagehide", flushDraftWritesNow);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flushDraftWritesNow();
-  });
-}
+platform.onPageHidden(flushDraftWritesNow);
