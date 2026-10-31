@@ -1,5 +1,5 @@
 import { promises as fsp } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
@@ -17,34 +17,53 @@ const log = logger("routes-root");
 const here = dirname(fileURLToPath(import.meta.url));
 
 // In dist layout: dist/server/routes-root.js → ../ui/index.html
-const UI_DIR = resolve(here, "..", "ui");
+const DEFAULT_UI_DIR = resolve(here, "..", "ui");
 
-let cachedHtml: string | undefined;
+const MIME: Record<string, string> = {
+  ".js": "application/javascript; charset=utf-8",
+  ".mjs": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".wasm": "application/wasm",
+};
 
-async function loadHtml(): Promise<string> {
-  if (cachedHtml) {
-    return cachedHtml;
-  }
-  const path = resolve(UI_DIR, "index.html");
-  cachedHtml = await fsp.readFile(path, "utf8");
-  return cachedHtml;
-}
-
-let cachedSw: string | undefined;
-
-async function loadSw(): Promise<string> {
-  if (cachedSw) {
-    return cachedSw;
-  }
-  const path = resolve(UI_DIR, "sw.js");
-  cachedSw = await fsp.readFile(path, "utf8");
-  return cachedSw;
+// A custom UI dir is re-read on every request so a rebuild shows up on
+// reload without restarting the server; the bundled UI is cached.
+function makeUiLoader(uiDir: string | undefined) {
+  const dir = uiDir ? resolve(uiDir) : DEFAULT_UI_DIR;
+  const cache = new Map<string, string>();
+  return {
+    dir,
+    async text(name: string): Promise<string> {
+      const hit = uiDir ? undefined : cache.get(name);
+      if (hit !== undefined) {
+        return hit;
+      }
+      const body = await fsp.readFile(resolve(dir, name), "utf8");
+      cache.set(name, body);
+      return body;
+    },
+  };
 }
 
 export function registerRootRoutes(
   app: FastifyInstance,
   ctx: ServerContext,
 ): void {
+  const ui = makeUiLoader(ctx.config.uiDir);
+
   app.get(
     "/",
     {
@@ -53,7 +72,7 @@ export function registerRootRoutes(
     async (request, reply) => {
       reply.header("Content-Type", "text/html; charset=utf-8");
       if (request.sessionToken) {
-        const html = await loadHtml();
+        const html = await ui.text("index.html");
         reply.send(injectNonce(html, request.cspNonce ?? ""));
         return;
       }
@@ -101,9 +120,29 @@ export function registerRootRoutes(
   // Notification()`. Same auth/CSRF posture as any other authenticated
   // GET; a same-origin navigator.serviceWorker.register() call passes
   // those checks the same as a normal fetch.
+  app.get("/assets/*", async (request, reply) => {
+    const rel = (request.params as { "*": string })["*"];
+    const assetsDir = resolve(ui.dir, "assets");
+    const full = resolve(assetsDir, rel);
+    if (rel.includes("\0") || !full.startsWith(assetsDir + sep)) {
+      reply.code(404).send({ error: "not found" });
+      return;
+    }
+    let bytes: Buffer;
+    try {
+      bytes = await fsp.readFile(full);
+    } catch {
+      reply.code(404).send({ error: "not found" });
+      return;
+    }
+    reply
+      .header("Content-Type", MIME[extname(full).toLowerCase()] ?? "application/octet-stream")
+      .send(bytes);
+  });
+
   app.get("/sw.js", async (_request, reply) => {
     reply.header("Content-Type", "application/javascript; charset=utf-8");
-    reply.send(await loadSw());
+    reply.send(await ui.text("sw.js"));
   });
 }
 
