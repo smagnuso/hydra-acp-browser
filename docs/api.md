@@ -16,7 +16,7 @@ the server serves all of them. Each directory holds:
 
 Which UI a browser gets: the `hb_ui` cookie, set by visiting `/?ui=<name>`
 (unknown names are ignored), else `BROWSER_UI` (default `classic`). Each
-UI links to the others, e.g. `/?ui=min`.
+UI links to the others, e.g. `/?ui=board`.
 
 `BROWSER_UI_DIR` adds one extra directory as UI `custom` and makes it the
 default. It is re-read on every request, so rebuilding is enough.

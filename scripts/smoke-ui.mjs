@@ -129,7 +129,7 @@ async function smoke(ui) {
 
   // Open the first session via each UI's own mechanism, then check the
   // socket attached and the transcript area exists.
-  const sel = ui === "min" ? ".row" : ".card, .session-card, [data-session-id]";
+  const sel = ".card, .session-card, [data-session-id]";
   const clicked = await evalJs(
     `(() => { const n = document.querySelector(${JSON.stringify(sel)}); if (!n) return false; n.dispatchEvent(new PointerEvent('pointerup', {bubbles:true})); n.click(); return true; })()`,
   );
@@ -142,7 +142,7 @@ async function smoke(ui) {
       failures.push(`${ui}: opening a session did not create a /ws connection`);
     }
     const chatShown = await evalJs(
-      ui === "min"
+      ui === "board"
         ? "!document.querySelector('footer')?.hidden"
         : "!!document.querySelector('.chat-body')",
     );
@@ -158,7 +158,7 @@ async function smoke(ui) {
 }
 
 try {
-  for (const ui of ["classic", "min"]) {
+  for (const ui of ["classic", "board"]) {
     await smoke(ui);
   }
 } finally {

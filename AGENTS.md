@@ -35,7 +35,7 @@ per-host authkey.
   caches, state). Public surface is `src/core/index.ts`; see
   `docs/ui-core.md`.
 - `src/ui-<name>/`: one SPA per directory (`ui-classic` is the real
-  one, `ui-min` a small example). Each builds to `dist/ui/<name>/`.
+  one, `ui-board` a session board with inline approvals). Each builds to `dist/ui/<name>/`.
 - `src/config.ts`, `src/util/`: config resolution, shared plumbing
 
 Two build steps: `build:server` (tsc → `dist/`) and `build:ui` (builds every
@@ -46,7 +46,7 @@ The server serves all built UIs; a browser picks one with `/?ui=<name>`
 
 ## Model/view split: read this before touching client code
 
-There is more than one UI (`ui-classic`, `ui-min`, and more to come), and
+There is more than one UI (`ui-classic`, `ui-board`, and more to come), and
 the user picks between them at runtime. All of them share `src/core/`, the
 **model**: state, the ACP update reducer, WebSocket bridge, prompt queue,
 caches, polling and session actions. Each `src/ui-<name>/` is a **view**:

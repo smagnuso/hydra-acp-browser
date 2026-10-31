@@ -9,7 +9,8 @@ optionally `sw.js`. `src/ui-classic/` is the reference.
 Build and serve: `npm run build:ui` builds every `src/ui-*` into
 `dist/ui/<name>/`; open `/?ui=<name>` to select one (stored in a cookie).
 For a UI outside the repo, `npm run build:ui -- ui-<name> --out /path`
-and set `BROWSER_UI_DIR=/path`. `src/ui-min/` is a ~200 line example.
+and set `BROWSER_UI_DIR=/path`. `src/ui-board/` (a few hundred lines) is a small example built only on
+`core/index.ts`.
 
 ## Contract
 

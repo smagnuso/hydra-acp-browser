@@ -129,6 +129,15 @@ export {
 } from "./format.js";
 export { permissionDetails, type PermissionDetail } from "./permission.js";
 export { loadCwdHistory, loadLastCwd, saveLastCwd } from "./cwd-history.js";
+export {
+  startPermissionWatching,
+  stopPermissionWatching,
+  syncPermissionWatchers,
+  watchedPermissions,
+  watchedPermissionsFor,
+  answerWatchedPermission,
+  type WatchedPermission,
+} from "./watch.js";
 export { markOpenChatRead, initReadTracking } from "./read-state.js";
 export {
   ensureServiceWorker,
