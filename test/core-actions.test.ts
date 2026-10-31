@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 
 (globalThis as { window?: unknown }).window = { addEventListener() {} };
@@ -52,6 +52,13 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   }
   return new Response(null, { status: 204 });
 }) as typeof fetch;
+
+// Actions fire pollSessions without awaiting it; let it land before the next test sets up its own sessions.
+afterEach(async () => {
+  for (let i = 0; i < 10; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+});
 
 const { createSession, killSession, importBundleFromText, setSessionTitle, setSessionPriority, sessionExportUrl } =
   await import("../src/core/actions.js");

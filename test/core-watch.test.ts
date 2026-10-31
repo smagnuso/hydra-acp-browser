@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
   hasFocus: () => true,
   addEventListener() {},
 };
+Object.defineProperty(globalThis, "navigator", { value: {}, configurable: true });
 
 class FakeWs {
   static OPEN = 1;
