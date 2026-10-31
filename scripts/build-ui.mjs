@@ -7,6 +7,7 @@ import {
   copyFileSync,
   existsSync,
   readdirSync,
+  rmSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +28,12 @@ const dirNames = requested.length
   : readdirSync(join(root, "src")).filter((d) => d.startsWith("ui-"));
 if (outOverride && dirNames.length !== 1) {
   throw new Error("--out needs exactly one ui name");
+}
+// A full build starts from an empty dist/ui so a UI that was removed or
+// renamed (or a file moved between UIs) cannot linger in the build, be
+// served by the server, or be published in the package.
+if (requested.length === 0 && !outOverride) {
+  rmSync(join(root, "dist", "ui"), { recursive: true, force: true });
 }
 const appVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 
