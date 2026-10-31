@@ -42,6 +42,20 @@ import {
   sendWorkspaceCommand,
   updateQueuedPrompt,
 } from "../core/queue.js";
+import {
+  shortSessionId,
+  shortenCwd,
+  displayCwd,
+  REMOTE_FILTER_PREFIX,
+  HOST_FILTER_PREFIX,
+  isDormantOnPeer,
+  isCurrentHostFilter,
+  describeHostFilter,
+  hostFilterSources,
+  visibleFilteredSessions,
+  groupSessions as groupSessionsCore,
+  type SessionGroup,
+} from "../core/session-list.js";
 import { killSession as killSessionAction, createSession as createSessionAction } from "../core/actions.js";
 import { buildSessionHash } from "./url-routing.js";
 import { openChat, closeChat, requestFullHistory, warmSession, loadEarlierHistory, isConnectingGrace } from "../core/routing.js";
@@ -169,17 +183,6 @@ function renderAttachmentChips(c: ChatState): Node | null {
 // id alongside agent/cwd, so the title row can stay clean.
 function fallbackTitle(_sessionId: string): string {
   return "untitled";
-}
-
-// Short, copy-pasteable form of the session id for inline display in
-// subtitle rows. A federated id ("name:localId") has its peer-name
-// prefix stripped first — the remote is already shown via its own badge,
-// so repeating "name:" in every id is redundant — then the redundant
-// "hydra_session_" prefix is stripped from what's left.
-function shortSessionId(sessionId: string): string {
-  const colon = sessionId.indexOf(":");
-  const local = colon === -1 ? sessionId : sessionId.slice(colon + 1);
-  return local.replace(/^hydra_session_/, "");
 }
 
 // Drop the provider prefix on a model id ("openai/gpt-4o-mini" →
@@ -657,51 +660,6 @@ function renderTopbar(): HTMLElement {
   );
 }
 
-// Namespace prefixes for the host-filter value — see describeHostFilter
-// and cli's picker.ts (same fix, same reason): a `hydra remote add`
-// name is very commonly just the machine's own hostname (e.g. `hydra
-// remote add mrclean mrclean.local`), which is the exact same string
-// importedFromMachine already uses for old bundle imports from that
-// box. Without a prefix, "mrclean" as a bare filter value can't tell a
-// live federated remote from an unrelated years-old import mirror
-// apart, and silently merges two unrelated session sets into one
-// bucket — an actual bug, not a hypothetical.
-const REMOTE_FILTER_PREFIX = "remote:";
-const HOST_FILTER_PREFIX = "host:";
-
-// True when a federated entry is, on the *peer's own* side, a dormant
-// import mirror it has never attached to — importedFromMachine rides
-// through the merge unchanged from the peer's own record (the daemon's
-// ForeignSessionCache deliberately doesn't filter these out — that's a
-// general-purpose data cache; this is a presentation decision made
-// here instead, mirroring cli's picker.ts). Not "what's happening on
-// the peer" in any useful sense, so it's excluded from that remote's
-// own bucket, the same way a local dormant mirror is excluded from
-// "local". Still visible under "all".
-function isDormantOnPeer(s: { importedFromMachine?: string; upstreamSessionId?: string }): boolean {
-  return !!s.importedFromMachine && !s.upstreamSessionId;
-}
-
-// True when the currently-selected host filter IS the given imported-from
-// machine — i.e. every card on screen already carries that provenance, so
-// a per-card "← machine" badge would be pure noise. Matches the bare
-// pre-namespacing value too, same fallback describeHostFilter uses.
-function isCurrentHostFilter(machine: string): boolean {
-  return (
-    state.hostFilter === `${HOST_FILTER_PREFIX}${machine}` || state.hostFilter === machine
-  );
-}
-
-function describeHostFilter(value: string): string {
-  if (value.startsWith(REMOTE_FILTER_PREFIX)) {
-    return `remote "${value.slice(REMOTE_FILTER_PREFIX.length)}"`;
-  }
-  if (value.startsWith(HOST_FILTER_PREFIX)) {
-    return `host "${value.slice(HOST_FILTER_PREFIX.length)}"`;
-  }
-  return `host "${value}"`; // pre-namespacing persisted value
-}
-
 // Build the host-filter dropdown. Options are computed live from the
 // current session list so newly-imported peer hosts (or newly
 // federated remotes) appear without page reload. Sentinels/namespaced
@@ -722,19 +680,7 @@ function describeHostFilter(value: string): string {
 // render empty. A federated remote drops out the same way if every one
 // of its sessions is itself a dormant mirror on the peer's side.
 function renderHostFilter(): HTMLElement {
-  const remotes = new Set<string>();
-  const hosts = new Set<string>();
-  for (const s of state.sessions) {
-    if (s.remote) {
-      if (!isDormantOnPeer(s)) {
-        remotes.add(s.remote);
-      }
-      continue;
-    }
-    if (s.importedFromMachine && !s.upstreamSessionId) {
-      hosts.add(s.importedFromMachine);
-    }
-  }
+  const { remotes, hosts } = hostFilterSources(state.sessions);
   const select = el("select", {
     class: "host-select",
     title: "Filter sessions by origin host",
@@ -753,10 +699,10 @@ function renderHostFilter(): HTMLElement {
     parent.appendChild(opt);
   };
   addOption(select, "__local", "local");
-  for (const name of [...remotes].sort()) {
+  for (const name of remotes) {
     addOption(select, `${REMOTE_FILTER_PREFIX}${name}`, name);
   }
-  if (hosts.size > 0) {
+  if (hosts.length > 0) {
     // Grouped under a labeled section rather than each carrying an
     // "(imported)" suffix — the collision case (same name as a live
     // remote) still reads as distinct because it's visually under a
@@ -764,7 +710,7 @@ function renderHostFilter(): HTMLElement {
     // with every imported machine's name repeated twice.
     const group = document.createElement("optgroup");
     group.label = "imported";
-    for (const machine of [...hosts].sort()) {
+    for (const machine of hosts) {
       addOption(group, `${HOST_FILTER_PREFIX}${machine}`, machine);
     }
     select.appendChild(group);
@@ -788,60 +734,6 @@ function renderHostFilter(): HTMLElement {
 }
 
 // ---- Session list -----------------------------------------------
-
-// Daemon always returns everything now; the "show cold" toggle and the
-// host filter are client-side passes — apply them in order. Shared by
-// renderList (which also needs raw `visible` for the empty-state check)
-// and flatVisibleSessionIds (keyboard nav needs the exact same set and
-// order the user is actually looking at).
-// Substring match across the same fields the TUI picker's `/` search
-// covers (cli/src/tui/picker.ts matchesSearch): id, upstream id, agent,
-// title and cwd. Case-insensitive, no fuzzy matching — typing a literal
-// fragment of a path or title is what people actually do, and fuzzy
-// matching makes short terms match almost everything.
-function matchesSessionSearch(s: SessionInfo, term: string): boolean {
-  if (term.length === 0) return true;
-  const t = term.toLowerCase();
-  const haystacks = [
-    shortSessionId(s.sessionId),
-    s.upstreamSessionId ?? "",
-    s.agentId ?? "",
-    s.title ?? "",
-    s.cwd,
-    // The cards display cwd home-shortened, so "~/dev/foo" has to match
-    // what the user can actually see. The TUI gets this from a real
-    // $HOME; we only have the path, so collapse the usual container.
-    s.cwd.replace(/^\/(?:home|Users)\/[^/]+/, "~"),
-  ];
-  return haystacks.some((h) => h.toLowerCase().includes(t));
-}
-
-function visibleFilteredSessions(): SessionInfo[] {
-  let visible = state.showCold
-    ? state.sessions
-    : state.sessions.filter((s) => s.status !== "cold");
-  if (state.hostFilter === "__local") {
-    visible = visible.filter(
-      (s) =>
-        !s.remote && (!s.importedFromMachine || !!s.upstreamSessionId),
-    );
-  } else if (state.hostFilter.startsWith(REMOTE_FILTER_PREFIX)) {
-    const name = state.hostFilter.slice(REMOTE_FILTER_PREFIX.length);
-    visible = visible.filter((s) => s.remote === name && !isDormantOnPeer(s));
-  } else if (state.hostFilter !== "__all") {
-    const machine = state.hostFilter.startsWith(HOST_FILTER_PREFIX)
-      ? state.hostFilter.slice(HOST_FILTER_PREFIX.length)
-      : state.hostFilter; // pre-namespacing persisted value
-    visible = visible.filter(
-      (s) => s.importedFromMachine === machine && !s.upstreamSessionId,
-    );
-  }
-  const term = state.sessionSearch.trim();
-  if (term.length > 0) {
-    visible = visible.filter((v) => matchesSessionSearch(v, term));
-  }
-  return visible;
-}
 
 // Flattened top-to-bottom order of session cards as actually rendered
 // (groups, then per-group sort) — the sequence Up/Down/Enter navigate.
@@ -1019,11 +911,6 @@ function renderList(): HTMLElement {
   return list;
 }
 
-interface SessionGroup {
-  label: string | null;
-  sessions: SessionInfo[];
-}
-
 // Collapse a leading home directory into "~" so the session list has
 // room to actually show the rest of the path instead of truncating it.
 function baseName(path: string): string {
@@ -1081,19 +968,6 @@ function relativeToCwd(cwd: string, path: string): string {
   if (!cwd || !path.startsWith("/")) return path;
   const base = cwd.endsWith("/") ? cwd : cwd + "/";
   return path.startsWith(base) ? path.slice(base.length) : path;
-}
-
-function shortenCwd(cwd: string): string {
-  return cwd.replace(/^\/(home|Users)\/[^/]+/, "~");
-}
-
-// "Which project is this session working on" rather than "what is its
-// literal working directory". For an isolated session those differ: the
-// literal cwd is a workspace path under ~/.hydra-acp that says nothing
-// about the project, so anywhere the UI shows cwd to a human should show
-// the source tree instead. Mirrors cli's formatCwdCell (session-row.ts).
-function displayCwd(s: SessionInfo): string {
-  return s.workspace?.sourceCwd ?? s.cwd;
 }
 
 function detailRow(label: string, value: string): HTMLElement {
@@ -1712,21 +1586,7 @@ function stableSortSessions(sessions: SessionInfo[]): SessionInfo[] {
 }
 
 function groupSessions(sessions: SessionInfo[], mode: "project" | "recent"): SessionGroup[] {
-  const ordered = stableSortSessions(sessions);
-  if (mode === "recent") {
-    return [{ label: null, sessions: ordered }];
-  }
-  const map = new Map<string, SessionInfo[]>();
-  for (const s of ordered) {
-    const key = displayCwd(s) || "(unknown)";
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(s);
-  }
-  const out: SessionGroup[] = [];
-  for (const [cwd, items] of [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-    out.push({ label: shortenCwd(cwd), sessions: items });
-  }
-  return out;
+  return groupSessionsCore(stableSortSessions(sessions), mode);
 }
 
 // "recent" grouping re-sorts the whole list by activity on every poll
