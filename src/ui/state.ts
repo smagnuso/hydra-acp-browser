@@ -114,7 +114,7 @@ export function subscribe(fn: () => void): () => void {
   return () => changeListeners.delete(fn);
 }
 
-export function notify(): void {
+export function notifyChange(): void {
   for (const fn of changeListeners) {
     fn();
   }
@@ -140,7 +140,7 @@ export function setState(patch: Partial<AppState>): void {
     savePersistedFilters();
   }
   if (changed) {
-    notify();
+    notifyChange();
   }
 }
 

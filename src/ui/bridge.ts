@@ -3,11 +3,10 @@
 // just owns the JSON-RPC framing — `send`, `reply`, and the inbound
 // frame router that fans out to acp.ts and queue.ts.
 
-import { state } from "./state.js";
+import { state, notifyChange } from "./state.js";
 import {
   beginReplayPaintHold,
   endReplayPaintHold,
-  render,
 } from "./renderer.js";
 import {
   ensureSpinner,
@@ -108,7 +107,7 @@ function sendPing(c: ChatState): void {
     // dead pipe. Force a reconnect rather than waiting for a TCP-level
     // timeout, which can take far longer than this.
     c.connectionHealthy = false;
-    render();
+    notifyChange();
     try {
       c.ws?.close();
     } catch {
@@ -359,7 +358,7 @@ export function handleFrame(frame: JsonRpcFrame): void {
     // is the moment to swap. Releases the hold begun at replay_policy and
     // paints once; a no-op when no hold was taken.
     endReplayPaintHold();
-    render();
+    notifyChange();
     return;
   }
   if (frame.method === "bridge/pong") {
@@ -383,7 +382,7 @@ export function handleFrame(frame: JsonRpcFrame): void {
       state.current.sessionGone = true;
       cancelReconnectBanner(state.current);
     }
-    render();
+    notifyChange();
     return;
   }
   // Daemon closed our session (user typed /hydra kill, idle-close fired,
@@ -411,7 +410,7 @@ export function handleFrame(frame: JsonRpcFrame): void {
       // prompt that triggered it instead of below.
       finalizeTurn();
     }
-    render();
+    notifyChange();
     return;
   }
   if (frame.method && "id" in frame) {
@@ -421,7 +420,7 @@ export function handleFrame(frame: JsonRpcFrame): void {
     // body (and re-snap scroll to bottom) once per replayed frame. The
     // bridge/ready handler above does one final render() once the whole
     // backlog is in state.
-    if (state.current.ready) render();
+    if (state.current.ready) notifyChange();
     return;
   }
   if (frame.method === "session/update" && isHistoryTruncated(frame.params)) {
@@ -430,7 +429,7 @@ export function handleFrame(frame: JsonRpcFrame): void {
   }
   if (frame.method) {
     handleNotification(frame);
-    if (state.current.ready) render();
+    if (state.current.ready) notifyChange();
     return;
   }
   // It's a JSON-RPC response. Most replies we don't track (we observe
@@ -516,7 +515,7 @@ export function handleFrame(frame: JsonRpcFrame): void {
       ) {
         entry.status = "done";
       }
-      render();
+      notifyChange();
       return;
     }
     const result = frame.result as { stopReason?: unknown } | undefined;
@@ -540,7 +539,7 @@ export function handleFrame(frame: JsonRpcFrame): void {
     ) {
       entry.status = stopReason === "cancelled" ? "cancelled" : "done";
     }
-    render();
+    notifyChange();
     return;
   }
   // Per-id response callbacks (e.g. amendPrompt). Fire-and-forget — the
@@ -576,5 +575,5 @@ export function respondPermission(toolCallId: string, optionId: string): void {
         ? { outcome: "cancelled" }
         : { outcome: "selected", optionId },
   });
-  render();
+  notifyChange();
 }

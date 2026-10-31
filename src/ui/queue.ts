@@ -12,8 +12,7 @@
 //     serializes session/prompt arrivals so the Nth added-with-our-
 //     originator event corresponds to the Nth still-unbound entry.
 
-import { state, setState } from "./state.js";
-import { render } from "./renderer.js";
+import { state, setState, notifyChange } from "./state.js";
 import { notify, send } from "./bridge.js";
 import {
   ensureSpinner,
@@ -134,7 +133,7 @@ export function sendPrompt(): void {
     clearDraft(c.sessionId);
     clearComposerDom();
   }
-  render();
+  notifyChange();
 }
 
 // Fire a fixed slash command (e.g. a `/hydra workspace <verb>` action
@@ -146,7 +145,7 @@ export function sendWorkspaceCommand(
   const c = state.current;
   if (!c) return;
   dispatchPrompt(c, `/hydra workspace ${verb}`, { addToHistory: false });
-  render();
+  notifyChange();
 }
 
 // Fire /hydra compact, same eager-send path. The confirm prompt and the
@@ -156,7 +155,7 @@ export function sendCompactCommand(): void {
   const c = state.current;
   if (!c) return;
   dispatchPrompt(c, "/hydra compact", { addToHistory: false });
-  render();
+  notifyChange();
 }
 
 function dispatchPrompt(
@@ -382,7 +381,7 @@ export function cancelQueuedPrompt(entry: QueueEntry): void {
     void removeOfflineEntry(c.sessionId, entry.id);
   }
   entry.status = "cancelled";
-  render();
+  notifyChange();
 }
 
 // Promote an accidentally-queued prompt into an amendment of the
@@ -428,7 +427,7 @@ export function amendQueuedPrompt(entry: QueueEntry): void {
   });
   sendSteerRequest(entry, entry.text, target, entry.text);
   jumpToBottom(c);
-  render();
+  notifyChange();
 }
 
 // Rewrite a queued prompt's text. Same binding gate as cancel — only
@@ -451,14 +450,14 @@ export function updateQueuedPrompt(entry: QueueEntry, text: string): void {
       text: trimmed,
       attachments: entry.attachments,
     });
-    render();
+    notifyChange();
     return;
   }
   if (entry.messageId === undefined) {
     // Not bound yet — apply locally and let the eventual bound state
     // pick up the new text. The user already sees the edit immediately.
     entry.text = trimmed;
-    render();
+    notifyChange();
     return;
   }
   send("hydra-acp/prompt/update", {
@@ -509,7 +508,7 @@ export function amendPrompt(): void {
     c.composerValue = "";
     c.attachments = [];
     clearDraft(c.sessionId);
-    render();
+    notifyChange();
     return;
   }
   if (!c.daemonSupportsAmend || c.currentHeadMessageId === undefined) {
@@ -565,7 +564,7 @@ export function amendPrompt(): void {
   markActive();
   jumpToBottom(c);
   sendSteerRequest(entry, draft, target, text);
-  render();
+  notifyChange();
 }
 
 interface SteerResult {
@@ -627,7 +626,7 @@ function onSteerResponse(
     // the running turn; finalizeTurn flips any "processing" entry to
     // "done" when that turn ends, same as a normally-bound entry.
     entry.status = "processing";
-    render();
+    notifyChange();
     return;
   }
   if (res.outcome === "startedNewTurn") {
@@ -728,7 +727,7 @@ function rollbackAmend(
   c.composerValue = draftText;
   c.attachments = entry.attachments ?? [];
   queueDraftWrite(c.sessionId, draftText);
-  render();
+  notifyChange();
 }
 
 function tryGetErrorMessage(err: unknown): string {
@@ -766,7 +765,7 @@ export function sendCancel(): void {
     notify("session/cancel", { sessionId: c.sessionId });
   }
   if (touched) {
-    render();
+    notifyChange();
   }
 }
 
@@ -800,7 +799,7 @@ export function sendSetConfigOption(configId: string, value: string): void {
       ?.configOptions;
     if (Array.isArray(list) && state.current === c) {
       c.configOptions = list as ChatState["configOptions"];
-      render();
+      notifyChange();
     }
   });
 }

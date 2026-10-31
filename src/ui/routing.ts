@@ -2,10 +2,10 @@
 // (then hands inbound frames to bridge.ts) and the URL fragment that
 // survives reloads + back/forward navigation.
 
-import { setState, state } from "./state.js";
+import { setState, state, notifyChange } from "./state.js";
 import { handleFrame, stopHeartbeat } from "./bridge.js";
 import { cancelUnboundQueued } from "./queue.js";
-import { render, renderNow } from "./renderer.js";
+import { renderNow } from "./renderer.js";
 import { timed } from "./perf.js";
 import { isWideLayout } from "./dom.js";
 import { api, hasLiveSessionList } from "./api.js";
@@ -47,7 +47,7 @@ function beginConnectingGrace(chat: ChatState): void {
   chat.connectingSince = performance.now();
   setTimeout(() => {
     if (state.current === chat && !chat.ready) {
-      render();
+      notifyChange();
     }
   }, CONNECTING_GRACE_MS);
 }
@@ -341,7 +341,7 @@ async function hydrateFromCacheThenConnect(
     });
   }
   if (cached || held.length > 0) {
-    render();
+    notifyChange();
   }
   connectChatSocket(chat, opts);
 }
@@ -377,7 +377,7 @@ export async function loadEarlierHistory(chat: ChatState): Promise<void> {
   const cursor = chat.oldestSeq;
   chat.loadingEarlier = true;
   chat.earlierError = undefined;
-  render();
+  notifyChange();
   try {
     const page = await api<{ entries: HistoryPageEntry[]; hasMore: boolean }>(
       `/api/sessions/${encodeURIComponent(chat.sessionId)}/history?beforeSeq=${chat.oldestSeq}&turns=10`,
@@ -416,7 +416,7 @@ export async function loadEarlierHistory(chat: ChatState): Promise<void> {
     chat.earlierError = err instanceof Error ? err.message : String(err);
   } finally {
     chat.loadingEarlier = false;
-    render();
+    notifyChange();
   }
 }
 
@@ -433,7 +433,7 @@ export function warmSession(chat: ChatState): void {
   }
   closeChatSocket();
   resetConnectionStateForReconnect(chat);
-  render();
+  notifyChange();
   connectChatSocket(chat);
 }
 
@@ -447,7 +447,7 @@ export function requestFullHistory(chat: ChatState): void {
   resetChatHistoryState(chat);
   chat.historyIsPartial = false;
   chat.wantFullHistory = true;
-  render();
+  notifyChange();
   connectChatSocket(chat);
 }
 
@@ -651,7 +651,7 @@ function scheduleReconnect(chat: ChatState): void {
   // attempt hits the same error. Retrying would just loop the
   // "Reconnecting…" banner forever instead of telling the user the truth.
   if (chat.sessionGone) {
-    render();
+    notifyChange();
     return;
   }
 
@@ -668,7 +668,7 @@ function scheduleReconnect(chat: ChatState): void {
     chat.reconnectTimer = undefined;
     chat.reconnectAttempt = attempt + 1;
     resetConnectionStateForReconnect(chat);
-    render();
+    notifyChange();
     connectChatSocket(chat, { passive: true });
   }, delay);
 }

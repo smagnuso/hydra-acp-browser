@@ -2,9 +2,8 @@
 // signal (inTurn) and tool-call/permission tracking. Stays free of WS
 // plumbing — that lives in bridge.ts.
 
-import { state, setState } from "./state.js";
+import { state, setState, notifyChange } from "./state.js";
 import { markOpenChatRead } from "./read-state.js";
-import { render } from "./renderer.js";
 import { contentToText } from "./markdown.js";
 import { extractEditDiff, extractPatchDiffs } from "./edit-diff.js";
 import { queueFrameForCache } from "./history-cache.js";
@@ -496,7 +495,7 @@ function onFileMentions(update: AnyRecord): void {
   }
   if (added === 0) return;
   c.fileMentionsVersion += 1;
-  render();
+  notifyChange();
 }
 
 // Called when a reattach came back as an after_message delta (bridge.ts).
@@ -1900,7 +1899,7 @@ export function parseArmedTaskList(raw: unknown): ArmedTask[] | undefined {
 // session/update kind "_hydra_compaction": agent-side history summarization
 // + generation swap, not tied to a turn (can fire while idle, or be
 // deferred until the session quiesces). Mirrors the TUI's persistent
-// compactionIndicator/transient notify() split (app.ts
+// compactionIndicator/transient notifyChange() split (app.ts
 // handleCompactionUpdate): a persistent phase while running, cleared on
 // swapped/failed/rolled_back with a toast — deliberately not on converged,
 // which can arrive before or after the terminal swap.
@@ -2273,13 +2272,13 @@ export function handleNotification(frame: JsonRpcFrame, fromCache = false): void
         if (Array.isArray(update.availableModes)) {
           state.current.modes = update.availableModes as never;
         }
-        render();
+        notifyChange();
       }
       break;
     case "_hydra_available_modes_update":
       if (state.current && Array.isArray(update.availableModes)) {
         state.current.modes = update.availableModes as never;
-        render();
+        notifyChange();
       }
       break;
     case "_hydra_current_model_update":
@@ -2288,13 +2287,13 @@ export function handleNotification(frame: JsonRpcFrame, fromCache = false): void
         if (Array.isArray(update.availableModels)) {
           state.current.models = update.availableModels as never;
         }
-        render();
+        notifyChange();
       }
       break;
     case "config_option_update":
       if (state.current && Array.isArray(update.configOptions)) {
         state.current.configOptions = update.configOptions as ConfigOption[];
-        render();
+        notifyChange();
       }
       break;
     case "usage_update":

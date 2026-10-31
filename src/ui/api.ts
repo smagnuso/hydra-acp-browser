@@ -2,8 +2,8 @@
 // (with the bearer token attached server-side); the browser only
 // presents its session cookie.
 
-import { setState, state, sameValue, markRailDirty } from "./state.js";
-import { render, isActivelyTyping } from "./renderer.js";
+import { setState, state, sameValue, markRailDirty, notifyChange } from "./state.js";
+import { isActivelyTyping } from "./renderer.js";
 import { isWideLayout } from "./dom.js";
 import { forceReconnect } from "./routing.js";
 import { mergeSessionListPage } from "./session-merge.js";
@@ -233,7 +233,7 @@ async function pollCurrentSessionOnly(sessionId: string): Promise<void> {
     const fp = `${live.title}|${live.cwd}|${live.agentId}|${live.currentModel}|${live.workspace?.label}|${live.workspace?.vcs?.branch}|${live.workspace?.clean}`;
     if (fp !== state.current._lastMetaFp) {
       state.current._lastMetaFp = fp;
-      render();
+      notifyChange();
     }
   } catch {
     // Best-effort — a transient failure just skips this cycle's
@@ -336,7 +336,7 @@ async function pollAllSessions(): Promise<void> {
     if (!clearedBanner && state.modal) {
       return;
     }
-    render();
+    notifyChange();
   } catch (err) {
     // Could be from hydra-acp-browser (auth, CSRF, host allowlist) or
     // from the upstream hydra daemon (502). The error text comes from
