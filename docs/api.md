@@ -1,7 +1,7 @@
 # Browser API contract
 
 What a UI served by `hydra-acp-browser` can rely on. The bundled SPA in
-`src/ui/` is one client of this; a replacement UI is another.
+`src/ui-classic/` (on the shared `src/core/`) is one client of this; a replacement UI is another.
 
 ## Serving a UI
 
@@ -56,7 +56,7 @@ your `index.html`. `/login` (form POST, `password`, optional `next`) and
 
 Errors are `{error: string}` with the daemon's status (502 if the daemon
 is unreachable). Exact request and response shapes: `src/server/routes-*.ts`
-and the matching types in `src/ui/types.ts`.
+and the matching types in `src/core/types.ts`.
 
 ## WebSocket: `/ws?session=<id>`
 

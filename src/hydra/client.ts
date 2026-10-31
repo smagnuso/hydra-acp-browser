@@ -65,7 +65,7 @@ export interface HydraSessionInfo {
 // cwd is a freshly-chosen real local path, correctly falling out of this
 // check. Mirrors cli's own foreignCwdOwner (src/tui/bar/types.ts) and
 // this file's own isDormantOnPeer-shaped check the UI already uses for
-// picker labeling/host filtering (src/ui/views.ts) — same signal, reused
+// picker labeling/host filtering (src/ui-classic/views.ts) — same signal, reused
 // here for the surfaces that actually touch disk.
 export function foreignCwdOwner(
   s: Pick<HydraSessionInfo, "remote" | "importedFromMachine" | "upstreamSessionId">,

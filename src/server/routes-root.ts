@@ -114,7 +114,7 @@ export function registerRootRoutes(
     },
   );
 
-  // Registration-only service worker (see src/ui/sw.js) — exists so
+  // Registration-only service worker (see src/ui-classic/sw.js) — exists so
   // Notification permission grants a working notifications.showNotification()
   // path even on Safari, which requires that instead of a bare `new
   // Notification()`. Same auth/CSRF posture as any other authenticated

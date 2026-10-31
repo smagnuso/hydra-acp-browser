@@ -273,7 +273,7 @@ export interface ExitPlanLogItem {
 
 // Wire payload for an edit-style tool call, extracted from either the
 // canonical ACP content[] diff carrier or Claude's rawInput fallback
-// shapes (see src/ui/edit-diff.ts). Deliberately doesn't model the CLI's
+// shapes (see src/core/edit-diff.ts). Deliberately doesn't model the CLI's
 // oldRef/newRef blob-ref transport — out of scope here.
 export interface EditDiff {
   path?: string;

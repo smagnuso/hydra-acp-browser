@@ -36,7 +36,7 @@ const log = logger("ws-bridge");
 
 // Read side of the daemon's per-frame replay cursor
 // (PROTOCOL.md, params._meta["hydra-acp"].seq). Absent on state kinds and
-// on daemons predating the field. Mirrors src/ui/acp.ts's copy of the same
+// on daemons predating the field. Mirrors src/core/acp.ts's copy of the same
 // helper — used here to track the last frame this connection delivered to
 // the browser, so escalateFromReadonly() can ask for a delta instead of a
 // second full replay.
