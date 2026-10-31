@@ -31,6 +31,17 @@ and set `BROWSER_UI_DIR=/path`. `src/ui-min/` is a ~200 line example.
   (`compareSessions` in `session-sort.ts`) is the view's call.
 - Session metadata: `setSessionTitle`, `setSessionPriority`,
   `sessionExportUrl`, `createSession`, `killSession`.
+- Files: the browser is a state machine on `state.current.fileOverlay`
+  (`path`, `entries`, windowed `preview`, `err`, `maximized`,
+  `previewRaw`, one-shot `scrollToLine`/`keepLine`). Drive it with
+  `openFiles()`, `listFiles(dir)`, `readFile(path)`, `navigateFile(entry)`,
+  `openFileAtLine(chat, path, line)`, `extendFileWindow("up"|"down")` as
+  the reader nears an edge, and `closeFiles()` (remembers the view in
+  `savedFileView`). Image previews carry a `url` to use in an `<img>`.
+  View-only parts go through hooks: `beforeFileOverlayOpen`,
+  `afterFileOverlayOpen`, `fileOverlayClosing`, and `captureFileAnchor`
+  (return the visible line and its offset so prepending keeps the reader
+  in place; core then sets `keepLine` for you to apply).
 - Hooks (`UiHooks`) cover view behavior core needs: scrolling, paint holds,
   navigation (URL), composer DOM sync. Unset hooks are inert no-ops.
 - `platform.ts` is the only core file allowed to touch `document` or

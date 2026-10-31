@@ -13,6 +13,10 @@ export interface UiHooks {
   peekChatScrollTop(c: ChatState): number;
   renderNow(): void;
   isWideLayout(): boolean;
+  beforeFileOverlayOpen(): void;
+  afterFileOverlayOpen(): void;
+  fileOverlayClosing(): void;
+  captureFileAnchor(fromLine: number): { line: number; viewportOffset: number } | null;
   navigateToSession(sessionId: string): void;
   navigateToList(): void;
   replaceNextNavigation(): void;
@@ -34,6 +38,10 @@ export const uiHooks: UiHooks = {
   peekChatScrollTop: () => 0,
   renderNow: () => {},
   isWideLayout: () => false,
+  beforeFileOverlayOpen: () => {},
+  afterFileOverlayOpen: () => {},
+  fileOverlayClosing: () => {},
+  captureFileAnchor: () => null,
   navigateToSession: () => {},
   navigateToList: () => {},
   replaceNextNavigation: () => {},

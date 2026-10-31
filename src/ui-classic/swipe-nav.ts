@@ -60,7 +60,8 @@ import {
   reopenClosedChat,
 } from "../core/routing.js";
 import { hasActiveSelection, isFormControl, isWideLayout } from "./dom.js";
-import { buildChatPreviewPane, buildListPreviewPane, closeFiles, peekChatViewRoot } from "./views.js";
+import { buildChatPreviewPane, buildListPreviewPane, peekChatViewRoot } from "./views.js";
+import { closeFiles } from "../core/files.js";
 import { beginExternalRenderHold, endExternalRenderHold } from "./renderer.js";
 import type { ChatState } from "../core/types.js";
 

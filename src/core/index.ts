@@ -63,6 +63,24 @@ export {
   type SessionGroup,
   type SessionListFilters,
 } from "./session-list.js";
+export {
+  openFiles,
+  openFileAtLine,
+  openImagePreviewAt,
+  listFiles,
+  readFile,
+  navigateFile,
+  extendFileWindow,
+  closeFiles,
+  closeFilePreview,
+  togglePreviewRaw,
+  toggleMaximizeFiles,
+  editAnchorForToolCall,
+  isImagePath,
+  isMarkdownPath,
+  imageUrl,
+  relativeToCwd,
+} from "./files.js";
 export { markOpenChatRead, initReadTracking } from "./read-state.js";
 export {
   ensureServiceWorker,

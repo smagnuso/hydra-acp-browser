@@ -14,6 +14,7 @@ import {
   endReplayPaintHold,
 } from "./renderer.js";
 import { installUiHooks } from "../core/hooks.js";
+import { openFileAtLine, editAnchorForToolCall, closeFiles } from "../core/files.js";
 import {
   applyHashRoute,
   applyProtocolLaunch,
@@ -36,10 +37,8 @@ import {
   peekChatScrollTop,
   closeModal,
   scrollToTurn,
-  openFileAtLine,
-  editAnchorForToolCall,
-  closeFiles,
   initFileWindowPaging,
+  fileOverlayViewHooks,
 } from "./views.js";
 import { state, subscribe } from "../core/state.js";
 import { initReadTracking, markOpenChatRead } from "../core/read-state.js";
@@ -61,6 +60,7 @@ function clearComposerDom(): void {
 
 subscribe(render);
 installUiHooks({
+  ...fileOverlayViewHooks,
   isActivelyTyping,
   seedInitialSessionOrder,
   beginReplayPaintHold,
