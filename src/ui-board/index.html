@@ -13,9 +13,14 @@ html[data-theme="light"] {
 html[data-theme="dark"] { color-scheme: dark; }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
+/* Fixed so the page itself never scrolls; #app is sized to the *visible*
+   viewport (see fitViewport in main.ts) so the composer stays above the
+   browser toolbar and the on-screen keyboard. */
+body { position: fixed; inset: 0; overflow: hidden; }
 body { background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
-#app { display: flex; flex-direction: column; height: 100%; }
-header { display: flex; align-items: center; gap: .6rem; padding: .6rem .9rem; border-bottom: 1px solid var(--line); }
+#app { display: flex; flex-direction: column; height: var(--app-h, 100dvh); }
+header { flex: none; display: flex; align-items: center; gap: .6rem; padding: .6rem .9rem; border-bottom: 1px solid var(--line); }
+header button, header select { flex: none; }
 header h1 { font-size: 1rem; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button, select, input { font: inherit; color: var(--fg); }
 button { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .35rem .75rem; cursor: pointer; }
@@ -24,7 +29,7 @@ select, input[type=search] { background: var(--card); border: 1px solid var(--li
 .chip { font-size: .78rem; padding: .2rem .65rem; border: 1px solid var(--line); border-radius: 99px; color: var(--dim); cursor: pointer; background: none; }
 .chip.on { color: var(--fg); border-color: var(--accent); }
 .filters input[type=search] { flex: 1; min-width: 8rem; }
-.scroll { flex: 1; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding-bottom: 1rem; }
+.scroll { flex: 1; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; overscroll-behavior: contain; padding-bottom: 1rem; }
 h2 { font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 1rem .9rem .4rem; display: flex; gap: .5rem; align-items: center; }
 h2 .n { background: var(--warn); color: #000; border-radius: 99px; padding: 0 .5rem; font-weight: 700; }
 h2 .n.w { background: var(--accent); }
@@ -61,8 +66,9 @@ h2 .n.i { background: none; color: var(--dim); font-weight: 400; padding: 0; }
 .msg.error { color: var(--bad); }
 .msg pre { overflow-x: auto; }
 .perm { border: 1px solid var(--warn); border-radius: 8px; padding: .6rem; margin: .6rem .9rem; }
-footer { display: flex; gap: .5rem; padding: .6rem .9rem; border-top: 1px solid var(--line); padding-bottom: max(.6rem, env(safe-area-inset-bottom)); }
-textarea { flex: 1; font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .4rem .6rem; resize: none; min-height: 2.6rem; max-height: 8rem; }
+footer { flex: none; display: flex; gap: .5rem; padding: .6rem .9rem; border-top: 1px solid var(--line); padding-bottom: max(.6rem, env(safe-area-inset-bottom)); }
+textarea { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .4rem .6rem; resize: none; min-height: 2.6rem; max-height: 8rem; }
+footer button { flex: none; }
 button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
 .chatwrap { max-width: 52rem; margin: 0 auto; width: 100%; }
 [hidden] { display: none !important; }

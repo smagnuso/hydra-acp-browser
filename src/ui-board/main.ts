@@ -130,25 +130,44 @@ notifyBtn.addEventListener("click", async () => {
 });
 paintNotify();
 
-// Swipe right from the left part of the screen to go back to the board.
-let swipe: { x: number; y: number } | null = null;
+// Swipe right to go back to the board. Decided while the finger moves, not
+// on release: phones often cancel a touch (the scroller or the system claims
+// it) and a release-only handler then never fires. Direction is locked after
+// a few pixels so vertical scrolling is never mistaken for a swipe, and code
+// blocks, which scroll sideways themselves, are left alone.
+const SWIPE_ZONE = 0.6;
+const SWIPE_LOCK_PX = 12;
+const SWIPE_TRIGGER_PX = 70;
+let swipe: { x: number; y: number; lock: "h" | "v" | null } | null = null;
 chatBody.addEventListener("touchstart", (e) => {
   const t = e.touches[0];
-  swipe = t && t.clientX < window.innerWidth * 0.3 ? { x: t.clientX, y: t.clientY } : null;
+  const target = e.target as Element | null;
+  const inScrollable = !!target?.closest?.("pre, table, textarea, input");
+  swipe =
+    t && !inScrollable && e.touches.length === 1 && t.clientX < window.innerWidth * SWIPE_ZONE
+      ? { x: t.clientX, y: t.clientY, lock: null }
+      : null;
 }, { passive: true });
-chatBody.addEventListener("touchend", (e) => {
-  const t = e.changedTouches[0];
-  const start = swipe;
-  swipe = null;
-  if (!start || !t) {
+chatBody.addEventListener("touchmove", (e) => {
+  const t = e.touches[0];
+  if (!swipe || !t) {
     return;
   }
-  const dx = t.clientX - start.x;
-  const dy = Math.abs(t.clientY - start.y);
-  if (dx > 80 && dy < 50 && dx > dy * 2) {
+  const dx = t.clientX - swipe.x;
+  const dy = t.clientY - swipe.y;
+  if (swipe.lock === null && Math.max(Math.abs(dx), Math.abs(dy)) > SWIPE_LOCK_PX) {
+    swipe.lock = Math.abs(dx) > Math.abs(dy) * 1.2 && dx > 0 ? "h" : "v";
+  }
+  if (swipe.lock === "h" && dx > SWIPE_TRIGGER_PX) {
+    swipe = null;
     closeChat();
   }
 }, { passive: true });
+const endSwipe = (): void => {
+  swipe = null;
+};
+chatBody.addEventListener("touchend", endSwipe, { passive: true });
+chatBody.addEventListener("touchcancel", endSwipe, { passive: true });
 
 back.addEventListener("click", () => closeChat());
 input.addEventListener("input", () => {
@@ -396,9 +415,35 @@ function renderChat(c: ChatState): void {
   }
 }
 
+// Size #app to what is actually visible. 100% is the layout viewport, which
+// on phones is taller than the visible area (address bar) and does not
+// shrink for the keyboard, leaving the composer below the fold.
+function fitViewport(): void {
+  const vv = window.visualViewport;
+  const height = vv ? vv.height : window.innerHeight;
+  document.documentElement.style.setProperty("--app-h", `${Math.round(height)}px`);
+  app.style.transform = vv && vv.offsetTop > 0 ? `translateY(${Math.round(vv.offsetTop)}px)` : "";
+}
+fitViewport();
+window.visualViewport?.addEventListener("resize", fitViewport);
+window.visualViewport?.addEventListener("scroll", fitViewport);
+window.addEventListener("resize", fitViewport);
+window.addEventListener("orientationchange", fitViewport);
+
+// Keep the newest message in view when the keyboard opens.
+input.addEventListener("focus", () => {
+  setTimeout(() => {
+    chatBody.scrollTop = chatBody.scrollHeight;
+  }, 300);
+});
+
 function render(): void {
   const c = state.view === "chat" ? state.current : null;
   const inChat = c !== null;
+  // The chat header only has room for Back and the title on a phone.
+  notifyBtn.hidden = inChat;
+  themeSelect.hidden = inChat;
+  uiSelect.hidden = inChat || uiSelect.options.length < 2;
   back.hidden = !inChat;
   board.hidden = inChat;
   chatBody.hidden = !inChat;

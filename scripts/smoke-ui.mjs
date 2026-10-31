@@ -187,6 +187,21 @@ async function smoke(ui) {
       if (!backOnBoard) {
         failures.push("board: swipe right did not return to the board");
       }
+      // A sloppier swipe: starts mid-screen, drifts down, and the browser
+      // cancels the touch instead of ending it.
+      await evalJs("document.querySelector('.card')?.click()");
+      await sleep(2500);
+      await touch("touchStart", 150, 300);
+      for (const [x, y] of [[170, 310], [200, 325], [240, 335]]) {
+        await touch("touchMove", x, y);
+        await sleep(30);
+      }
+      await send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      await sleep(800);
+      const backAgain = await evalJs("!document.querySelector('footer')?.hidden === false");
+      if (!backAgain) {
+        failures.push("board: a drifting swipe that ends in touchcancel did not return to the board");
+      }
     }
   }
   scan();
