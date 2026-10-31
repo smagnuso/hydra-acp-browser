@@ -6,6 +6,7 @@
 
 import { state, subscribe, notifyChange } from "./state.js";
 import { platform } from "./platform.js";
+import { getPushEndpoint, tabIsHidden } from "./notifications.js";
 import type { PermissionEntry } from "./types.js";
 
 export interface WatchedPermission extends PermissionEntry {
@@ -28,6 +29,7 @@ const watchers = new Map<string, Watcher>();
 let lastSessions: unknown;
 let lastCurrentId: string | undefined;
 let unsubscribe: (() => void) | undefined;
+let presenceHooked = false;
 
 export function watchedPermissions(): WatchedPermission[] {
   const out: WatchedPermission[] = [];
@@ -86,6 +88,11 @@ export function syncPermissionWatchers(): void {
 
 // Call once at startup; keeps the watchers in step with the session list.
 export function startPermissionWatching(): () => void {
+  if (!presenceHooked) {
+    presenceHooked = true;
+    platform.onVisibilityChange(refreshWatcherPresence);
+    platform.onWindowFocus(refreshWatcherPresence);
+  }
   unsubscribe?.();
   unsubscribe = subscribe(syncPermissionWatchers);
   syncPermissionWatchers();
@@ -158,6 +165,7 @@ function handleFrame(w: Watcher, frame: Record<string, unknown>): void {
   const method = frame.method;
   if (method === "bridge/ready") {
     w.attempt = 0;
+    void announcePresence(w);
     return;
   }
   if (method === "session/request_permission" && frame.id !== undefined) {
@@ -220,4 +228,31 @@ export function answerWatchedPermission(
   );
   w.pending.delete(toolCallId);
   notifyChange();
+}
+
+// Tells the server which device this socket belongs to and whether it is
+// being looked at, the same two signals a chat socket reports, so a
+// "waiting on you" push goes to this device and is skipped when the board
+// is on screen.
+async function announcePresence(w: Watcher): Promise<void> {
+  const endpoint = await getPushEndpoint();
+  const ws = w.ws;
+  if (!ws || ws.readyState !== WebSocket.OPEN || w.stopped) {
+    return;
+  }
+  ws.send(
+    JSON.stringify({ jsonrpc: "2.0", method: "bridge/push-endpoint", params: { endpoint: endpoint ?? null } }),
+  );
+  ws.send(
+    JSON.stringify({ jsonrpc: "2.0", method: "bridge/visibility", params: { visible: !tabIsHidden() } }),
+  );
+}
+
+// Call after the push subscription changes or the page's visibility does.
+export function refreshWatcherPresence(): void {
+  for (const w of watchers.values()) {
+    if (w.ws?.readyState === WebSocket.OPEN) {
+      void announcePresence(w);
+    }
+  }
 }

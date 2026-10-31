@@ -82,6 +82,7 @@ async function smoke(ui) {
   await send("Runtime.enable");
   await send("Network.enable");
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 800, deviceScaleFactor: 2, mobile: true });
+  await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
   const host = new URL(base).hostname;
   for (const [name, value] of [["hb_session", token], ["hb_ui", ui]]) {
     await send("Network.setCookie", { name, value, domain: host, path: "/" });
@@ -151,6 +152,42 @@ async function smoke(ui) {
     }
   } else {
     console.log(`${ui}: no sessions to open, skipped chat check`);
+  }
+  if (ui === "classic" && clicked) {
+    const touch = (type, x, y) =>
+      send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
+    await touch("touchStart", 6, 400);
+    for (const x of [30, 70, 120, 180, 240, 300]) {
+      await touch("touchMove", x, 404);
+      await sleep(30);
+    }
+    await touch("touchEnd", 300, 404);
+    await sleep(1500);
+    const stillInChat = await evalJs("!!document.querySelector('.chat-body')");
+    if (stillInChat) {
+      failures.push("classic: swipe right from the left edge did not leave the chat");
+    }
+  }
+  if (ui === "board") {
+    const hasSw = await evalJs(
+      "navigator.serviceWorker.getRegistration().then((r) => !!r).catch(() => false)",
+    );
+    if (!hasSw) {
+      failures.push("board: no service worker registered");
+    }
+    if (clicked) {
+      const touch = (type, x, y) =>
+        send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
+      await touch("touchStart", 20, 300);
+      await touch("touchMove", 120, 305);
+      await touch("touchMove", 220, 308);
+      await touch("touchEnd", 220, 308);
+      await sleep(800);
+      const backOnBoard = await evalJs("!document.querySelector('footer')?.hidden === false");
+      if (!backOnBoard) {
+        failures.push("board: swipe right did not return to the board");
+      }
+    }
   }
   scan();
   console.log(`${ui}: loaded${clicked ? ", opened a session" : ""}`);

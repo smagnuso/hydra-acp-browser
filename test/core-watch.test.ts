@@ -91,7 +91,7 @@ test("a permission request is recorded and answered on the same socket", () => {
   assert.equal(pending.length, 1);
   assert.equal(pending[0]!.toolCall.title, "Run npm test");
   w.answerWatchedPermission("a", "tc1", "allow");
-  assert.deepEqual(JSON.parse(ws.sent[0]!), {
+  assert.deepEqual(JSON.parse(ws.sent.find((x) => JSON.parse(x).id === 7)!), {
     jsonrpc: "2.0",
     id: 7,
     result: { outcome: { outcome: "selected", optionId: "allow" } },
@@ -106,7 +106,9 @@ test("cancelling replies with the cancelled outcome", () => {
   const ws = FakeWs.instances[0]!;
   ws.receive(permission(9, "tc2"));
   w.answerWatchedPermission("a", "tc2", "__cancel__");
-  assert.deepEqual(JSON.parse(ws.sent[0]!).result, { outcome: { outcome: "cancelled" } });
+  assert.deepEqual(JSON.parse(ws.sent.find((x) => JSON.parse(x).id === 9)!).result, {
+    outcome: { outcome: "cancelled" },
+  });
 });
 
 test("a request answered elsewhere is dropped on permission_resolved", () => {
@@ -184,5 +186,21 @@ test("answering a request that is not pending does nothing", () => {
   state.sessions = [sess("a")];
   w.syncPermissionWatchers();
   w.answerWatchedPermission("a", "nope", "allow");
-  assert.equal(FakeWs.instances[0]!.sent.length, 0);
+  assert.equal(FakeWs.instances[0]!.sent.filter((x) => JSON.parse(x).id !== undefined).length, 0);
+});
+
+test("a ready socket reports its push endpoint and visibility", async () => {
+  reset();
+  state.sessions = [sess("a")];
+  w.syncPermissionWatchers();
+  const ws = FakeWs.instances[0]!;
+  ws.receive({ jsonrpc: "2.0", method: "bridge/ready", params: {} });
+  await new Promise((r) => setTimeout(r, 0));
+  const methods = ws.sent.map((x) => JSON.parse(x).method);
+  assert.deepEqual(methods, ["bridge/push-endpoint", "bridge/visibility"]);
+  assert.deepEqual(JSON.parse(ws.sent[0]!).params, { endpoint: null });
+  assert.equal(JSON.parse(ws.sent[1]!).params.visible, true);
+  w.refreshWatcherPresence();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(ws.sent.length, 4);
 });

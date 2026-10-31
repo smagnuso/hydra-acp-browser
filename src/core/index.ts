@@ -133,11 +133,13 @@ export {
   startPermissionWatching,
   stopPermissionWatching,
   syncPermissionWatchers,
+  refreshWatcherPresence,
   watchedPermissions,
   watchedPermissionsFor,
   answerWatchedPermission,
   type WatchedPermission,
 } from "./watch.js";
+export { reportPushEndpoint, reportVisibility } from "./bridge.js";
 export { markOpenChatRead, initReadTracking } from "./read-state.js";
 export {
   ensureServiceWorker,

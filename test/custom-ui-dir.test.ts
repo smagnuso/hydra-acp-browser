@@ -85,6 +85,7 @@ async function setupMulti() {
     writeFileSync(join(root, name, "index.html"), `<p>${name}</p>`);
     writeFileSync(join(root, name, "assets", "a.js"), name);
   }
+  writeFileSync(join(root, "beta", "sw.js"), "// beta sw");
   const ctx = buildContext({ ...fixtureConfig(""), uiDir: undefined, defaultUi: "beta" });
   const app = createServer(ctx);
   registerRootRoutes(app, ctx, root);
@@ -128,4 +129,15 @@ test("/api/uis lists the bundled UIs and the current pick", async () => {
     headers: { ...headers, cookie: "hb_session=tok; hb_ui=alpha" },
   });
   assert.deepEqual(JSON.parse(res.body), { uis: ["alpha", "beta"], current: "alpha" });
+});
+
+test("a UI without its own service worker borrows the default UI's", async () => {
+  const app = await setupMulti();
+  const res = await app.inject({
+    method: "GET",
+    url: "/sw.js",
+    headers: { ...headers, cookie: "hb_session=tok; hb_ui=alpha" },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body, "// beta sw");
 });

@@ -205,10 +205,21 @@ export function registerRootRoutes(
   });
 
   app.get("/sw.js", async (request, reply) => {
-    let body: string;
-    try {
-      body = await ui.text(await ui.select(request), "sw.js");
-    } catch {
+    // The worker only exists to show push notifications, so a UI without
+    // its own borrows the first one that has it rather than 404ing, which
+    // would otherwise make the browser drop an existing registration.
+    const selected = await ui.select(request);
+    const candidates = [selected, ctx.config.defaultUi, ...(await ui.names())];
+    let body: string | undefined;
+    for (const name of new Set(candidates)) {
+      try {
+        body = await ui.text(name, "sw.js");
+        break;
+      } catch {
+        void 0;
+      }
+    }
+    if (body === undefined) {
       reply.code(404).send({ error: "not found" });
       return;
     }

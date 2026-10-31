@@ -14,6 +14,13 @@ import {
   loadConfig,
   initReadTracking,
   startPermissionWatching,
+  refreshWatcherPresence,
+  ensureServiceWorker,
+  requestNotificationPermission,
+  subscribeForPush,
+  unsubscribeFromPush,
+  reportPushEndpoint,
+  reportVisibility,
   watchedPermissionsFor,
   answerWatchedPermission,
   visibleFilteredSessions,
@@ -71,7 +78,8 @@ const themeSelect = el(
   el("option", { value: "dark" }, "dark"),
   el("option", { value: "light" }, "light"),
 );
-const header = el("header", {}, back, title, themeSelect, uiSelect);
+const notifyBtn = el("button", { title: "Notify me when an agent is waiting on you" });
+const header = el("header", {}, back, title, notifyBtn, themeSelect, uiSelect);
 const filters = el("div", { class: "filters" });
 const search = el("input", { type: "search", placeholder: "Search sessions", "aria-label": "Search sessions" });
 const chips = el("span", {});
@@ -113,6 +121,60 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
   }
 });
 applyTheme();
+
+function paintNotify(): void {
+  notifyBtn.textContent = state.notifyOnTurnEnd ? "Notify: on" : "Notify: off";
+}
+
+async function syncPush(): Promise<void> {
+  await subscribeForPush();
+  reportPushEndpoint();
+  refreshWatcherPresence();
+}
+
+notifyBtn.addEventListener("click", async () => {
+  if (state.notifyOnTurnEnd) {
+    setState({ notifyOnTurnEnd: false });
+    await unsubscribeFromPush();
+    reportPushEndpoint();
+    refreshWatcherPresence();
+    paintNotify();
+    return;
+  }
+  const granted = await requestNotificationPermission();
+  if (!granted) {
+    window.alert("Notifications are blocked. Enable them for this site in your browser settings.");
+    return;
+  }
+  setState({ notifyOnTurnEnd: true });
+  paintNotify();
+  await syncPush();
+});
+paintNotify();
+
+// Swipe right from the left part of the screen to go back to the board.
+let swipe: { x: number; y: number } | null = null;
+chatBody.addEventListener("touchstart", (e) => {
+  const t = e.touches[0];
+  swipe = t && t.clientX < window.innerWidth * 0.3 ? { x: t.clientX, y: t.clientY } : null;
+}, { passive: true });
+chatBody.addEventListener("touchend", (e) => {
+  const t = e.changedTouches[0];
+  const start = swipe;
+  swipe = null;
+  if (!start || !t) {
+    return;
+  }
+  const dx = t.clientX - start.x;
+  const dy = Math.abs(t.clientY - start.y);
+  if (dx > 80 && dy < 50 && dx > dy * 2) {
+    closeChat();
+  }
+}, { passive: true });
+
+document.addEventListener("visibilitychange", () => reportVisibility());
+window.addEventListener("focus", () => reportVisibility());
+window.addEventListener("blur", () => reportVisibility());
 
 back.addEventListener("click", () => closeChat());
 input.addEventListener("input", () => {
@@ -420,6 +482,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   void loadConfig();
   initReadTracking();
   startPermissionWatching();
+  void ensureServiceWorker();
+  if (
+    state.notifyOnTurnEnd &&
+    typeof Notification !== "undefined" &&
+    Notification.permission === "granted"
+  ) {
+    void syncPush();
+  }
   void loadUiChoices();
   render();
 });
