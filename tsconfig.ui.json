@@ -16,5 +16,5 @@
     "resolveJsonModule": true,
     "types": []
   },
-  "include": ["src/core/**/*.ts", "src/ui-classic/**/*.ts"]
+  "include": ["src/core/**/*.ts", "src/ui-*/**/*.ts"]
 }

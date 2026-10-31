@@ -42,6 +42,7 @@ import {
   sendWorkspaceCommand,
   updateQueuedPrompt,
 } from "../core/queue.js";
+import { killSession as killSessionAction, createSession as createSessionAction } from "../core/actions.js";
 import { buildSessionHash } from "./url-routing.js";
 import { openChat, closeChat, requestFullHistory, warmSession, loadEarlierHistory, isConnectingGrace } from "../core/routing.js";
 import { queueDraftWrite } from "../core/composer-draft.js";
@@ -1913,22 +1914,7 @@ async function killSession(s: SessionInfo): Promise<void> {
   )
     return;
   try {
-    await api("/api/kill", {
-      method: "POST",
-      body: JSON.stringify({ sessionId: s.sessionId }),
-    });
-    markSessionKillRequested(s.sessionId);
-    // Flip the card cold immediately rather than waiting on the next
-    // poll — for a federated session the daemon's own view of the peer
-    // can lag several seconds (see markSessionKillRequested's callers in
-    // api.ts), which read as the kill having done nothing.
-    const idx = state.sessions.findIndex((x) => x.sessionId === s.sessionId);
-    if (idx >= 0) {
-      state.sessions[idx] = { ...state.sessions[idx], status: "cold", busy: false, awaitingInput: false };
-      markRailDirty();
-      render();
-    }
-    void pollSessions();
+    await killSessionAction(s.sessionId);
   } catch (err) {
     setState({
       banner: { kind: "bad", text: "kill failed: " + (err as Error).message },
@@ -2302,29 +2288,16 @@ async function createSession(): Promise<void> {
   m.err = null;
   render();
   try {
-    const body: Record<string, unknown> = {};
-    if (m.cwd) body.cwd = m.cwd;
-    if (m.remote) {
-      body.remote = m.remote;
-    } else if (m.agentId) {
-      // agentId is *this* daemon's agent id — meaningless to a peer,
-      // which has its own agents and applies its own default.
-      body.agentId = m.agentId;
-    }
-    if (m.name) body.name = m.name;
-    if (m.prompt) body.prompt = m.prompt;
-    // Generous, because this spawns an agent — but bounded, so a stalled
-    // request surfaces as an error the user can act on instead of a
-    // dialog wedged on "Creating…" forever.
-    const data = await api<{ sessionId?: string }>("/api/sessions", {
-      method: "POST",
-      body: JSON.stringify(body),
-      timeoutMs: 60_000,
+    const data = await createSessionAction({
+      cwd: m.cwd,
+      remote: m.remote,
+      agentId: m.agentId,
+      name: m.name,
+      prompt: m.prompt,
     });
     if (!m.remote && m.cwd) {
       saveLastCwd(m.cwd);
     }
-    void pollSessions();
     // The dialog is dismissable while this is in flight, so it may
     // already be gone. If the user gave up on it, don't yank them into
     // a session they stopped waiting for — it's in the list either way.

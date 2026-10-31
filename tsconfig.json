@@ -18,5 +18,5 @@
     "resolveJsonModule": true
   },
   "include": ["src/**/*"],
-  "exclude": ["src/core/**/*", "src/ui-classic/**/*"]
+  "exclude": ["src/core/**/*", "src/ui-*/**/*"]
 }

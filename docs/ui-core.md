@@ -1,0 +1,39 @@
+# Building a UI on `src/core`
+
+`src/core/` is the client logic shared by every UI: session list polling,
+the ACP update reducer, WebSocket bridge, prompt queue, caches and read
+state. It renders nothing. A UI lives in its own `src/ui-<name>/` with
+`index.html` (containing `/*BUNDLE*/` and `__CSP_NONCE__`), `main.ts`, and
+optionally `sw.js`. `src/ui-classic/` is the reference.
+
+Build and serve:
+
+```
+npm run build:ui -- ui-<name> --out /path/to/dir
+# BROWSER_UI_DIR=/path/to/dir in ~/.hydra-acp/browser.conf
+```
+
+## Contract
+
+- Import from `src/core/index.ts` only.
+- `state` is the single mutable app state. Change it with `setState()`;
+  `subscribe(fn)` fires on every change (coalesce in your own renderer;
+  streaming fires many times a second).
+- Actions: `openChat`, `closeChat`, `sendPrompt`, `sendCancel`,
+  `respondPermission`, `createSession`, `killSession`, `sendSetMode`,
+  `sendSetModel`, and the rest of the index. Set `state.current.composerValue`
+  before `sendPrompt()`.
+- Boot order: `installUiHooks()` before anything else, then `subscribe()`,
+  then `seedSessionCache()`, `loadConfig()`, `loadAgents()`, `loadRemotes()`,
+  `startPolling()`.
+- Hooks (`UiHooks`) cover view behavior core needs: scrolling, paint holds,
+  navigation (URL), composer DOM sync. Unset hooks are inert no-ops.
+- `platform.ts` is the only core file allowed to touch `document` or
+  `window` (`test/core-boundary.test.ts` enforces this and that core never
+  imports a UI).
+
+## Not in core
+
+Rendering, markdown display wiring, gestures, theming, URL routing, and
+modals. Core exposes `renderMarkdown` via `markdown.ts` for UIs that want
+the same output.
