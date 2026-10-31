@@ -42,7 +42,8 @@ import {
   sendWorkspaceCommand,
   updateQueuedPrompt,
 } from "./queue.js";
-import { openChat, buildSessionHash, closeChat, requestFullHistory, warmSession, loadEarlierHistory, isConnectingGrace } from "./routing.js";
+import { buildSessionHash } from "./url-routing.js";
+import { openChat, closeChat, requestFullHistory, warmSession, loadEarlierHistory, isConnectingGrace } from "./routing.js";
 import { queueDraftWrite } from "./composer-draft.js";
 import {
   requestNotificationPermission,

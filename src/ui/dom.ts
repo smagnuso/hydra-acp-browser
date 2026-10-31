@@ -8,6 +8,7 @@
 // element tree.
 
 import { noteTapActivated, noteTapHandlerDown, noteTouchFallback, tapDebugEnabled, tapLog } from "./tap-debug.js";
+import type { ChatState } from "./types.js";
 
 type Attrs = Record<string, unknown> | null | undefined;
 type Child = Node | string | number | false | null | undefined | Child[];
@@ -498,5 +499,23 @@ function appendChild(parent: Node, c: Child): void {
     parent.appendChild(c);
   } else {
     parent.appendChild(document.createTextNode(String(c)));
+  }
+}
+
+// Remember which message was topmost on screen so renderer.ts can scroll
+// back to it once the log has been rebuilt or extended above it, instead
+// of leaving the user wherever the raw scrollTop happens to fall. First
+// bubble whose bottom edge is still below the container's top edge, i.e.
+// not yet fully scrolled past.
+export function captureScrollAnchor(chat: ChatState): void {
+  const body = document.querySelector<HTMLElement>(".chat-body");
+  if (body) {
+    const containerTop = body.getBoundingClientRect().top;
+    for (const el of body.querySelectorAll<HTMLElement>("[data-message-id]")) {
+      if (el.getBoundingClientRect().bottom > containerTop) {
+        chat.scrollRestoreMessageId = el.dataset.messageId;
+        break;
+      }
+    }
   }
 }

@@ -13,6 +13,10 @@ export interface UiHooks {
   peekChatScrollTop(c: ChatState): number;
   renderNow(): void;
   isWideLayout(): boolean;
+  navigateToSession(sessionId: string): void;
+  navigateToList(): void;
+  replaceNextNavigation(): void;
+  captureScrollAnchor(c: ChatState): void;
   hasActiveSelection(): boolean;
   readComposerDom(): string | null;
   clearComposerDom(): void;
@@ -30,6 +34,10 @@ export const uiHooks: UiHooks = {
   peekChatScrollTop: () => 0,
   renderNow: () => {},
   isWideLayout: () => false,
+  navigateToSession: () => {},
+  navigateToList: () => {},
+  replaceNextNavigation: () => {},
+  captureScrollAnchor: () => {},
   hasActiveSelection: () => false,
   readComposerDom: () => null,
   clearComposerDom: () => {},

@@ -2,8 +2,6 @@
 
 import { startPolling, seedSessionCache, loadAgents, loadConfig, loadRemotes } from "./api.js";
 import {
-  applyHashRoute,
-  applyProtocolLaunch,
   closeChat,
   forceReconnect,
   maybeRestoreLastSession,
@@ -16,11 +14,18 @@ import {
   endReplayPaintHold,
 } from "./renderer.js";
 import { installUiHooks } from "./hooks.js";
+import {
+  applyHashRoute,
+  applyProtocolLaunch,
+  navigateToSession,
+  navigateToList,
+  replaceNextNavigation,
+} from "./url-routing.js";
 import { initPullToRefresh } from "./pull-refresh.js";
 import { initSwipeBack } from "./swipe-nav.js";
 import { initViewportHeight } from "./viewport.js";
 import { initTapWatchdog, tapDebugEnabled, tapLog, noteSendOutcome } from "./tap-debug.js";
-import { delegatedTap, initWideLayoutWatcher, isWideLayout, hasActiveSelection } from "./dom.js";
+import { delegatedTap, initWideLayoutWatcher, isWideLayout, hasActiveSelection, captureScrollAnchor } from "./dom.js";
 import { ensureServiceWorker, subscribeForPush } from "./notifications.js";
 import { reportPushEndpoint, reportVisibility } from "./bridge.js";
 import {
@@ -64,6 +69,10 @@ installUiHooks({
   peekChatScrollTop,
   renderNow,
   isWideLayout,
+  navigateToSession,
+  navigateToList,
+  replaceNextNavigation,
+  captureScrollAnchor,
   hasActiveSelection,
   readComposerDom,
   clearComposerDom,

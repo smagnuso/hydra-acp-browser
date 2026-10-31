@@ -9,6 +9,7 @@ export interface Platform {
   onUserInput(cb: () => void): void;
   onWindowFocus(cb: () => void): void;
   onVisibilityChange(cb: () => void): void;
+  pageLocation(): { href: string; protocol: string };
 }
 
 const hasDom = (): boolean =>
@@ -50,6 +51,10 @@ export const platform: Platform = {
       document.addEventListener("visibilitychange", cb);
     }
   },
+  pageLocation: () => ({
+    href: hasDom() ? window.location.href : "http://localhost/",
+    protocol: hasDom() ? window.location.protocol : "http:",
+  }),
 };
 
 export function installPlatform(overrides: Partial<Platform>): void {

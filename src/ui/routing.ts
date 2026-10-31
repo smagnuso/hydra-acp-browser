@@ -1,11 +1,11 @@
-// Hash-based routing + chat lifecycle. Owns the WebSocket connect
-// (then hands inbound frames to bridge.ts) and the URL fragment that
-// survives reloads + back/forward navigation.
+// Chat lifecycle. Owns the WebSocket connect (then hands inbound frames
+// to bridge.ts). URL fragment handling lives in url-routing.ts.
 
 import { setState, state, notifyChange } from "./state.js";
 import { handleFrame, stopHeartbeat } from "./bridge.js";
 import { cancelUnboundQueued } from "./queue.js";
 import { uiHooks } from "./hooks.js";
+import { platform } from "./platform.js";
 import { timed } from "./perf.js";
 import { api, hasLiveSessionList } from "./api.js";
 import { markOpenChatRead } from "./read-state.js";
@@ -61,127 +61,6 @@ export function isConnectingGrace(chat: ChatState): boolean {
     chat.connectingSince !== undefined &&
     performance.now() - chat.connectingSince < CONNECTING_GRACE_MS
   );
-}
-
-// Reflect the current session in the URL fragment so a reload (or
-// copy-pasted link) drops the user back into the same chat.
-export function buildSessionHash(sessionId: string): string {
-  return `#/session/${encodeURIComponent(sessionId)}`;
-}
-
-// The installed PWA registers as the OS handler for web+hydra:// links
-// (manifest protocol_handlers). Per the Web App Manifest spec, clicking
-// one launches us at /?protocol_launch=<encoded original URL> rather
-// than navigating the browser to the custom scheme directly. Rewrite
-// that into our own hash route before applyHashRoute runs, matching the
-// web+hydra://sessions/<id> shape hydra-acp-reviewer/planner already
-// emit as hydra://sessions/<id> links elsewhere in the ecosystem.
-export function applyProtocolLaunch(): void {
-  const params = new URLSearchParams(window.location.search);
-  const launch = params.get("protocol_launch");
-  if (!launch) {
-    return;
-  }
-  // Scrub the query string immediately so a reload or copy-pasted URL
-  // doesn't replay the same redirect.
-  history.replaceState(null, "", window.location.pathname + window.location.hash);
-  let parsed: URL;
-  try {
-    parsed = new URL(launch);
-  } catch {
-    return;
-  }
-  if (parsed.protocol !== "web+hydra:" || parsed.hostname !== "sessions") {
-    return;
-  }
-  const sessionId = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
-  if (!sessionId) {
-    return;
-  }
-  window.location.hash = buildSessionHash(sessionId);
-}
-
-// pushState (not replaceState) so the browser's back/forward buttons
-// step through chat ↔ list transitions. The "already matches" guard
-// makes the case where applyHashRoute is the caller (hashchange after
-// a user-initiated back/forward) a no-op — the URL is already where
-// it needs to be, so we skip the push and don't double up history.
-// hashWriting still defends against a re-entrant applyHashRoute if a
-// future browser variant queues hashchange synchronously off pushState.
-let hashWriting = false;
-// Set for a navigation that restores state rather than expressing an
-// intent to navigate — currently just the boot-time last-session
-// restore. Such a navigation must REPLACE the current history entry:
-// pushing one means the restored session becomes a phantom step that
-// Back walks into on the way out of the app, which made Back behave
-// differently depending on how the page was reached.
-let replaceNextHash = false;
-
-// Installed PWA (no browser chrome, so no Back button — Back is the edge
-// swipe). iOS does not reliably keep a standalone app alive across a
-// history back: the gesture unwinds past our entry and the whole app cold
-// boots, which is a multi-second freeze while the bundle parses, the
-// cache hydrates, frames replay and the socket reconnects.
-//
-// Measured, not inferred: the diagnostics counters only reset on a fresh
-// page load, and a back that had been sitting at node-hit:19217 came back
-// reading 178.
-//
-// So in standalone we keep exactly one history entry. Back then does what
-// the platform intends — leaves the app — instead of restarting it, and
-// chat <-> list stays with the in-app control, which never touched
-// history anyway. Browsers are unaffected: both Safari and Chrome paint
-// this transition instantly, because there the entry is browser history,
-// not the app's whole lifetime.
-function isStandalonePwa(): boolean {
-  try {
-    return (
-      window.matchMedia?.("(display-mode: standalone)").matches === true ||
-      (navigator as unknown as { standalone?: boolean }).standalone === true
-    );
-  } catch {
-    return false;
-  }
-}
-
-function setLocationHash(hash: string): void {
-  if (window.location.hash === hash) return;
-  hashWriting = true;
-  const write =
-    replaceNextHash || isStandalonePwa() ? history.replaceState : history.pushState;
-  replaceNextHash = false;
-  try {
-    write.call(
-      history,
-      null,
-      "",
-      hash || window.location.pathname + window.location.search,
-    );
-  } finally {
-    queueMicrotask(() => {
-      hashWriting = false;
-    });
-  }
-}
-
-export function applyHashRoute(opts: { initialLoad?: boolean } = {}): void {
-  if (hashWriting) return;
-  const hash = window.location.hash;
-  // The `(?:\?...)?` tail is tolerated but ignored — old bookmarks and
-  // protocol-launch links from before session/attach could resurrect a
-  // cold session on its own may still carry a `?load=true` suffix.
-  const m = hash.match(/^#\/session\/([^?]+)(?:\?(.*))?$/);
-  if (m) {
-    const sessionId = decodeURIComponent(m[1]!);
-    if (state.view === "chat" && state.current?.sessionId === sessionId) {
-      return;
-    }
-    openChat(sessionId, { passive: opts.initialLoad === true });
-    return;
-  }
-  if (state.view !== "list") {
-    closeChat();
-  }
 }
 
 export function createChatState(sessionId: string, session?: SessionInfo): ChatState {
@@ -245,7 +124,7 @@ export function createChatState(sessionId: string, session?: SessionInfo): ChatS
 // the session named in its own URL): a cold session then gets the readonly
 // viewer attach instead of waking up. See connectChatSocket.
 export function openChat(sessionId: string, opts: { passive?: boolean } = {}): void {
-  setLocationHash(buildSessionHash(sessionId));
+  uiHooks.navigateToSession(sessionId);
   closeChatSocket();
   const session = state.sessions.find(
     (s: SessionInfo) => s.sessionId === sessionId,
@@ -344,24 +223,6 @@ async function hydrateFromCacheThenConnect(
   connectChatSocket(chat, opts);
 }
 
-// Remember which message was topmost on screen so renderer.ts can scroll
-// back to it once the log has been rebuilt or extended above it, instead
-// of leaving the user wherever the raw scrollTop happens to fall. First
-// bubble whose bottom edge is still below the container's top edge, i.e.
-// not yet fully scrolled past.
-function captureScrollAnchor(chat: ChatState): void {
-  const body = document.querySelector<HTMLElement>(".chat-body");
-  if (body) {
-    const containerTop = body.getBoundingClientRect().top;
-    for (const el of body.querySelectorAll<HTMLElement>("[data-message-id]")) {
-      if (el.getBoundingClientRect().bottom > containerTop) {
-        chat.scrollRestoreMessageId = el.dataset.messageId;
-        break;
-      }
-    }
-  }
-}
-
 // Pages one older slice of history in above what the log already holds,
 // from the daemon's paged history route. Unlike requestFullHistory this
 // never touches the socket, the replay cursors or the cache, and it
@@ -400,7 +261,7 @@ export async function loadEarlierHistory(chat: ChatState): Promise<void> {
     } finally {
       state.current = live;
     }
-    captureScrollAnchor(chat);
+    uiHooks.captureScrollAnchor(chat);
     chat.log = [...scratch.log, ...chat.log];
     for (const [id, call] of scratch.toolCalls) {
       if (!chat.toolCalls.has(id)) {
@@ -439,7 +300,7 @@ export function requestFullHistory(chat: ChatState): void {
   if (state.current !== chat) {
     return;
   }
-  captureScrollAnchor(chat);
+  uiHooks.captureScrollAnchor(chat);
   closeChatSocket();
   resetConnectionStateForReconnect(chat);
   resetChatHistoryState(chat);
@@ -483,8 +344,9 @@ export function reloadAfterRewind(chat: ChatState): void {
 // re-attaches a session that went cold out from under an already-open one
 // on its own.
 function connectChatSocket(chat: ChatState, opts: { passive?: boolean } = {}): void {
-  const url = new URL("/ws", location.href);
-  url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const page = platform.pageLocation();
+  const url = new URL("/ws", page.href);
+  url.protocol = page.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("session", chat.sessionId);
   if (opts.passive) {
     url.searchParams.set("passive", "true");
@@ -735,7 +597,7 @@ export function maybeRestoreLastSession(): void {
       : undefined;
     if (found) {
       if (found.status !== "cold") {
-        replaceNextHash = true;
+        uiHooks.replaceNextNavigation();
         openChat(id);
       }
       return;
@@ -791,7 +653,7 @@ export function getLastClosedScrollTop(): number {
 export function reopenClosedChat(chat: ChatState): boolean {
   if (lastClosedChat !== chat) return false;
   lastClosedChat = null;
-  setLocationHash(buildSessionHash(chat.sessionId));
+  uiHooks.navigateToSession(chat.sessionId);
   resetConnectionStateForReconnect(chat);
   chat.reconnectAttempt = 0;
   state.current = chat;
@@ -806,7 +668,7 @@ export function reopenClosedChat(chat: ChatState): boolean {
 }
 
 export function closeChat(): void {
-  setLocationHash("");
+  uiHooks.navigateToList();
   closeChatSocket();
   const returningFrom = state.current?.sessionId ?? state.lastSessionId;
   lastClosedChat = state.current;
