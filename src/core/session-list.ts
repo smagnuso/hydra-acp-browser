@@ -220,3 +220,33 @@ export function isFederatedSession(sessionId: string): boolean {
   if (session === undefined) return false;
   return !!session.remote || isDormantOnPeer(session);
 }
+
+export interface HostFilterChoice {
+  value: string;
+  label: string;
+  // "imported" mirrors read better under their own heading in a dropdown.
+  group?: "imported";
+}
+
+// The host-filter options in display order: local, live remotes, imported
+// hosts, then everything.
+export function hostFilterChoices(sessions: SessionInfo[]): HostFilterChoice[] {
+  const { remotes, hosts } = hostFilterSources(sessions);
+  return [
+    { value: "__local", label: "local" },
+    ...remotes.map((r) => ({ value: `${REMOTE_FILTER_PREFIX}${r}`, label: r })),
+    ...hosts.map((h) => ({ value: `${HOST_FILTER_PREFIX}${h}`, label: h, group: "imported" as const })),
+    { value: "__all", label: "all" },
+  ];
+}
+
+export type SessionActivity = "needs-you" | "working" | "idle";
+
+// What a board-style view calls a session: waiting on a person, running a
+// turn, or neither.
+export function sessionActivity(s: SessionInfo): SessionActivity {
+  if (s.awaitingInput) {
+    return "needs-you";
+  }
+  return s.busy ? "working" : "idle";
+}

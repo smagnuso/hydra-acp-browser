@@ -3,6 +3,7 @@
 // just owns the JSON-RPC framing — `send`, `reply`, and the inbound
 // frame router that fans out to acp.ts and queue.ts.
 
+import { permissionOutcome } from "./permission.js";
 import { state, notifyChange } from "./state.js";
 import { uiHooks } from "./hooks.js";
 import {
@@ -566,11 +567,6 @@ export function respondPermission(toolCallId: string, optionId: string): void {
   );
   // Reply with the original JSON-RPC request id so the agent's pending
   // promise resolves; toolCallId is only the UI correlation key.
-  reply(entry.requestId, {
-    outcome:
-      optionId === "__cancel__"
-        ? { outcome: "cancelled" }
-        : { outcome: "selected", optionId },
-  });
+  reply(entry.requestId, permissionOutcome(optionId));
   notifyChange();
 }

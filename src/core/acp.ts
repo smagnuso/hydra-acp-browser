@@ -2,6 +2,7 @@
 // signal (inTurn) and tool-call/permission tracking. Stays free of WS
 // plumbing — that lives in bridge.ts.
 
+import { parsePermissionRequest } from "./permission.js";
 import { state, setState, notifyChange } from "./state.js";
 import { markOpenChatRead } from "./read-state.js";
 import { contentToText } from "./markdown.js";
@@ -2444,13 +2445,13 @@ export function handleNotification(frame: JsonRpcFrame, fromCache = false): void
 export function handleAgentRequest(req: JsonRpcFrame): void {
   if (!state.current) return;
   if (req.method === "session/request_permission") {
-    const params = (req.params ?? {}) as AnyRecord;
     // Key by toolCallId so RFD #533 sibling-resolved tear-down can find
     // the right entry without per-recipient JSON-RPC id correlation.
-    const toolCall = (params.toolCall as AnyRecord | undefined) ?? {};
-    const toolCallId =
-      typeof toolCall.toolCallId === "string" ? toolCall.toolCallId : "";
-    if (!toolCallId) {
+    const parsed = parsePermissionRequest(
+      req.id as string | number,
+      (req.params ?? {}) as AnyRecord,
+    );
+    if (!parsed) {
       // Malformed request — refuse rather than pin orphaned UI state.
       state.current.ws?.send(
         JSON.stringify({
@@ -2461,13 +2462,8 @@ export function handleAgentRequest(req: JsonRpcFrame): void {
       );
       return;
     }
-    state.current.pendingPermissions.set(toolCallId, {
-      requestId: req.id as string | number,
-      toolCallId,
-      toolCall: toolCall as PermissionEntry["toolCall"],
-      options: (params.options as never) ?? [],
-    });
-    pushLog({ kind: "perm", toolCallId });
+    state.current.pendingPermissions.set(parsed.toolCallId, parsed);
+    pushLog({ kind: "perm", toolCallId: parsed.toolCallId });
     return;
   }
   // Unknown agent request — reply with method-not-found so we don't

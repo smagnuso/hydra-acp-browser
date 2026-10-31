@@ -8,6 +8,7 @@ import { state, subscribe, notifyChange } from "./state.js";
 import { platform } from "./platform.js";
 import { getPushEndpoint, tabIsHidden } from "./notifications.js";
 import type { PermissionEntry } from "./types.js";
+import { parsePermissionRequest, permissionOutcome } from "./permission.js";
 
 export interface WatchedPermission extends PermissionEntry {
   sessionId: string;
@@ -169,19 +170,14 @@ function handleFrame(w: Watcher, frame: Record<string, unknown>): void {
     return;
   }
   if (method === "session/request_permission" && frame.id !== undefined) {
-    const params = (frame.params ?? {}) as Record<string, unknown>;
-    const toolCall = (params.toolCall ?? {}) as Record<string, unknown>;
-    const toolCallId = typeof toolCall.toolCallId === "string" ? toolCall.toolCallId : "";
-    if (!toolCallId) {
+    const parsed = parsePermissionRequest(
+      frame.id as string | number,
+      (frame.params ?? {}) as Record<string, unknown>,
+    );
+    if (!parsed) {
       return;
     }
-    w.pending.set(toolCallId, {
-      sessionId: w.sessionId,
-      requestId: frame.id as string | number,
-      toolCallId,
-      toolCall: toolCall as PermissionEntry["toolCall"],
-      options: (params.options as PermissionEntry["options"]) ?? [],
-    });
+    w.pending.set(parsed.toolCallId, { ...parsed, sessionId: w.sessionId });
     notifyChange();
     return;
   }
@@ -218,12 +214,7 @@ export function answerWatchedPermission(
     JSON.stringify({
       jsonrpc: "2.0",
       id: entry.requestId,
-      result: {
-        outcome:
-          optionId === "__cancel__"
-            ? { outcome: "cancelled" }
-            : { outcome: "selected", optionId },
-      },
+      result: permissionOutcome(optionId),
     }),
   );
   w.pending.delete(toolCallId);

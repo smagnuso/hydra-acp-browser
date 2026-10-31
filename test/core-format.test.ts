@@ -15,7 +15,8 @@ const store = new Map<string, string>();
 };
 
 const f = await import("../src/core/format.js");
-const { permissionDetails } = await import("../src/core/permission.js");
+const { permissionDetails, permissionOptionTone, permissionOutcome, parsePermissionRequest } =
+  await import("../src/core/permission.js");
 const cwdHistory = await import("../src/core/cwd-history.js");
 import type { ChatState } from "../src/core/types.js";
 
@@ -120,4 +121,31 @@ test("cwd history is most-recent-first, de-duplicated, capped, and migrates the 
   }
   assert.equal(cwdHistory.loadCwdHistory().length, 20);
   assert.equal(cwdHistory.loadLastCwd(), "/d29");
+});
+
+test("option tone follows the ACP option kind", () => {
+  assert.equal(permissionOptionTone("allow_once"), "allow");
+  assert.equal(permissionOptionTone("allow_always"), "allow");
+  assert.equal(permissionOptionTone("reject_once"), "reject");
+  assert.equal(permissionOptionTone("other"), "neutral");
+  assert.equal(permissionOptionTone(undefined), "neutral");
+});
+
+test("answers build the selected or cancelled outcome", () => {
+  assert.deepEqual(permissionOutcome("allow"), { outcome: { outcome: "selected", optionId: "allow" } });
+  assert.deepEqual(permissionOutcome("__cancel__"), { outcome: { outcome: "cancelled" } });
+});
+
+test("a permission request parses by toolCallId, and one without it is rejected", () => {
+  const parsed = parsePermissionRequest(5, {
+    toolCall: { toolCallId: "t1", title: "Run it" },
+    options: [{ optionId: "a", name: "Allow" }],
+  });
+  assert.equal(parsed?.requestId, 5);
+  assert.equal(parsed?.toolCallId, "t1");
+  assert.equal(parsed?.toolCall.title, "Run it");
+  assert.equal(parsed?.options.length, 1);
+  assert.equal(parsePermissionRequest(6, { toolCall: {} }), null);
+  assert.equal(parsePermissionRequest(7, undefined), null);
+  assert.deepEqual(parsePermissionRequest(8, { toolCall: { toolCallId: "t" } })?.options, []);
 });

@@ -18,6 +18,8 @@ const {
   displayCwd,
   describeHostFilter,
   isDormantOnPeer,
+  hostFilterChoices,
+  sessionActivity,
 } = await import("../src/core/session-list.js");
 import type { SessionInfo } from "../src/core/types.js";
 
@@ -118,4 +120,20 @@ test("grouping by project sorts groups by path and keeps order within", () => {
   const recent = groupSessions([a1, a2, a3], "recent");
   assert.equal(recent.length, 1);
   assert.equal(recent[0]!.label, null);
+});
+
+test("host filter choices are ordered local, remotes, imported, all", () => {
+  assert.deepEqual(hostFilterChoices(every), [
+    { value: "__local", label: "local" },
+    { value: "remote:peer", label: "peer" },
+    { value: "host:box", label: "box", group: "imported" },
+    { value: "__all", label: "all" },
+  ]);
+  assert.deepEqual(hostFilterChoices([local]).map((c) => c.value), ["__local", "__all"]);
+});
+
+test("a session is needs-you, working or idle, with needs-you winning", () => {
+  assert.equal(sessionActivity(s({ sessionId: "a", awaitingInput: true, busy: true })), "needs-you");
+  assert.equal(sessionActivity(s({ sessionId: "a", busy: true })), "working");
+  assert.equal(sessionActivity(s({ sessionId: "a" })), "idle");
 });

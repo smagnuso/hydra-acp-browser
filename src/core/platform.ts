@@ -9,6 +9,8 @@ export interface Platform {
   onUserInput(cb: () => void): void;
   onWindowFocus(cb: () => void): void;
   onWindowBlur(cb: () => void): void;
+  prefersDark(): boolean;
+  onPrefersDarkChange(cb: () => void): void;
   onVisibilityChange(cb: () => void): void;
   pageLocation(): { href: string; protocol: string };
 }
@@ -45,6 +47,12 @@ export const platform: Platform = {
   onWindowFocus(cb) {
     if (hasDom()) {
       window.addEventListener("focus", cb);
+    }
+  },
+  prefersDark: () => hasDom() && !!window.matchMedia?.("(prefers-color-scheme: dark)").matches,
+  onPrefersDarkChange(cb) {
+    if (hasDom()) {
+      window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", cb);
     }
   },
   onWindowBlur(cb) {

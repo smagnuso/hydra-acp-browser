@@ -52,11 +52,14 @@ export {
   sessionExportUrl,
   type CreateSessionParams,
 } from "./actions.js";
+export { compareSessions } from "./session-sort.js";
 export {
   filterSessions,
   visibleFilteredSessions,
   groupSessions,
   hostFilterSources,
+  hostFilterChoices,
+  sessionActivity,
   matchesSessionSearch,
   describeHostFilter,
   isFederatedSession,
@@ -64,6 +67,8 @@ export {
   shortenCwd,
   displayCwd,
   type SessionGroup,
+  type HostFilterChoice,
+  type SessionActivity,
   type SessionListFilters,
 } from "./session-list.js";
 export {
@@ -127,7 +132,14 @@ export {
   formatElapsed,
   turnAgentParts,
 } from "./format.js";
-export { permissionDetails, type PermissionDetail } from "./permission.js";
+export {
+  permissionDetails,
+  permissionOptionTone,
+  permissionOutcome,
+  parsePermissionRequest,
+  type PermissionDetail,
+  type OptionTone,
+} from "./permission.js";
 export { loadCwdHistory, loadLastCwd, saveLastCwd } from "./cwd-history.js";
 export {
   startPermissionWatching,
@@ -140,6 +152,8 @@ export {
   type WatchedPermission,
 } from "./watch.js";
 export { reportPushEndpoint, reportVisibility } from "./bridge.js";
+export { loadUiChoices, uiSwitchUrl, type UiChoices } from "./ui-switch.js";
+export { resolvedTheme, watchTheme, type ResolvedTheme } from "./theme.js";
 export { setNotifications, resumeNotifications, trackPresence, type NotificationsResult } from "./push.js";
 export { markOpenChatRead, initReadTracking } from "./read-state.js";
 export {

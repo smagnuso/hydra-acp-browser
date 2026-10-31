@@ -21,7 +21,14 @@ import {
   watchedPermissionsFor,
   answerWatchedPermission,
   visibleFilteredSessions,
-  hostFilterSources,
+  hostFilterChoices,
+  sessionActivity,
+  compareSessions,
+  permissionOptionTone,
+  loadUiChoices,
+  uiSwitchUrl,
+  watchTheme,
+  resolvedTheme,
   openChat,
   closeChat,
   sendPrompt,
@@ -35,7 +42,6 @@ import {
   agentWithModel,
   shortenCwd,
   displayCwd,
-  api,
   type ChatState,
   type LogItem,
   type SessionInfo,
@@ -103,26 +109,18 @@ installUiHooks({
 });
 
 function applyTheme(): void {
-  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const resolved = state.theme === "system" ? (dark ? "dark" : "light") : state.theme;
-  document.documentElement.setAttribute("data-theme", resolved);
+  document.documentElement.setAttribute("data-theme", resolvedTheme());
 }
 themeSelect.value = state.theme;
 themeSelect.addEventListener("change", () => {
   setState({ theme: themeSelect.value as typeof state.theme });
   applyTheme();
 });
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-  if (state.theme === "system") {
-    applyTheme();
-  }
-});
-applyTheme();
+watchTheme((theme) => document.documentElement.setAttribute("data-theme", theme));
 
 function paintNotify(): void {
   notifyBtn.textContent = state.notifyOnTurnEnd ? "Notify: on" : "Notify: off";
 }
-
 notifyBtn.addEventListener("click", async () => {
   const result = await setNotifications(!state.notifyOnTurnEnd);
   if (result === "blocked") {
@@ -166,9 +164,9 @@ search.addEventListener("input", () => {
 });
 search.value = state.sessionSearch;
 
-async function loadUiChoices(): Promise<void> {
+async function showUiChoices(): Promise<void> {
   try {
-    const res = await api<{ uis: string[]; current: string }>("/api/uis");
+    const res = await loadUiChoices();
     if (res.uis.length < 2) {
       return;
     }
@@ -176,7 +174,7 @@ async function loadUiChoices(): Promise<void> {
     uiSelect.value = res.current;
     uiSelect.hidden = false;
     uiSelect.addEventListener("change", () => {
-      window.location.assign(`/?ui=${encodeURIComponent(uiSelect.value)}`);
+      window.location.assign(uiSwitchUrl(uiSelect.value));
     });
   } catch {
     // no switcher without the list
@@ -198,13 +196,7 @@ function subtitle(s: SessionInfo): HTMLElement {
 }
 
 function optionClass(kind: string | undefined): string {
-  if (kind?.startsWith("allow")) {
-    return "ok";
-  }
-  if (kind?.startsWith("reject")) {
-    return "no";
-  }
-  return "alt";
+  return { allow: "ok", reject: "no", neutral: "alt" }[permissionOptionTone(kind)];
 }
 
 function requestBlock(p: WatchedPermission): HTMLElement {
@@ -281,17 +273,12 @@ function idleRow(s: SessionInfo): HTMLElement {
   return row;
 }
 
-function byRecent(a: SessionInfo, b: SessionInfo): number {
-  return (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "");
-}
-
 function renderChips(): void {
-  const { remotes, hosts } = hostFilterSources(state.sessions);
   const options: Array<[string, string]> = [
     ["__all", "all"],
-    ["__local", "local"],
-    ...remotes.map((r): [string, string] => [`remote:${r}`, r]),
-    ...hosts.map((h): [string, string] => [`host:${h}`, h]),
+    ...hostFilterChoices(state.sessions)
+      .filter((c) => c.value !== "__all")
+      .map((c): [string, string] => [c.value, c.label]),
   ];
   chips.replaceChildren(
     ...options.map(([value, label]) => {
@@ -313,9 +300,9 @@ function section(label: string, count: number, tone: "n" | "w" | "i"): HTMLEleme
 function renderBoard(): void {
   renderChips();
   const visible = visibleFilteredSessions();
-  const needs = visible.filter((s) => s.awaitingInput).sort(byRecent);
-  const working = visible.filter((s) => s.busy && !s.awaitingInput).sort(byRecent);
-  const idle = visible.filter((s) => !s.awaitingInput && !s.busy).sort(byRecent);
+  const needs = visible.filter((s) => sessionActivity(s) === "needs-you").sort(compareSessions);
+  const working = visible.filter((s) => sessionActivity(s) === "working").sort(compareSessions);
+  const idle = visible.filter((s) => sessionActivity(s) === "idle").sort(compareSessions);
 
   const colNeeds = el("div", {}, section("Needs you", needs.length, "n"));
   if (needs.length === 0) {
@@ -461,6 +448,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   void ensureServiceWorker();
   trackPresence();
   void resumeNotifications();
-  void loadUiChoices();
+  void showUiChoices();
   render();
 });

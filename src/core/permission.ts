@@ -1,5 +1,51 @@
-// What a permission request is asking to do, as plain label/value rows a
-// UI can lay out however it likes.
+// Permission requests: parsing the agent's ask, deciding how to present
+// each option, building the reply, and listing what it is asking to do as
+// plain label/value rows a UI can lay out however it likes.
+
+import type { PermissionEntry } from "./types.js";
+
+export type OptionTone = "allow" | "reject" | "neutral";
+
+// How an option should read: allow_* is the go-ahead, reject_* the refusal.
+export function permissionOptionTone(kind: string | undefined): OptionTone {
+  if (kind?.startsWith("allow")) {
+    return "allow";
+  }
+  if (kind?.startsWith("reject")) {
+    return "reject";
+  }
+  return "neutral";
+}
+
+// The JSON-RPC result for answering a request. "__cancel__" is the
+// UI-side id for dismissing without choosing.
+export function permissionOutcome(optionId: string): { outcome: Record<string, unknown> } {
+  return {
+    outcome:
+      optionId === "__cancel__"
+        ? { outcome: "cancelled" }
+        : { outcome: "selected", optionId },
+  };
+}
+
+// Parses a session/request_permission request. Null when it carries no
+// toolCall.toolCallId, which every UI keys pending requests by (RFD #533).
+export function parsePermissionRequest(
+  requestId: string | number,
+  params: Record<string, unknown> | undefined,
+): PermissionEntry | null {
+  const toolCall = ((params?.toolCall as Record<string, unknown> | undefined) ?? {});
+  const toolCallId = typeof toolCall.toolCallId === "string" ? toolCall.toolCallId : "";
+  if (!toolCallId) {
+    return null;
+  }
+  return {
+    requestId,
+    toolCallId,
+    toolCall: toolCall as PermissionEntry["toolCall"],
+    options: (params?.options as PermissionEntry["options"]) ?? [],
+  };
+}
 
 export interface PermissionDetail {
   label?: string;

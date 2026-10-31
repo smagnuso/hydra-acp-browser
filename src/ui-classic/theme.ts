@@ -6,19 +6,7 @@
 // keeping it in sync with state.theme / the OS preference.
 
 import { state } from "../core/state.js";
-
-// Query built fresh inside each function, not hoisted to a module-level
-// constant — this module is reachable (via views.ts) from plain-Node
-// unit tests that have no `window`/`matchMedia`, and a top-level call
-// would throw at import time. Mirrors dom.ts's isWideLayout().
-const DARK_QUERY = "(prefers-color-scheme: dark)";
-
-function resolvedTheme(): "light" | "dark" {
-  if (state.theme === "system") {
-    return window.matchMedia(DARK_QUERY).matches ? "dark" : "light";
-  }
-  return state.theme;
-}
+import { resolvedTheme, watchTheme } from "../core/theme.js";
 
 // Everything in this UI is sized in rem, so scaling the root element
 // scales the entire app — text, padding, control hit targets — in one
@@ -39,11 +27,5 @@ export function applyTheme(): void {
 }
 
 export function initTheme(): void {
-  applyTheme();
-  // Only matters while state.theme === "system" — re-resolves live if
-  // the OS preference flips (e.g. a sunset-triggered dark mode) without
-  // needing a reload.
-  window.matchMedia(DARK_QUERY).addEventListener("change", () => {
-    if (state.theme === "system") applyTheme();
-  });
+  watchTheme(applyTheme);
 }

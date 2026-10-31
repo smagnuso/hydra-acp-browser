@@ -51,7 +51,7 @@ import {
   isDormantOnPeer,
   isCurrentHostFilter,
   describeHostFilter,
-  hostFilterSources,
+  hostFilterChoices,
   visibleFilteredSessions,
   groupSessions as groupSessionsCore,
   isFederatedSession,
@@ -74,6 +74,7 @@ import {
   extendFileWindow,
 } from "../core/files.js";
 import { setNotifications } from "../core/push.js";
+import { loadUiChoices, uiSwitchUrl } from "../core/ui-switch.js";
 import {
   shortenModel,
   agentWithModel,
@@ -88,7 +89,7 @@ import {
   turnAgentParts,
 } from "../core/format.js";
 import { loadCwdHistory, loadLastCwd } from "../core/cwd-history.js";
-import { permissionDetails } from "../core/permission.js";
+import { permissionDetails, permissionOptionTone } from "../core/permission.js";
 import {
   formatAttachmentSize,
   attachmentSrc,
@@ -588,7 +589,7 @@ function renderTopbar(): HTMLElement {
 // render empty. A federated remote drops out the same way if every one
 // of its sessions is itself a dormant mirror on the peer's side.
 function renderHostFilter(): HTMLElement {
-  const { remotes, hosts } = hostFilterSources(state.sessions);
+  const choices = hostFilterChoices(state.sessions);
   const select = el("select", {
     class: "host-select",
     title: "Filter sessions by origin host",
@@ -606,35 +607,25 @@ function renderHostFilter(): HTMLElement {
     }
     parent.appendChild(opt);
   };
-  addOption(select, "__local", "local");
-  for (const name of remotes) {
-    addOption(select, `${REMOTE_FILTER_PREFIX}${name}`, name);
-  }
-  if (hosts.length > 0) {
-    // Grouped under a labeled section rather than each carrying an
-    // "(imported)" suffix — the collision case (same name as a live
-    // remote) still reads as distinct because it's visually under a
-    // different heading, and the dropdown stops ballooning in width
-    // with every imported machine's name repeated twice.
-    const group = document.createElement("optgroup");
-    group.label = "imported";
-    for (const machine of hosts) {
-      addOption(group, `${HOST_FILTER_PREFIX}${machine}`, machine);
+  // Imported mirrors sit under a labeled section rather than each carrying
+  // an "(imported)" suffix: a collision with a live remote's name still
+  // reads as distinct, and the dropdown doesn't balloon in width.
+  const importedGroup = document.createElement("optgroup");
+  importedGroup.label = "imported";
+  for (const choice of choices) {
+    if (choice.group === "imported") {
+      addOption(importedGroup, choice.value, choice.label);
+      continue;
     }
-    select.appendChild(group);
+    if (importedGroup.childElementCount > 0 && !importedGroup.parentElement) {
+      select.appendChild(importedGroup);
+    }
+    addOption(select, choice.value, choice.label);
   }
-  addOption(select, "__all", "all");
-  // If the current filter points at a host/remote that no longer
-  // appears in any session, the select would render with nothing
-  // selected. Pin the rendered value to the state explicitly so this
-  // stays sane.
-  const known = new Set<string>(["__local", "__all"]);
-  for (const name of remotes) {
-    known.add(`${REMOTE_FILTER_PREFIX}${name}`);
-  }
-  for (const machine of hosts) {
-    known.add(`${HOST_FILTER_PREFIX}${machine}`);
-  }
+  // If the current filter points at a host/remote that no longer appears
+  // in any session, pin the rendered value to the state explicitly so the
+  // select doesn't render with nothing selected.
+  const known = new Set(choices.map((c) => c.value));
   if (!known.has(state.hostFilter)) {
     select.value = state.hostFilter;
   }
@@ -1014,7 +1005,7 @@ function notifyOnTurnEndRow(): HTMLElement {
 let uiChoices: { uis: string[]; current: string } | null = null;
 
 function openOptionsModal(): void {
-  void api<{ uis: string[]; current: string }>("/api/uis")
+  void loadUiChoices()
     .then((res) => {
       uiChoices = res;
       render();
@@ -1239,7 +1230,7 @@ function uiRow(): HTMLElement | null {
     "select",
     {
       onchange: (e: Event) => {
-        window.location.assign(`/?ui=${encodeURIComponent((e.target as HTMLSelectElement).value)}`);
+        window.location.assign(uiSwitchUrl((e.target as HTMLSelectElement).value));
       },
     },
     ...uiChoices.uis.map((name) => el("option", { value: name }, name)),
@@ -4647,11 +4638,7 @@ function renderPermission(entry: PermissionEntry): HTMLElement {
         el(
           "button",
           {
-            class: o.kind?.startsWith("allow")
-              ? "primary"
-              : o.kind?.startsWith("reject")
-              ? "danger"
-              : "",
+            class: { allow: "primary", reject: "danger", neutral: "" }[permissionOptionTone(o.kind)],
             ...tapHandler(() => respondPermission(entry.toolCallId, o.optionId)),
           },
           o.name || o.optionId,
