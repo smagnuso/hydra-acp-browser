@@ -172,6 +172,12 @@ async function smoke(ui) {
     const smallFields = await evalJs(
       "[...document.querySelectorAll('input, select, textarea')].filter((e) => parseFloat(getComputedStyle(e).fontSize) < 16).map((e) => e.tagName + ':' + getComputedStyle(e).fontSize)",
     );
+    const composerAttrs = await evalJs(
+      "(() => { const t = document.querySelector('textarea'); return t ? { name: t.getAttribute('name'), autocomplete: t.getAttribute('autocomplete') } : null; })()",
+    );
+    if (!composerAttrs || composerAttrs.autocomplete !== "off" || !composerAttrs.name) {
+      failures.push("board: composer lacks name/autocomplete=off, so iOS may show AutoFill instead of suggestions");
+    }
     if (smallFields.length > 0) {
       failures.push(`board: form fields under 16px make iOS zoom on focus: ${smallFields.join(", ")}`);
     }

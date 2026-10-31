@@ -23,6 +23,7 @@ import {
   visibleFilteredSessions,
   hostFilterChoices,
   chatActivity,
+  queueDraftWrite,
   PHASE_LABEL,
   sessionActivity,
   compareSessions,
@@ -97,7 +98,18 @@ board.style.flexDirection = "column";
 board.style.flex = "1";
 board.style.minHeight = "0";
 const chatBody = el("div", { class: "scroll", hidden: "" });
-const input = el("textarea", { rows: "1", placeholder: "Message" });
+// The same field hints classic uses. autocomplete="off" and a name stop iOS
+// swapping the predictive-text bar for an "AutoFill Contact" bar on a field
+// it misjudges; autocapitalize="off" keeps a leading "/hydra" command from
+// becoming "/Hydra".
+const input = el("textarea", {
+  rows: "1",
+  placeholder: "Message",
+  name: "hydra-composer-message",
+  autocomplete: "off",
+  autocapitalize: "off",
+  enterkeyhint: "enter",
+});
 const send = el("button", { class: "primary" }, "Send");
 const stop = el("button", {}, "Stop");
 const status = el("div", { class: "status", hidden: "" });
@@ -173,9 +185,12 @@ chatBody.addEventListener("touchend", endSwipe, { passive: true });
 chatBody.addEventListener("touchcancel", endSwipe, { passive: true });
 
 back.addEventListener("click", () => closeChat());
+let lastTypedAt = 0;
 input.addEventListener("input", () => {
+  lastTypedAt = Date.now();
   if (state.current) {
     state.current.composerValue = input.value;
+    queueDraftWrite(state.current.sessionId, input.value);
   }
 });
 send.addEventListener("click", () => sendPrompt());
@@ -477,6 +492,8 @@ input.addEventListener("focus", () => {
   }, 300);
 });
 
+let composerFor = "";
+
 // Updated in place rather than rebuilt so its animation keeps running.
 let statusKey = "";
 function renderStatus(c: ChatState): void {
@@ -530,6 +547,12 @@ function render(): void {
   footer.hidden = !inChat;
   title.textContent = c ? c.title || c.sessionId.slice(0, 8) : "Hydra board";
   if (c) {
+    // The message box is one element shared by every chat; load this chat's
+    // text (a saved draft, or empty) when the chat changes.
+    if (composerFor !== c.sessionId) {
+      composerFor = c.sessionId;
+      input.value = c.composerValue;
+    }
     stop.hidden = !c.inTurn;
     stop.className = c.inTurn ? "stop" : "";
     renderStatus(c);
@@ -544,8 +567,21 @@ function render(): void {
 // down and flush on release.
 let scheduled = false;
 let pointerDown = false;
+// Redrawing the page while someone is typing disturbs the phone keyboard's
+// autocorrect and suggestions, so renders wait for a pause in typing. The
+// message box itself is never rebuilt.
+const TYPING_HOLDOFF_MS = 700;
 function schedule(): void {
   if (scheduled || pointerDown) {
+    return;
+  }
+  const quietIn = TYPING_HOLDOFF_MS - (Date.now() - lastTypedAt);
+  if (quietIn > 0 && document.activeElement === input) {
+    scheduled = true;
+    setTimeout(() => {
+      scheduled = false;
+      schedule();
+    }, quietIn);
     return;
   }
   scheduled = true;

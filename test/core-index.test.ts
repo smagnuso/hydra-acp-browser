@@ -42,6 +42,7 @@ const FUNCTIONS = [
   "respondPermission",
   "createSession",
   "killSession",
+  "queueDraftWrite",
   "chatActivity",
   "hostFilterChoices",
   "sessionActivity",
