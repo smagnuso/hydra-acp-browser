@@ -44,6 +44,56 @@ The server serves all built UIs; a browser picks one with `/?ui=<name>`
 (cookie `hb_ui`), or the classic Options dialog dropdown. Wire contract:
 `docs/api.md`.
 
+## Model/view split: read this before touching client code
+
+There is more than one UI (`ui-classic`, `ui-min`, and more to come), and
+the user picks between them at runtime. All of them share `src/core/`, the
+**model**: state, the ACP update reducer, WebSocket bridge, prompt queue,
+caches, polling and session actions. Each `src/ui-<name>/` is a **view**:
+it only renders and translates user gestures into core calls. Treat any
+change as a model change or a view change, never both tangled together.
+
+Rules:
+
+1. **Behavior goes in `core/`, presentation goes in a view.** If a feature
+   changes what happens (a request is sent, state changes, data is merged,
+   a rule is decided), it belongs in `core/` and must work with no DOM. If
+   it only changes how something looks or is tapped, it belongs in the
+   view. A new `fetch`, a new state field, or a new decision inside
+   `views.ts` is the sign that logic is leaking into a view.
+2. **`core/` never imports a UI and never touches `document`/`window`**
+   except through `platform.ts` (`test/core-boundary.test.ts` enforces
+   both). No element lookups, no `innerHTML`, no focus, scroll, or layout
+   reads.
+3. **Core asks the view for things through `uiHooks`** (`core/hooks.ts`),
+   for example "scroll to bottom" or "read the composer text". A UI
+   installs the hooks it supports at startup; unset hooks are inert, so
+   core must work when a hook does nothing. Add a hook only for a
+   view-layer behavior core genuinely needs; prefer state the view can
+   read.
+4. **The view learns about changes through `subscribe()`**, and never the
+   other way around. Core calls `notifyChange()`; it must not call a
+   renderer. Views may coalesce or throttle however they like.
+5. **A new capability that every UI could want is added to `core/` and
+   exported from `core/index.ts`** (see `core/actions.ts` for the shape:
+   a plain async function that throws on failure). Confirm dialogs, banners
+   and modals stay in the view and wrap the core call.
+6. **Do not fix a bug in one UI's copy of shared logic.** Find the shared
+   function in `core/` and fix it there so every UI gets it.
+7. **Server API changes are shared too.** A route or WebSocket method added
+   for one UI is available to all of them, so update `docs/api.md` and keep
+   the scoped-subset rule below.
+
+When adding a feature, the usual order is: extend `core/` (with a test
+that needs no DOM), export it from `core/index.ts`, document it in
+`docs/ui-core.md` if it changes the contract, then wire it into the view
+that asked for it. Other UIs can adopt it later without rework.
+
+Known gap: some logic still lives in `ui-classic/views.ts` (file browsing,
+attachments, model/mode pickers, rewind/export, priority). Extract it into
+`core/` when you next need it from a second UI or when you are already
+changing it; do not copy it.
+
 ## Build & test
 
 ```
@@ -53,6 +103,7 @@ npm run build:server
 npm run build:ui
 npm test          # node:test via scripts/run-tests.mjs
 npm run lint
+npm run smoke      # headless Chrome loads each bundled UI against the running server
 ```
 
 Ships as `hydra-acp-browser` on PATH. Registered via
@@ -94,12 +145,6 @@ Ships as `hydra-acp-browser` on PATH. Registered via
 - **The auth rate limiter is defense-in-depth**, not primary — the
   daemon has its own on `/v1/auth/login`. Removing the local one isn't
   "simplification".
-- **`src/core/` never imports a UI and never touches `document`/`window`**
-  except through `platform.ts` (`test/core-boundary.test.ts` enforces
-  it). View behavior core needs (scrolling, paint holds, composer DOM,
-  URL navigation) goes through `uiHooks` in `core/hooks.ts`, which a UI
-  installs at startup; unset hooks are inert. State changes reach the
-  renderer via `subscribe()`/`notifyChange()`, not a direct `render()`.
 - **The classic SPA's `render()` is a full teardown** of `#app` (`ui-classic/renderer.ts`),
   and WS/poll events (`core/bridge.ts`, `core/acp.ts`, `core/queue.ts`) can trigger one
   at any point, including mid-tap. On mobile Chrome, `click` is a
