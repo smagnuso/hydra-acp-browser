@@ -157,6 +157,7 @@ export { loadUiChoices, uiSwitchUrl, type UiChoices } from "./ui-switch.js";
 export { resolvedTheme, watchTheme, type ResolvedTheme } from "./theme.js";
 export { setNotifications, resumeNotifications, trackPresence, type NotificationsResult } from "./push.js";
 export { queueDraftWrite } from "./composer-draft.js";
+export { clientLog } from "./client-log.js";
 export { markOpenChatRead, initReadTracking } from "./read-state.js";
 export {
   ensureServiceWorker,

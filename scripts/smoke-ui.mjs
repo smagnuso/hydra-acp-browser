@@ -214,6 +214,22 @@ async function smoke(ui) {
       if (!backAgain) {
         failures.push("board: a drifting swipe that ends in touchcancel did not return to the board");
       }
+
+      // The finger never lifts and no release event arrives: the page must
+      // still repaint the board straight away.
+      await evalJs("document.querySelector('.card')?.click()");
+      await sleep(2500);
+      await touch("touchStart", 100, 320);
+      for (const [x, y] of [[130, 322], [180, 326], [230, 330]]) {
+        await touch("touchMove", x, y);
+        await sleep(30);
+      }
+      await sleep(400);
+      const backNoRelease = await evalJs("!document.querySelector('footer')?.hidden === false");
+      await send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      if (!backNoRelease) {
+        failures.push("board: a swipe whose release never arrived left the chat on screen");
+      }
     }
   }
   scan();

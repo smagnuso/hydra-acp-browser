@@ -24,6 +24,7 @@ import {
   hostFilterChoices,
   chatActivity,
   queueDraftWrite,
+  clientLog,
   PHASE_LABEL,
   sessionActivity,
   compareSessions,
@@ -149,21 +150,46 @@ paintNotify();
 // on release: phones often cancel a touch (the scroller or the system claims
 // it) and a release-only handler then never fires. Direction is locked after
 // a few pixels so vertical scrolling is never mistaken for a swipe, and code
-// blocks, which scroll sideways themselves, are left alone.
+// blocks, which scroll sideways themselves, are left alone. Listens on the
+// document so it works from anywhere in the chat except the composer.
 const SWIPE_ZONE = 0.6;
 const SWIPE_LOCK_PX = 12;
 const SWIPE_TRIGGER_PX = 70;
 let swipe: { x: number; y: number; lock: "h" | "v" | null } | null = null;
-chatBody.addEventListener("touchstart", (e) => {
+
+function inChatView(): boolean {
+  return state.view === "chat" && !chatBody.hidden;
+}
+
+// ?swipedebug=1 writes each swipe's start, lock and outcome to the
+// extension log, so a failure on a real phone can be read from the laptop.
+const swipeDebug = new URLSearchParams(window.location.search).get("swipedebug") === "1";
+function swipeLog(line: string): void {
+  if (swipeDebug) {
+    clientLog(`swipe: ${line}`);
+  }
+}
+
+document.addEventListener("touchstart", (e) => {
+  swipe = null;
+  if (!inChatView()) {
+    return;
+  }
   const t = e.touches[0];
   const target = e.target as Element | null;
-  const inScrollable = !!target?.closest?.("pre, table, textarea, input");
-  swipe =
-    t && !inScrollable && e.touches.length === 1 && t.clientX < window.innerWidth * SWIPE_ZONE
-      ? { x: t.clientX, y: t.clientY, lock: null }
-      : null;
-}, { passive: true });
-chatBody.addEventListener("touchmove", (e) => {
+  const where = target?.closest?.("pre, table, textarea, input, select, footer, header") ?? null;
+  const usable = !!target && (chatBody.contains(target) || status.contains(target));
+  const ok = !!t && usable && !where && e.touches.length === 1 && t.clientX < window.innerWidth * SWIPE_ZONE;
+  swipeLog(
+    `start x=${Math.round(t?.clientX ?? -1)} y=${Math.round(t?.clientY ?? -1)} w=${window.innerWidth} ` +
+      `target=${target?.tagName?.toLowerCase()}.${(target as HTMLElement | null)?.className?.toString().split(" ")[0] ?? ""} ` +
+      `${ok ? "tracking" : `ignored(${!usable ? "outside" : where ? where.tagName.toLowerCase() : "zone/multi"})`}`,
+  );
+  if (ok && t) {
+    swipe = { x: t.clientX, y: t.clientY, lock: null };
+  }
+}, { passive: true, capture: true });
+document.addEventListener("touchmove", (e) => {
   const t = e.touches[0];
   if (!swipe || !t) {
     return;
@@ -172,20 +198,28 @@ chatBody.addEventListener("touchmove", (e) => {
   const dy = t.clientY - swipe.y;
   if (swipe.lock === null && Math.max(Math.abs(dx), Math.abs(dy)) > SWIPE_LOCK_PX) {
     swipe.lock = Math.abs(dx) > Math.abs(dy) * 1.2 && dx > 0 ? "h" : "v";
+    swipeLog(`lock=${swipe.lock} dx=${Math.round(dx)} dy=${Math.round(dy)}`);
   }
   if (swipe.lock === "h" && dx > SWIPE_TRIGGER_PX) {
     swipe = null;
+    swipeLog(`trigger dx=${Math.round(dx)}`);
+    // The finger is still down, so a held render would wait for a release
+    // that may never come; paint the board now.
+    releasePointer();
     closeChat();
+    render();
   }
-}, { passive: true });
-const endSwipe = (): void => {
+}, { passive: true, capture: true });
+const endSwipe = (kind: string) => (): void => {
+  if (swipe) {
+    swipeLog(`${kind} lock=${swipe.lock}`);
+  }
   swipe = null;
 };
-chatBody.addEventListener("touchend", endSwipe, { passive: true });
-chatBody.addEventListener("touchcancel", endSwipe, { passive: true });
+document.addEventListener("touchend", endSwipe("end"), { passive: true, capture: true });
+document.addEventListener("touchcancel", endSwipe("cancel"), { passive: true, capture: true });
 
 back.addEventListener("click", () => closeChat());
-let lastTypedAt = 0;
 input.addEventListener("input", () => {
   lastTypedAt = Date.now();
   if (state.current) {
@@ -564,9 +598,15 @@ function render(): void {
 }
 
 // A rebuild mid-tap can drop the click, so hold renders while a pointer is
-// down and flush on release.
+// down and flush on release. A release is not guaranteed to arrive (a
+// browser back gesture, an OS-captured touch), so the hold expires on its
+// own unless the pointer is still moving, and any touch end or cancel also
+// releases it. Without this a swipe could leave the screen unrepainted.
 let scheduled = false;
 let pointerDown = false;
+let stuckTimer: ReturnType<typeof setTimeout> | undefined;
+const STUCK_POINTER_MS = 800;
+let lastTypedAt = 0;
 // Redrawing the page while someone is typing disturbs the phone keyboard's
 // autocorrect and suggestions, so renders wait for a pause in typing. The
 // message box itself is never rebuilt.
@@ -590,15 +630,38 @@ function schedule(): void {
     render();
   });
 }
-document.addEventListener("pointerdown", () => {
-  pointerDown = true;
-}, true);
-const release = (): void => {
+function armStuckTimer(): void {
+  if (stuckTimer !== undefined) {
+    clearTimeout(stuckTimer);
+  }
+  stuckTimer = setTimeout(() => {
+    stuckTimer = undefined;
+    releasePointer();
+  }, STUCK_POINTER_MS);
+}
+function releasePointer(): void {
+  if (stuckTimer !== undefined) {
+    clearTimeout(stuckTimer);
+    stuckTimer = undefined;
+  }
+  if (!pointerDown) {
+    return;
+  }
   pointerDown = false;
   setTimeout(schedule, 50);
-};
-document.addEventListener("pointerup", release, true);
-document.addEventListener("pointercancel", release, true);
+}
+document.addEventListener("pointerdown", () => {
+  pointerDown = true;
+  armStuckTimer();
+}, true);
+document.addEventListener("pointermove", () => {
+  if (pointerDown) {
+    armStuckTimer();
+  }
+}, true);
+for (const type of ["pointerup", "pointercancel", "touchend", "touchcancel"]) {
+  document.addEventListener(type, releasePointer, true);
+}
 
 subscribe(schedule);
 
