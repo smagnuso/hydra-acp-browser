@@ -31,11 +31,18 @@ per-host authkey.
   (`/api/sessions`, `/api/agents`, `/api/kill`, `/api/files/*`,
   `/ws?session=<id>`, …)
 - `src/hydra/` — client-side adapter to the daemon (REST + WSS)
-- `src/ui/` — the SPA (built by `pnpm build:ui`)
+- `src/core/` — UI-agnostic client logic (ACP reducer, bridge, queue,
+  caches, state). Public surface is `src/core/index.ts`; see
+  `docs/ui-core.md`.
+- `src/ui-<name>/` — one SPA per directory (`ui-classic` is the real
+  one, `ui-min` a small example). Each builds to `dist/ui/<name>/`.
 - `src/config.ts`, `src/util/` — config resolution, shared plumbing
 
-Two build steps: `build:server` (tsup → `dist/`) and `build:ui`. Top-level
-`build` runs both.
+Two build steps: `build:server` (tsc → `dist/`) and `build:ui` (builds every
+`src/ui-*`; `build:ui -- <name>` builds one). Top-level `build` runs both.
+The server serves all built UIs; a browser picks one with `/?ui=<name>`
+(cookie `hb_ui`), or the classic Options dialog dropdown. Wire contract:
+`docs/api.md`.
 
 ## Build & test
 
@@ -44,7 +51,7 @@ npm install
 npm run build     # server + UI
 npm run build:server
 npm run build:ui
-npm test          # vitest
+npm test          # node:test via scripts/run-tests.mjs
 npm run lint
 ```
 
@@ -53,7 +60,7 @@ Ships as `hydra-acp-browser` on PATH. Registered via
 
 ## Conventions
 
-- TypeScript, ESM, tsup for the server, vitest for tests.
+- TypeScript, ESM, tsc for the server, esbuild for the UIs, node:test for tests.
 - Default bind is localhost only. Anything binding to a non-loopback host
   must require TLS — mirror the daemon's stance.
 - Never proxy the hydra master token to the browser. The authkey is the
@@ -87,14 +94,20 @@ Ships as `hydra-acp-browser` on PATH. Registered via
 - **The auth rate limiter is defense-in-depth**, not primary — the
   daemon has its own on `/v1/auth/login`. Removing the local one isn't
   "simplification".
-- **The SPA's `render()` is a full teardown** of `#app` (`renderer.ts`),
-  and WS/poll events (`bridge.ts`, `acp.ts`, `queue.ts`) can trigger one
+- **`src/core/` never imports a UI and never touches `document`/`window`**
+  except through `platform.ts` (`test/core-boundary.test.ts` enforces
+  it). View behavior core needs (scrolling, paint holds, composer DOM,
+  URL navigation) goes through `uiHooks` in `core/hooks.ts`, which a UI
+  installs at startup; unset hooks are inert. State changes reach the
+  renderer via `subscribe()`/`notifyChange()`, not a direct `render()`.
+- **The classic SPA's `render()` is a full teardown** of `#app` (`ui-classic/renderer.ts`),
+  and WS/poll events (`core/bridge.ts`, `core/acp.ts`, `core/queue.ts`) can trigger one
   at any point, including mid-tap. On mobile Chrome, `click` is a
   compatibility event synthesized after `pointerup` and can arrive a
   frame or more later — after `render()` has already replaced the
   element out from under it, silently dropping the tap. Every
-  interactive element in `views.ts` is wired with `tapHandler()`
-  (`dom.ts`), which acts on `pointerup` instead and stops propagation so
+  interactive element in `ui-classic/views.ts` is wired with `tapHandler()`
+  (`ui-classic/dom.ts`), which acts on `pointerup` instead and stops propagation so
   a nested control can't double-fire its container's handler. Any new
   clickable element must use `tapHandler`, not a plain `onclick` — a
   plain `onclick` will "mostly work" in testing and then flake on real
