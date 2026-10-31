@@ -90,18 +90,41 @@ async function smoke(ui) {
   await send("Page.navigate", { url: base + "/" });
   await sleep(4000);
 
-  const mine = events.slice(mark).filter((e) => e.sessionId === sessionId);
-  for (const e of mine) {
-    if (e.method === "Runtime.exceptionThrown") {
-      failures.push(`${ui}: exception ${e.params.exceptionDetails.exception?.description ?? e.params.exceptionDetails.text}`);
+  let scanned = mark;
+  const scan = () => {
+    const mine = events.slice(scanned).filter((e) => e.sessionId === sessionId);
+    scanned = events.length;
+    for (const e of mine) {
+      if (e.method === "Runtime.exceptionThrown") {
+        failures.push(`${ui}: exception ${e.params.exceptionDetails.exception?.description ?? e.params.exceptionDetails.text}`);
+      }
+      if (e.method === "Runtime.consoleAPICalled" && e.params.type === "error") {
+        failures.push(`${ui}: console.error ${e.params.args.map((a) => a.value ?? a.description).join(" ")}`);
+      }
     }
-    if (e.method === "Runtime.consoleAPICalled" && e.params.type === "error") {
-      failures.push(`${ui}: console.error ${e.params.args.map((a) => a.value ?? a.description).join(" ")}`);
-    }
-  }
+  };
+  scan();
   const rendered = await evalJs("document.getElementById('app')?.childElementCount ?? 0");
   if (!rendered) {
     failures.push(`${ui}: #app is empty`);
+  }
+
+  if (ui === "classic") {
+    const opened = await evalJs(
+      `(() => { const b = document.querySelector('button[title="Usage"]'); if (!b) return false; b.dispatchEvent(new PointerEvent('pointerup', {bubbles:true})); b.click(); return true; })()`,
+    );
+    if (!opened) {
+      failures.push("classic: usage button not found");
+    } else {
+      await sleep(5000);
+      const drawn = await evalJs("!!document.querySelector('.modal-bg svg')");
+      if (!drawn) {
+        failures.push("classic: usage modal did not draw a chart");
+      }
+      scan();
+      await send("Page.reload");
+      await sleep(3000);
+    }
   }
 
   // Open the first session via each UI's own mechanism, then check the
@@ -129,6 +152,7 @@ async function smoke(ui) {
   } else {
     console.log(`${ui}: no sessions to open, skipped chat check`);
   }
+  scan();
   console.log(`${ui}: loaded${clicked ? ", opened a session" : ""}`);
   await rpc("Target.closeTarget", { targetId });
 }

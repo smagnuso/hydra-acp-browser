@@ -46,6 +46,13 @@ and set `BROWSER_UI_DIR=/path`. `src/ui-min/` is a ~200 line example.
   call `addImageAttachments(chat, files)`; it enforces the size cap with a
   banner. Pending ones are `chat.attachments`; `removeAttachment`,
   `attachmentSrc` for thumbnails. `sendPrompt()` sends them.
+- Usage: `usage` holds the page state (`range`, `metric`, `split`,
+  `status`, `data`, `error`, `hidden`, `sessions`, `selected`). Call
+  `resetUsage()` when opening, then `loadUsage()`; change the choices on
+  `usage`, `saveUsageSettings()`, and `loadUsage()` again (`true` forces a
+  refresh). `buildUsageModel(data, range, metric, hidden)` returns the
+  chart series, totals and day slots; `formatUsage` and `usageUnit` format
+  values. Drawing the chart is the UI's job.
 - Hooks (`UiHooks`) cover view behavior core needs: scrolling, paint holds,
   navigation (URL), composer DOM sync. Unset hooks are inert no-ops.
 - `platform.ts` is the only core file allowed to touch `document` or

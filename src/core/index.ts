@@ -88,6 +88,29 @@ export {
   formatAttachmentSize,
   MAX_ATTACHMENT_BYTES,
 } from "./attachments.js";
+export {
+  usage,
+  loadUsage,
+  loadUsageSessions,
+  resetUsage,
+  saveUsageSettings,
+  buildUsageModel,
+  formatUsage,
+  usageValue,
+  usageUnit,
+  METRICS as USAGE_METRICS,
+  SPLITS as USAGE_SPLITS,
+  RANGES as USAGE_RANGES,
+  PALETTE as USAGE_PALETTE,
+  type UsageItem,
+  type UsageGroup,
+  type UsageResponse,
+  type Series as UsageSeries,
+  type Model as UsageModel,
+  type Range as UsageRange,
+  type Metric as UsageMetric,
+  type SplitBy as UsageSplit,
+} from "./usage.js";
 export { markOpenChatRead, initReadTracking } from "./read-state.js";
 export {
   ensureServiceWorker,

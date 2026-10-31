@@ -2,193 +2,40 @@
 // is plain SVG; no chart library.
 
 import { el, tapHandler, TAP_MOVE_THRESHOLD } from "./dom.js";
-import { api } from "../core/api.js";
 import { render } from "./renderer.js";
 import { setState, state } from "../core/state.js";
 import { openChat } from "../core/routing.js";
+import {
+  usage as view,
+  METRICS,
+  SPLITS,
+  RANGES,
+  saveUsageSettings as saveSettings,
+  resetUsage,
+  loadUsage as load,
+  formatUsage,
+  usageValue,
+  usageUnit,
+  isHourly as isHourlyRange,
+  buildUsageModel,
+  type UsageItem,
+  type Series,
+  type Model,
+} from "../core/usage.js";
 import type { SessionInfo } from "../core/types.js";
 
-interface UsageItem {
-  bucket: string;
-  deltaCost: number;
-  inputTokens?: number;
-  linesNet?: number;
-  linesAdded?: number;
-  linesRemoved?: number;
-}
-
-interface UsageGroup {
-  label: string;
-  items: UsageItem[];
-  // Only on by=session groups; lets the list follow the legend's filter.
-  attrs?: { model: string; agent: string; dir: string };
-}
-
-interface UsageResponse {
-  kind: string;
-  currency: string;
-  groups?: UsageGroup[];
-}
-
-type Range = "24h" | "7d" | "30d" | "90d";
-type Metric = "cost" | "tokens" | "loc";
-type SplitBy = "model" | "agent" | "dir";
-
-const METRICS: Array<{ value: Metric; label: string }> = [
-  { value: "cost", label: "cost" },
-  { value: "tokens", label: "tokens" },
-  { value: "loc", label: "lines of code" },
-];
-const SPLITS: Array<{ value: SplitBy; label: string }> = [
-  { value: "model", label: "by model" },
-  { value: "agent", label: "by agent" },
-  { value: "dir", label: "by directory" },
-];
-
-const RANGES: Array<{ value: Range; label: string }> = [
-  { value: "24h", label: "24 hours" },
-  { value: "7d", label: "7 days" },
-  { value: "30d", label: "30 days" },
-  { value: "90d", label: "90 days" },
-];
-const RANGE_DAYS: Record<Range, number> = { "24h": 1, "7d": 7, "30d": 30, "90d": 90 };
-const MAX_SERIES = 5;
 const LONG_PRESS_MS = 350;
-const PALETTE = ["#5b8def", "#e8a33d", "#4cb58a", "#c26bd1", "#e0645c", "#8a8f98"];
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-const STORAGE_KEY = "hydra-acp-browser:usage";
-
-interface Saved {
-  range: Range;
-  metric: Metric;
-  split: SplitBy;
-}
-
-function loadSaved(): Partial<Saved> {
-  const out: Partial<Saved> = {};
-  try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, unknown>;
-    if (RANGES.some((r) => r.value === raw.range)) {
-      out.range = raw.range as Range;
-    }
-    if (METRICS.some((m) => m.value === raw.metric)) {
-      out.metric = raw.metric as Metric;
-    }
-    if (SPLITS.some((s) => s.value === raw.split)) {
-      out.split = raw.split as SplitBy;
-    }
-  } catch {
-    // Unreadable or unavailable storage: fall back to the defaults.
-  }
-  return out;
-}
-
-function saveSettings(): void {
-  try {
-    const saved: Saved = { range: view.range, metric: view.metric, split: view.split };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
-  } catch {
-    // Private browsing or quota: the choices just won't persist.
-  }
-}
-
-const view = {
-  range: "30d" as Range,
-  metric: "cost" as Metric,
-  split: "model" as SplitBy,
-  ...loadSaved(),
-  cache: new Map<string, UsageResponse>(),
-  hidden: new Set<string>(),
-  status: "idle" as "idle" | "loading" | "ready" | "error",
-  data: null as UsageResponse | null,
-  error: "",
-  selected: -1,
-  seq: 0,
-  sessions: { status: "idle" as "idle" | "loading" | "ready" | "error", data: null as UsageResponse | null, error: "" },
-  sseq: 0,
-  listScroll: 0,
-};
-
-async function loadSessions(refresh: boolean): Promise<void> {
-  const seq = ++view.sseq;
-  const hourly = isHourly();
-  const key = `sessions|${view.metric}|${hourly ? "h" : "d"}`;
-  const hit = refresh ? undefined : view.cache.get(key);
-  if (hit !== undefined) {
-    view.sessions = { status: "ready", data: hit, error: "" };
-    return;
-  }
-  view.sessions = { status: "loading", data: null, error: "" };
-  try {
-    const data = await api<UsageResponse>(
-      `/api/usage?since=${hourly ? "24h" : "90d"}&bucket=${hourly ? "hour" : "day"}&by=session&metric=${view.metric}`,
-      { timeoutMs: 120_000 },
-    );
-    if (seq !== view.sseq) {
-      return;
-    }
-    view.cache.set(key, data);
-    view.sessions = { status: "ready", data, error: "" };
-  } catch (err) {
-    if (seq !== view.sseq) {
-      return;
-    }
-    view.sessions = { status: "error", data: null, error: (err as Error).message };
-  }
-  render();
-}
+const fmt = (n: number, currency: string): string => formatUsage(n, currency, view.metric);
+const valueOf = (item: UsageItem): number => usageValue(item, view.metric);
+const unit = (): string => usageUnit(view.metric);
+const isHourly = (): boolean => isHourlyRange(view.range);
 
 export function openUsageModal(): void {
-  view.cache.clear();
-  view.hidden.clear();
+  resetUsage();
   setState({ modal: { kind: "usage" } });
   void load();
-}
-
-async function load(refresh = false): Promise<void> {
-  const seq = ++view.seq;
-  view.selected = -1;
-  const hourly = isHourly();
-  const key = `${view.metric}|${view.split}|${hourly ? "h" : "d"}`;
-  if (refresh) {
-    view.cache.clear();
-  }
-  view.listScroll = 0;
-  if (!refresh) {
-    void loadSessions(false);
-  }
-  const hit = view.cache.get(key);
-  if (hit !== undefined) {
-    view.data = hit;
-    view.status = "ready";
-    render();
-    return;
-  }
-  view.status = "loading";
-  render();
-  try {
-    const data = await api<UsageResponse>(
-      `/api/usage?since=${hourly ? "24h" : "90d"}&bucket=${hourly ? "hour" : "day"}&by=${view.split}&metric=${view.metric}${refresh ? "&refresh=1" : ""}`,
-      { timeoutMs: 120_000 },
-    );
-    if (seq !== view.seq) {
-      return;
-    }
-    view.cache.set(key, data);
-    view.data = data;
-    view.status = "ready";
-    if (refresh) {
-      void loadSessions(false);
-    }
-  } catch (err) {
-    if (seq !== view.seq) {
-      return;
-    }
-    view.error = (err as Error).message;
-    view.status = "error";
-  }
-  render();
 }
 
 function svg(tag: string, attrs: Record<string, string | number>, ...children: Node[]): SVGElement {
@@ -202,61 +49,8 @@ function svg(tag: string, attrs: Record<string, string | number>, ...children: N
   return node;
 }
 
-function money(n: number, currency: string): string {
-  const sym = currency === "USD" ? "$" : `${currency} `;
-  return n >= 100 ? `${sym}${Math.round(n)}` : `${sym}${n.toFixed(2)}`;
-}
-
-function compact(n: number): string {
-  if (n >= 1e6) {
-    return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
-  }
-  if (n >= 1e3) {
-    return `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k`;
-  }
-  return String(Math.round(n));
-}
-
-function fmt(n: number, currency: string): string {
-  return view.metric === "cost" ? money(n, currency) : compact(n);
-}
-
-function valueOf(item: UsageItem): number {
-  if (view.metric === "tokens") {
-    return item.inputTokens ?? 0;
-  }
-  if (view.metric === "loc") {
-    const net = item.linesNet ?? (item.linesAdded ?? 0) - (item.linesRemoved ?? 0);
-    return Math.max(0, net);
-  }
-  return item.deltaCost;
-}
-
-function unit(): string {
-  return view.metric === "tokens" ? " tokens" : view.metric === "loc" ? " lines" : "";
-}
-
-// The aggregator labels day buckets MM/DD/YYYY, zero-padded.
-function isHourly(): boolean {
-  return view.range === "24h";
-}
-
-// Hour buckets are labelled "MM/DD HH:00" in local time.
-function hourKey(d: Date): string {
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  return `${mm}/${dd} ${hh}:00`;
-}
-
 function slotLabel(d: Date, hourly: boolean): string {
   return hourly ? `${d.getHours()}:00` : `${d.getMonth() + 1}/${d.getDate()}`;
-}
-
-function dayKey(d: Date): string {
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${mm}/${dd}/${d.getFullYear()}`;
 }
 
 function niceCeil(n: number): number {
@@ -267,71 +61,6 @@ function niceCeil(n: number): number {
   const f = n / pow;
   const step = f <= 1 ? 1 : f <= 2 ? 2 : f <= 4 ? 4 : f <= 8 ? 8 : 10;
   return step * pow;
-}
-
-interface Series {
-  label: string;
-  color: string;
-  values: number[];
-}
-
-interface Model {
-  days: Date[];
-  keys: string[];
-  hourly: boolean;
-  all: Series[];
-  series: Series[];
-  totals: number[];
-}
-
-function rangeSlots(range: Range): { days: Date[]; hourly: boolean; keys: string[] } {
-  const hourly = range === "24h";
-  const n = hourly ? 24 : RANGE_DAYS[range];
-  const days: Date[] = [];
-  const today = new Date();
-  for (let i = n - 1; i >= 0; i--) {
-    days.push(
-      hourly
-        ? new Date(today.getFullYear(), today.getMonth(), today.getDate(), today.getHours() - i)
-        : new Date(today.getFullYear(), today.getMonth(), today.getDate() - i),
-    );
-  }
-  return { days, hourly, keys: days.map((d) => (hourly ? hourKey(d) : dayKey(d))) };
-}
-
-function buildModel(data: UsageResponse, range: Range, hidden: Set<string>): Model {
-  const { days, hourly, keys } = rangeSlots(range);
-  const index = new Map(keys.map((k, i) => [k, i]));
-
-  const byModel = (data.groups ?? []).map((g) => {
-    const values = days.map(() => 0);
-    for (const item of g.items) {
-      const i = index.get(item.bucket);
-      if (i !== undefined) {
-        values[i] = (values[i] ?? 0) + valueOf(item);
-      }
-    }
-    return { label: g.label || "unknown", values, sum: values.reduce((a, b) => a + b, 0) };
-  });
-  byModel.sort((a, b) => b.sum - a.sum);
-
-  const top = byModel.slice(0, MAX_SERIES);
-  const rest = byModel.slice(MAX_SERIES);
-  const series: Series[] = top.map((m, i) => ({
-    label: m.label,
-    color: PALETTE[i] ?? "#8a8f98",
-    values: m.values,
-  }));
-  if (rest.length > 0) {
-    series.push({
-      label: "other",
-      color: PALETTE[MAX_SERIES] ?? "#8a8f98",
-      values: days.map((_, i) => rest.reduce((a, m) => a + (m.values[i] ?? 0), 0)),
-    });
-  }
-  const shown = series.filter((s) => !hidden.has(s.label));
-  const totals = days.map((_, i) => shown.reduce((a, s) => a + (s.values[i] ?? 0), 0));
-  return { days, keys, hourly, all: series, series: shown, totals };
 }
 
 interface Seg {
@@ -892,7 +621,7 @@ function renderBody(): HTMLElement | string {
   if (view.status === "error" || view.data === null) {
     return el("div", { class: "err" }, view.error || "Failed to load usage");
   }
-  const model = buildModel(view.data, view.range, view.hidden);
+  const model = buildUsageModel(view.data, view.range, view.metric, view.hidden);
   const currency = view.data.currency || "USD";
   if (model.totals.every((t) => t <= 0)) {
     if (view.hidden.size === 0) {
