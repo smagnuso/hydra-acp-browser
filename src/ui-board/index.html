@@ -44,11 +44,34 @@ h2 .n.i { background: none; color: var(--dim); font-weight: 400; padding: 0; }
 }
 .card { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin: .5rem .9rem; padding: .7rem .8rem; cursor: pointer; }
 .card.need { border-color: var(--warn); }
+.card.need .t { display: flex; align-items: center; }
 .top { display: flex; justify-content: space-between; gap: .5rem; }
 .t { font-weight: 600; overflow-wrap: anywhere; }
 .sub { color: var(--dim); font-size: .8rem; }
 .host { color: var(--accent); font-size: .75rem; margin-left: .4rem; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: .4rem; background: var(--accent); }
+.dot.live { animation: pulse 1.2s ease-in-out infinite; box-shadow: 0 0 0 0 var(--accent); }
+.dot.wait { background: var(--warn); }
+@keyframes pulse {
+  0%, 100% { opacity: .45; transform: scale(.8); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+.bar { position: relative; height: 3px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: .55rem; }
+.bar::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; background: var(--accent); border-radius: 3px; animation: slide 1.5s ease-in-out infinite; animation-delay: var(--phase, 0ms); }
+.bar.wait::after { background: var(--warn); }
+@keyframes slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) {
+  .dot.live, .bar::after { animation: none; }
+  .bar::after { width: 100%; opacity: .5; }
+}
+.card.working { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.since { font-variant-numeric: tabular-nums; }
+.status { flex: none; padding: .55rem .9rem; border-top: 1px solid var(--line); background: var(--card); }
+.status.wait { border-top-color: var(--warn); }
+.status .row1 { display: flex; align-items: center; gap: .3rem; font-weight: 600; }
+.status .row1 .grow { flex: 1; }
+.status .tool { color: var(--dim); font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: .15rem; }
+footer button.stop { color: var(--bad); border-color: var(--bad); }
 .req { margin: .55rem 0; padding: .5rem .6rem; background: var(--code); border-radius: 6px; font: 12.5px/1.45 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .req b { color: var(--warn); }
 .btns { display: flex; gap: .5rem; margin-top: .5rem; }

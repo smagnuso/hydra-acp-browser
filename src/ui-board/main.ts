@@ -22,6 +22,8 @@ import {
   answerWatchedPermission,
   visibleFilteredSessions,
   hostFilterChoices,
+  chatActivity,
+  PHASE_LABEL,
   sessionActivity,
   compareSessions,
   permissionOptionTone,
@@ -98,8 +100,9 @@ const chatBody = el("div", { class: "scroll", hidden: "" });
 const input = el("textarea", { rows: "1", placeholder: "Message" });
 const send = el("button", { class: "primary" }, "Send");
 const stop = el("button", {}, "Stop");
+const status = el("div", { class: "status", hidden: "" });
 const footer = el("footer", { hidden: "" }, input, send, stop);
-app.append(header, board, chatBody, footer);
+app.append(header, board, chatBody, status, footer);
 
 installUiHooks({
   readComposerDom: () => input.value,
@@ -200,6 +203,42 @@ async function showUiChoices(): Promise<void> {
   }
 }
 
+// Animations restart whenever a card is rebuilt, which happens every poll.
+// Offsetting each by the clock keeps the pulse and the bar moving smoothly
+// across rebuilds instead of jumping back to the start.
+function phased(node: HTMLElement, periodMs: number): HTMLElement {
+  node.style.setProperty("--phase", `-${Date.now() % periodMs}ms`);
+  node.style.animationDelay = `-${Date.now() % periodMs}ms`;
+  return node;
+}
+
+function liveDot(tone: "live" | "wait" = "live"): HTMLElement {
+  return phased(el("span", { class: tone === "live" ? "dot live" : "dot live wait" }), 1200);
+}
+
+function indeterminate(tone: "" | "wait" = ""): HTMLElement {
+  return phased(el("div", { class: tone ? `bar ${tone}` : "bar" }), 1500);
+}
+
+function sinceText(since: number): string {
+  return formatElapsed(Date.now() - since);
+}
+
+function sinceEl(since: number | undefined): HTMLElement {
+  const node = el("span", { class: "since" }, since ? sinceText(since) : "");
+  if (since) {
+    node.dataset.since = String(since);
+  }
+  return node;
+}
+
+// Elapsed times tick every second between renders.
+setInterval(() => {
+  for (const node of document.querySelectorAll<HTMLElement>("[data-since]")) {
+    node.textContent = sinceText(Number(node.dataset.since));
+  }
+}, 1000);
+
 function hostTag(s: SessionInfo): string {
   return s.remote ?? s.importedFromMachine ?? "";
 }
@@ -250,7 +289,7 @@ function needCard(s: SessionInfo): HTMLElement {
     el(
       "div",
       { class: "top" },
-      el("div", {}, el("div", { class: "t" }, s.title || "untitled"), subtitle(s)),
+      el("div", {}, el("div", { class: "t" }, liveDot("wait"), s.title || "untitled"), subtitle(s)),
       el("div", { class: "sub" }, formatRelativeAge(s.updatedAt)),
     ),
   );
@@ -265,17 +304,17 @@ function needCard(s: SessionInfo): HTMLElement {
 }
 
 function workingCard(s: SessionInfo): HTMLElement {
-  const elapsed = s.turnStartedAt ? formatElapsed(Date.now() - s.turnStartedAt) : "";
   const card = el(
     "div",
-    { class: "card", "data-session-id": s.sessionId },
+    { class: "card working", "data-session-id": s.sessionId },
     el(
       "div",
       { class: "top" },
-      el("div", { class: "t" }, el("span", { class: "dot" }), s.title || "untitled"),
-      el("div", { class: "sub" }, elapsed),
+      el("div", { class: "t" }, liveDot(), s.title || "untitled"),
+      el("div", { class: "sub" }, "working ", sinceEl(s.turnStartedAt)),
     ),
     subtitle(s),
+    indeterminate(),
   );
   card.addEventListener("click", () => openChat(s.sessionId));
   return card;
@@ -365,7 +404,8 @@ function logNode(c: ChatState, item: LogItem): Node | null {
     case "error":
       return el("div", { class: "msg error" }, item.text);
     case "spinner":
-      return el("div", { class: "empty" }, `working (${item.spinner.toolCallIds.length} tools)`);
+      // The status strip above the composer shows this live.
+      return null;
     case "turn-stamp":
       return el("div", { class: "empty" }, `${item.toolCount} tools, ${Math.round(item.elapsedMs / 1000)}s`);
     case "perm": {
@@ -437,6 +477,46 @@ input.addEventListener("focus", () => {
   }, 300);
 });
 
+// Updated in place rather than rebuilt so its animation keeps running.
+let statusKey = "";
+function renderStatus(c: ChatState): void {
+  const a = chatActivity(c);
+  if (a.phase === "idle") {
+    status.hidden = true;
+    statusKey = "";
+    return;
+  }
+  const waiting = a.phase === "waiting";
+  // Reopened mid-turn there is no local start time; the daemon's is close.
+  const since =
+    a.startedAt ?? state.sessions.find((x) => x.sessionId === c.sessionId)?.turnStartedAt;
+  const key = `${a.phase}|${since}`;
+  status.hidden = false;
+  status.className = waiting ? "status wait" : "status";
+  if (key !== statusKey) {
+    statusKey = key;
+    status.replaceChildren(
+      el(
+        "div",
+        { class: "row1" },
+        liveDot(waiting ? "wait" : "live"),
+        el("span", {}, PHASE_LABEL[a.phase]),
+        el("span", { class: "grow" }),
+        sinceEl(since),
+      ),
+      el("div", { class: "tool" }),
+      indeterminate(waiting ? "wait" : ""),
+    );
+  }
+  const tool = status.querySelector<HTMLElement>(".tool")!;
+  const detail = [
+    a.toolCount > 0 ? `${a.toolCount} tool${a.toolCount === 1 ? "" : "s"}` : "",
+    a.currentTool ?? "",
+  ].filter(Boolean).join(" · ");
+  tool.textContent = detail;
+  tool.hidden = detail === "";
+}
+
 function render(): void {
   const c = state.view === "chat" ? state.current : null;
   const inChat = c !== null;
@@ -451,8 +531,11 @@ function render(): void {
   title.textContent = c ? c.title || c.sessionId.slice(0, 8) : "Hydra board";
   if (c) {
     stop.hidden = !c.inTurn;
+    stop.className = c.inTurn ? "stop" : "";
+    renderStatus(c);
     renderChat(c);
   } else {
+    status.hidden = true;
     renderBoard();
   }
 }

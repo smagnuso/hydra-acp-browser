@@ -152,6 +152,7 @@ export {
   type WatchedPermission,
 } from "./watch.js";
 export { reportPushEndpoint, reportVisibility } from "./bridge.js";
+export { chatActivity, PHASE_LABEL, type ChatActivity, type ChatPhase } from "./activity.js";
 export { loadUiChoices, uiSwitchUrl, type UiChoices } from "./ui-switch.js";
 export { resolvedTheme, watchTheme, type ResolvedTheme } from "./theme.js";
 export { setNotifications, resumeNotifications, trackPresence, type NotificationsResult } from "./push.js";
