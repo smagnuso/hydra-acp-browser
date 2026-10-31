@@ -61,6 +61,12 @@ and set `BROWSER_UI_DIR=/path`. `src/ui-board/` (a few hundred lines) is a small
 - Import/new-session helpers: `importBundleFromText(text, confirmReplace)`
   returns an outcome (`imported`, `cancelled`, `invalid`, `failed`);
   `loadCwdHistory()` feeds a cwd picker, and `createSession` records the cwd.
+- Push: `setNotifications(true|false)` runs the whole sequence (permission,
+  subscribe, tell the server this device) and returns `enabled`,
+  `disabled` or `blocked`; call `resumeNotifications()` and
+  `trackPresence()` once at startup. The service worker is shared
+  (`src/shared/sw.js`, built to `dist/ui/sw.js`), so a UI needs no
+  `sw.js` of its own; add one to its directory to override.
 - Hooks (`UiHooks`) cover view behavior core needs: scrolling, paint holds,
   navigation (URL), composer DOM sync. Unset hooks are inert no-ops.
 - `platform.ts` is the only core file allowed to touch `document` or

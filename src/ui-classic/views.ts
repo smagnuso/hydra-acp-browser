@@ -73,6 +73,7 @@ import {
   closeFiles,
   extendFileWindow,
 } from "../core/files.js";
+import { setNotifications } from "../core/push.js";
 import {
   shortenModel,
   agentWithModel,
@@ -992,24 +993,17 @@ function notifyOnTurnEndRow(): HTMLElement {
         type: "checkbox",
         checked: state.notifyOnTurnEnd ? "" : undefined,
         onchange: (e: Event) => {
-          const checked = (e.target as HTMLInputElement).checked;
-          if (!checked) {
-            setState({ notifyOnTurnEnd: false });
-            void unsubscribeFromPush().then(() => reportPushEndpoint());
-            return;
-          }
-          void requestNotificationPermission().then((granted) => {
-            if (!granted) {
+          const input = e.target as HTMLInputElement;
+          void setNotifications(input.checked).then((result) => {
+            if (result === "blocked") {
+              input.checked = false;
               setState({
                 banner: {
                   kind: "warn",
-                  text: "Notifications blocked — enable them for this site in your browser settings.",
+                  text: "Notifications blocked, enable them for this site in your browser settings.",
                 },
               });
-              return;
             }
-            setState({ notifyOnTurnEnd: true });
-            void subscribeForPush().then(() => reportPushEndpoint());
           });
         },
       }),

@@ -14,13 +14,10 @@ import {
   loadConfig,
   initReadTracking,
   startPermissionWatching,
-  refreshWatcherPresence,
   ensureServiceWorker,
-  requestNotificationPermission,
-  subscribeForPush,
-  unsubscribeFromPush,
-  reportPushEndpoint,
-  reportVisibility,
+  setNotifications,
+  resumeNotifications,
+  trackPresence,
   watchedPermissionsFor,
   answerWatchedPermission,
   visibleFilteredSessions,
@@ -126,29 +123,12 @@ function paintNotify(): void {
   notifyBtn.textContent = state.notifyOnTurnEnd ? "Notify: on" : "Notify: off";
 }
 
-async function syncPush(): Promise<void> {
-  await subscribeForPush();
-  reportPushEndpoint();
-  refreshWatcherPresence();
-}
-
 notifyBtn.addEventListener("click", async () => {
-  if (state.notifyOnTurnEnd) {
-    setState({ notifyOnTurnEnd: false });
-    await unsubscribeFromPush();
-    reportPushEndpoint();
-    refreshWatcherPresence();
-    paintNotify();
-    return;
-  }
-  const granted = await requestNotificationPermission();
-  if (!granted) {
+  const result = await setNotifications(!state.notifyOnTurnEnd);
+  if (result === "blocked") {
     window.alert("Notifications are blocked. Enable them for this site in your browser settings.");
-    return;
   }
-  setState({ notifyOnTurnEnd: true });
   paintNotify();
-  await syncPush();
 });
 paintNotify();
 
@@ -171,10 +151,6 @@ chatBody.addEventListener("touchend", (e) => {
     closeChat();
   }
 }, { passive: true });
-
-document.addEventListener("visibilitychange", () => reportVisibility());
-window.addEventListener("focus", () => reportVisibility());
-window.addEventListener("blur", () => reportVisibility());
 
 back.addEventListener("click", () => closeChat());
 input.addEventListener("input", () => {
@@ -483,13 +459,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   initReadTracking();
   startPermissionWatching();
   void ensureServiceWorker();
-  if (
-    state.notifyOnTurnEnd &&
-    typeof Notification !== "undefined" &&
-    Notification.permission === "granted"
-  ) {
-    void syncPush();
-  }
+  trackPresence();
+  void resumeNotifications();
   void loadUiChoices();
   render();
 });

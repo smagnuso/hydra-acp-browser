@@ -94,3 +94,12 @@ async function buildOne(dirName) {
 for (const d of dirNames) {
   await buildOne(d);
 }
+
+// One service worker for every UI (push display only). A UI may still ship
+// its own sw.js in its directory, which takes precedence on the server.
+const sharedSw = join(root, "src", "shared", "sw.js");
+if (!outOverride && existsSync(sharedSw)) {
+  mkdirSync(join(root, "dist", "ui"), { recursive: true });
+  copyFileSync(sharedSw, join(root, "dist", "ui", "sw.js"));
+  console.log(`wrote ${join(root, "dist", "ui", "sw.js")}`);
+}

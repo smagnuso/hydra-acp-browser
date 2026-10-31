@@ -140,6 +140,7 @@ export {
   type WatchedPermission,
 } from "./watch.js";
 export { reportPushEndpoint, reportVisibility } from "./bridge.js";
+export { setNotifications, resumeNotifications, trackPresence, type NotificationsResult } from "./push.js";
 export { markOpenChatRead, initReadTracking } from "./read-state.js";
 export {
   ensureServiceWorker,

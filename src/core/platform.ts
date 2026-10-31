@@ -8,6 +8,7 @@ export interface Platform {
   pageHasFocus(): boolean;
   onUserInput(cb: () => void): void;
   onWindowFocus(cb: () => void): void;
+  onWindowBlur(cb: () => void): void;
   onVisibilityChange(cb: () => void): void;
   pageLocation(): { href: string; protocol: string };
 }
@@ -44,6 +45,11 @@ export const platform: Platform = {
   onWindowFocus(cb) {
     if (hasDom()) {
       window.addEventListener("focus", cb);
+    }
+  },
+  onWindowBlur(cb) {
+    if (hasDom()) {
+      window.addEventListener("blur", cb);
     }
   },
   onVisibilityChange(cb) {

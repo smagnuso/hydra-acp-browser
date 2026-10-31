@@ -27,8 +27,8 @@ import { initSwipeBack } from "./swipe-nav.js";
 import { initViewportHeight } from "./viewport.js";
 import { initTapWatchdog, tapDebugEnabled, tapLog, noteSendOutcome } from "./tap-debug.js";
 import { delegatedTap, initWideLayoutWatcher, isWideLayout, hasActiveSelection, captureScrollAnchor } from "./dom.js";
-import { ensureServiceWorker, subscribeForPush } from "../core/notifications.js";
-import { reportPushEndpoint, reportVisibility } from "../core/bridge.js";
+import { ensureServiceWorker } from "../core/notifications.js";
+import { resumeNotifications, trackPresence } from "../core/push.js";
 import {
   handleListKeydown,
   focusListRail,
@@ -110,18 +110,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   void loadConfig();
   void loadRemotes();
   void ensureServiceWorker();
-  // Re-arm the push subscription on reload — the checkbox preference
-  // persists in localStorage but PushManager subscriptions don't
-  // survive a service worker update/reinstall, so a stale or missing
-  // one needs re-establishing rather than assuming last session's
-  // subscribe() call is still good.
-  if (
-    state.notifyOnTurnEnd &&
-    typeof Notification !== "undefined" &&
-    Notification.permission === "granted"
-  ) {
-    void subscribeForPush().then(() => reportPushEndpoint());
-  }
+  void resumeNotifications();
   applyProtocolLaunch();
   applyHashRoute({ initialLoad: true });
   maybeRestoreLastSession();
@@ -197,11 +186,9 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-document.addEventListener("visibilitychange", () => reportVisibility());
+trackPresence();
 initReadTracking();
 document.addEventListener("visibilitychange", () => markOpenChatRead());
-window.addEventListener("focus", () => reportVisibility());
-window.addEventListener("blur", () => reportVisibility());
 
 // Connectivity's back (per the OS, via the browser) — don't wait on a
 // stale WebSocket to notice on its own. See routing.ts's forceReconnect.

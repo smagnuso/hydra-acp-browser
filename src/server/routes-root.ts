@@ -90,6 +90,16 @@ function makeUiRegistry(config: ServerContext["config"], uiRoot: string) {
         ? config.defaultUi
         : (available[0] ?? config.defaultUi);
     },
+    async sharedText(file: string): Promise<string> {
+      const key = `/${file}`;
+      const hit = cache.get(key);
+      if (hit !== undefined) {
+        return hit;
+      }
+      const body = await fsp.readFile(resolve(uiRoot, file), "utf8");
+      cache.set(key, body);
+      return body;
+    },
     async text(name: string, file: string): Promise<string> {
       const key = `${name}/${file}`;
       const hit = name === CUSTOM_UI ? undefined : cache.get(key);
@@ -205,19 +215,14 @@ export function registerRootRoutes(
   });
 
   app.get("/sw.js", async (request, reply) => {
-    // The worker only exists to show push notifications, so a UI without
-    // its own borrows the first one that has it rather than 404ing, which
-    // would otherwise make the browser drop an existing registration.
-    const selected = await ui.select(request);
-    const candidates = [selected, ctx.config.defaultUi, ...(await ui.names())];
+    // The worker only exists to show push notifications. A UI may ship its
+    // own; otherwise the shared one is served, because a 404 here makes the
+    // browser drop an existing registration.
     let body: string | undefined;
-    for (const name of new Set(candidates)) {
-      try {
-        body = await ui.text(name, "sw.js");
-        break;
-      } catch {
-        void 0;
-      }
+    try {
+      body = await ui.text(await ui.select(request), "sw.js");
+    } catch {
+      body = await ui.sharedText("sw.js").catch(() => undefined);
     }
     if (body === undefined) {
       reply.code(404).send({ error: "not found" });
