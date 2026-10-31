@@ -169,6 +169,12 @@ async function smoke(ui) {
     }
   }
   if (ui === "board") {
+    const smallFields = await evalJs(
+      "[...document.querySelectorAll('input, select, textarea')].filter((e) => parseFloat(getComputedStyle(e).fontSize) < 16).map((e) => e.tagName + ':' + getComputedStyle(e).fontSize)",
+    );
+    if (smallFields.length > 0) {
+      failures.push(`board: form fields under 16px make iOS zoom on focus: ${smallFields.join(", ")}`);
+    }
     const hasSw = await evalJs(
       "navigator.serviceWorker.getRegistration().then((r) => !!r).catch(() => false)",
     );

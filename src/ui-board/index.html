@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <title>Hydra board</title>
 <style nonce="__CSP_NONCE__">
@@ -23,6 +23,9 @@ header { flex: none; display: flex; align-items: center; gap: .6rem; padding: .6
 header button, header select { flex: none; }
 header h1 { font-size: 1rem; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button, select, input { font: inherit; color: var(--fg); }
+/* iOS Safari zooms the whole page when a field with a font under 16px takes
+   focus, which pushes the right edge (the Send button) off screen. */
+input, select, textarea { font-size: 16px; }
 button { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .35rem .75rem; cursor: pointer; }
 select, input[type=search] { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .3rem .5rem; }
 .filters { display: flex; flex-wrap: wrap; gap: .4rem; padding: .6rem .9rem 0; align-items: center; }
@@ -90,7 +93,7 @@ footer button.stop { color: var(--bad); border-color: var(--bad); }
 .msg pre { overflow-x: auto; }
 .perm { border: 1px solid var(--warn); border-radius: 8px; padding: .6rem; margin: .6rem .9rem; }
 footer { flex: none; display: flex; gap: .5rem; padding: .6rem .9rem; border-top: 1px solid var(--line); padding-bottom: max(.6rem, env(safe-area-inset-bottom)); }
-textarea { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .4rem .6rem; resize: none; min-height: 2.6rem; max-height: 8rem; }
+textarea { flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .4rem .6rem; resize: none; min-height: 2.6rem; max-height: 8rem; }
 footer button { flex: none; }
 button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
 .chatwrap { max-width: 52rem; margin: 0 auto; width: 100%; }
