@@ -24,8 +24,9 @@ npm run build:ui -- ui-<name> --out /path/to/dir
   `sendSetModel`, and the rest of the index. Set `state.current.composerValue`
   before `sendPrompt()`.
 - Boot order: `installUiHooks()` before anything else, then `subscribe()`,
-  then `seedSessionCache()`, `loadConfig()`, `loadAgents()`, `loadRemotes()`,
-  `startPolling()`.
+  then `await seedSessionCache()`, `startPolling()`, `loadAgents()`,
+  `loadConfig()`, `loadRemotes()`, `maybeRestoreLastSession()`, and
+  `initReadTracking()` if you want read-marking.
 - Hooks (`UiHooks`) cover view behavior core needs: scrolling, paint holds,
   navigation (URL), composer DOM sync. Unset hooks are inert no-ops.
 - `platform.ts` is the only core file allowed to touch `document` or
@@ -34,6 +35,6 @@ npm run build:ui -- ui-<name> --out /path/to/dir
 
 ## Not in core
 
-Rendering, markdown display wiring, gestures, theming, URL routing, and
-modals. Core exposes `renderMarkdown` via `markdown.ts` for UIs that want
-the same output.
+Rendering, gestures, theming, URL routing, and modals. Core exports
+`renderMarkdown` and `renderInlineMarkdown` for UIs that want the same
+HTML output.

@@ -49,4 +49,6 @@ export {
   unsubscribeFromPush,
 } from "./notifications.js";
 
+export { renderMarkdown, renderInlineMarkdown, escapeHtml } from "./markdown.js";
+
 export type * from "./types.js";
