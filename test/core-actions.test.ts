@@ -42,7 +42,8 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   return new Response(null, { status: 204 });
 }) as typeof fetch;
 
-const { createSession, killSession } = await import("../src/core/actions.js");
+const { createSession, killSession, setSessionTitle, setSessionPriority, sessionExportUrl } =
+  await import("../src/core/actions.js");
 const { state } = await import("../src/core/state.js");
 import type { SessionInfo } from "../src/core/types.js";
 
@@ -93,4 +94,25 @@ test("a failed kill leaves the session untouched and rejects", async () => {
   failNext = { status: 404, error: "no such session" };
   await assert.rejects(killSession("s1"), /no such session/);
   assert.equal(state.sessions[0]!.status, "warm");
+});
+
+test("setSessionTitle and setSessionPriority PATCH the encoded session route", async () => {
+  calls.length = 0;
+  await setSessionTitle("p:s 1", "New title");
+  await setSessionPriority("p:s 1", 2);
+  await setSessionPriority("p:s 1", null);
+  assert.deepEqual(calls, [
+    { url: "/api/sessions/p%3As%201/title", method: "PATCH", body: { title: "New title" } },
+    { url: "/api/sessions/p%3As%201/priority", method: "PATCH", body: { priority: 2 } },
+    { url: "/api/sessions/p%3As%201/priority", method: "PATCH", body: { priority: null } },
+  ]);
+});
+
+test("a rejected title update surfaces the error", async () => {
+  failNext = { status: 400, error: "bad title" };
+  await assert.rejects(setSessionTitle("s1", ""), /bad title/);
+});
+
+test("sessionExportUrl encodes the id", () => {
+  assert.equal(sessionExportUrl("a/b"), "/api/sessions/a%2Fb/export");
 });

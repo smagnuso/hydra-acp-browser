@@ -56,7 +56,13 @@ import {
   groupSessions as groupSessionsCore,
   type SessionGroup,
 } from "../core/session-list.js";
-import { killSession as killSessionAction, createSession as createSessionAction } from "../core/actions.js";
+import {
+  killSession as killSessionAction,
+  createSession as createSessionAction,
+  setSessionTitle,
+  setSessionPriority as setSessionPriorityAction,
+  sessionExportUrl,
+} from "../core/actions.js";
 import { buildSessionHash } from "./url-routing.js";
 import { openChat, closeChat, requestFullHistory, warmSession, loadEarlierHistory, isConnectingGrace } from "../core/routing.js";
 import { queueDraftWrite } from "../core/composer-draft.js";
@@ -1048,11 +1054,7 @@ function titleRow(c: ChatState, liveTitle: string): HTMLElement {
 
 async function saveSessionTitle(sessionId: string, title: string): Promise<void> {
   try {
-    await api(`/api/sessions/${encodeURIComponent(sessionId)}/title`, {
-      method: "PATCH",
-      body: JSON.stringify({ title }),
-    });
-    void pollSessions();
+    await setSessionTitle(sessionId, title);
   } catch (err) {
     setState({
       banner: { kind: "bad", text: "title update failed: " + (err as Error).message },
@@ -1062,11 +1064,7 @@ async function saveSessionTitle(sessionId: string, title: string): Promise<void>
 
 async function setSessionPriority(sessionId: string, priority: number | null): Promise<void> {
   try {
-    await api(`/api/sessions/${encodeURIComponent(sessionId)}/priority`, {
-      method: "PATCH",
-      body: JSON.stringify({ priority }),
-    });
-    void pollSessions();
+    await setSessionPriorityAction(sessionId, priority);
   } catch (err) {
     setState({
       banner: { kind: "bad", text: "priority update failed: " + (err as Error).message },
@@ -1828,7 +1826,7 @@ function requestCompact(c: ChatState): void {
 // download is interrupted or rejected.
 function triggerExportDownload(sessionId: string): void {
   const a = document.createElement("a");
-  a.href = `/api/sessions/${encodeURIComponent(sessionId)}/export`;
+  a.href = sessionExportUrl(sessionId);
   // Hint the browser that this is a download — the server-supplied
   // Content-Disposition filename still wins, but the empty string
   // is enough to suppress the "navigate away" fallback in some

@@ -25,6 +25,12 @@ and set `BROWSER_UI_DIR=/path`. `src/ui-min/` is a ~200 line example.
   then `await seedSessionCache()`, `startPolling()`, `loadAgents()`,
   `loadConfig()`, `loadRemotes()`, `maybeRestoreLastSession()`, and
   `initReadTracking()` if you want read-marking.
+- Session list: `visibleFilteredSessions()` applies the show-cold, host
+  and search filters in `state`; `groupSessions(ordered, mode)` groups by
+  project; `hostFilterSources()` lists the host-filter choices. Ordering
+  (`compareSessions` in `session-sort.ts`) is the view's call.
+- Session metadata: `setSessionTitle`, `setSessionPriority`,
+  `sessionExportUrl`, `createSession`, `killSession`.
 - Hooks (`UiHooks`) cover view behavior core needs: scrolling, paint holds,
   navigation (URL), composer DOM sync. Unset hooks are inert no-ops.
 - `platform.ts` is the only core file allowed to touch `document` or

@@ -65,3 +65,28 @@ export async function killSession(sessionId: string): Promise<void> {
   }
   void pollSessions();
 }
+
+export async function setSessionTitle(sessionId: string, title: string): Promise<void> {
+  await api(`/api/sessions/${encodeURIComponent(sessionId)}/title`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
+  void pollSessions();
+}
+
+// Positive integer floats the session up the list; null clears it.
+export async function setSessionPriority(
+  sessionId: string,
+  priority: number | null,
+): Promise<void> {
+  await api(`/api/sessions/${encodeURIComponent(sessionId)}/priority`, {
+    method: "PATCH",
+    body: JSON.stringify({ priority }),
+  });
+  void pollSessions();
+}
+
+// GET target for a bundle download; the session cookie carries auth.
+export function sessionExportUrl(sessionId: string): string {
+  return `/api/sessions/${encodeURIComponent(sessionId)}/export`;
+}

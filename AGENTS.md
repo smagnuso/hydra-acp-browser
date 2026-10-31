@@ -90,7 +90,7 @@ that needs no DOM), export it from `core/index.ts`, document it in
 that asked for it. Other UIs can adopt it later without rework.
 
 Known gap: some logic still lives in `ui-classic/views.ts` (file browsing,
-attachments, model/mode pickers, rewind/export, priority). Extract it into
+attachments, model/mode pickers, usage data shaping). Extract it into
 `core/` when you next need it from a second UI or when you are already
 changing it; do not copy it.
 

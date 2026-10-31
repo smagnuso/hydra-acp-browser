@@ -31,6 +31,8 @@ export {
   sendPrompt,
   amendPrompt,
   sendCancel,
+  sendWorkspaceCommand,
+  sendCompactCommand,
   sendSetMode,
   sendSetModel,
   sendSetConfigOption,
@@ -40,7 +42,27 @@ export {
 } from "./queue.js";
 
 export { respondPermission } from "./bridge.js";
-export { createSession, killSession, type CreateSessionParams } from "./actions.js";
+export {
+  createSession,
+  killSession,
+  setSessionTitle,
+  setSessionPriority,
+  sessionExportUrl,
+  type CreateSessionParams,
+} from "./actions.js";
+export {
+  filterSessions,
+  visibleFilteredSessions,
+  groupSessions,
+  hostFilterSources,
+  matchesSessionSearch,
+  describeHostFilter,
+  shortSessionId,
+  shortenCwd,
+  displayCwd,
+  type SessionGroup,
+  type SessionListFilters,
+} from "./session-list.js";
 export { markOpenChatRead, initReadTracking } from "./read-state.js";
 export {
   ensureServiceWorker,
