@@ -25,6 +25,7 @@ import {
 import { initPullToRefresh } from "./pull-refresh.js";
 import { initSwipeBack } from "./swipe-nav.js";
 import { initViewportHeight } from "./viewport.js";
+import { initStatusBarScroll } from "./status-bar-scroll.js";
 import { initTapWatchdog, tapDebugEnabled, tapLog, noteSendOutcome } from "./tap-debug.js";
 import { delegatedTap, initWideLayoutWatcher, isWideLayout, hasActiveSelection, captureScrollAnchor } from "./dom.js";
 import { ensureServiceWorker } from "../core/notifications.js";
@@ -90,6 +91,7 @@ initPerfObserver();
 applyFontScale();
 
 initViewportHeight();
+initStatusBarScroll();
 initTapWatchdog();
 
 // Crossing the split-layout breakpoint (dom.ts's isWideLayout) needs a
