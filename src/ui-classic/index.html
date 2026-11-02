@@ -107,6 +107,7 @@ body { position: fixed; top: 0; left: 0; right: 0; height: var(--app-height, 100
    something to scroll; status-bar-scroll.ts rests at 1px and turns the
    jump to 0 into a scroll-to-top of .list. */
 html::after { content: ""; display: block; height: calc(100% + 2px); pointer-events: none; }
+html.editing::after { display: none; }
 button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.75rem; cursor: pointer; }
 button:hover { background: var(--panel-2); }
 button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }

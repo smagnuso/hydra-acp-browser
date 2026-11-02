@@ -6,10 +6,28 @@
 // redirect to the session list.
 const REST_Y = 1;
 
+const isEditable = (el: Element | null): boolean =>
+  !!el && (el.matches("input, textarea, select") || (el as HTMLElement).isContentEditable);
+
 export function initStatusBarScroll(): void {
   let touching = false;
+  let editing = isEditable(document.activeElement);
+  const root = document.documentElement;
+  root.classList.toggle("editing", editing);
+
+  // With a field focused iOS pans the page for the keyboard; don't fight it.
+  const setEditing = (): void => {
+    editing = isEditable(document.activeElement);
+    root.classList.toggle("editing", editing);
+    rest();
+  };
+  document.addEventListener("focusin", setEditing);
+  document.addEventListener("focusout", () => setTimeout(setEditing, 0));
 
   const rest = (): void => {
+    if (editing) {
+      return;
+    }
     if (window.scrollY !== REST_Y) {
       window.scrollTo({ top: REST_Y, left: 0, behavior: "instant" });
     }
@@ -33,7 +51,7 @@ export function initStatusBarScroll(): void {
   window.addEventListener(
     "scroll",
     () => {
-      if (touching || window.scrollY >= REST_Y) {
+      if (editing || touching || window.scrollY >= REST_Y) {
         return;
       }
       document.querySelector<HTMLElement>(".list")?.scrollTo({ top: 0, behavior: "smooth" });
