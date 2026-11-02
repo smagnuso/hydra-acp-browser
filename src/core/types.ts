@@ -331,6 +331,11 @@ export type LogItem =
       // (observed after a reconnect's afterMessageId delta) and skip
       // creating a duplicate bubble instead of silently doubling it.
       messageId?: string;
+      // Offset in `text` where the chunks carrying `messageId` begin, set
+      // when chunks with differing ids were merged into this bubble (agents
+      // that send no id get a fresh daemon-stamped one per chunk). Lets
+      // dropPendingCursorGroup trim just that tail instead of the bubble.
+      idSegStart?: number;
       // Daemon-authoritative send time (epoch ms) for a user prompt —
       // hydra-acp/prompt_queue/added's enqueuedAt, the same value for
       // every attached client (including the sender) and stable across

@@ -167,14 +167,38 @@ test("the purge leaves user bubbles alone", () => {
   assert.equal(users[0]!.text, "keep me");
 });
 
-// One bubble to one message group — what makes the purge above exact.
-test("consecutive agent messages with different ids do not merge", () => {
+// Agents that send no id (pi-acp) get a fresh daemon-stamped id per chunk;
+// one bubble per id would render a bubble per word.
+test("chunks with differing ids merge into one bubble", () => {
   state.current = makeChatState();
-  handleNotification(agentChunk("reply one", "msg_a"));
-  handleNotification(agentChunk("reply two", "msg_b"));
+  handleNotification(thoughtChunk("a ", "m_1"));
+  handleNotification(thoughtChunk("b ", "m_2"));
+  handleNotification(thoughtChunk("c", "m_3"));
   assert.deepEqual(
     streams().map((s) => s.text),
-    ["reply one", "reply two"],
+    ["a b c"],
+  );
+});
+
+// The purge must trim only the in-flight id's tail from a merged bubble,
+// since the delta restarts at that id and not before it.
+test("the purge trims a merged bubble back to before the pending id", () => {
+  state.current = makeChatState();
+  handleNotification(frame({ sessionUpdate: "prompt_received", messageId: "m_prompt", prompt: [{ type: "text", text: "hi" }] }));
+  handleNotification(agentChunk("one ", "m_1"));
+  handleNotification(agentChunk("two ", "m_2"));
+  handleNotification(agentChunk("three", "m_3"));
+  assert.equal(state.current!.lastSeenMessageId, "m_2");
+
+  dropPendingCursorGroup();
+  assert.deepEqual(
+    streams().filter((s) => s.role === "agent").map((s) => s.text),
+    ["one two "],
+  );
+  handleNotification(agentChunk("three", "m_3"));
+  assert.deepEqual(
+    streams().filter((s) => s.role === "agent").map((s) => s.text),
+    ["one two three"],
   );
 });
 

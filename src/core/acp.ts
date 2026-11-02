@@ -383,17 +383,18 @@ export function pushChunk(
     !last.closed &&
     !!last.synthetic === synthetic &&
     last.source?.sessionId === source?.sessionId &&
-    last.source?.label === source?.label &&
-    // Never merge across a messageId boundary. Two agent messages can run
-    // back to back with no tool call between them to close the first, and
-    // folding them into one bubble makes that bubble span two groups —
-    // which dropPendingCursorGroup then can't purge precisely, since only
-    // the trailing group's text is about to be replayed back. Keeping one
-    // bubble to one group is the invariant that makes the purge exact.
-    (last.messageId === undefined ||
-      messageId === undefined ||
-      last.messageId === messageId)
+    last.source?.label === source?.label
   ) {
+    // Differing ids merge too: agents that send none (pi-acp) get a fresh
+    // daemon-stamped id per chunk, so one id per bubble is one bubble per
+    // word. idSegStart keeps dropPendingCursorGroup exact.
+    if (
+      messageId !== undefined &&
+      last.messageId !== undefined &&
+      last.messageId !== messageId
+    ) {
+      last.idSegStart = last.text.length;
+    }
     last.text += text;
     if (images) {
       last.attachments = last.attachments ? [...last.attachments, ...images] : images;
@@ -520,10 +521,18 @@ export function dropPendingCursorGroup(): void {
   const c = state.current;
   const pending = c.pendingCursorMessageId;
   if (pending === undefined || pending === c.lastSeenMessageId) return;
-  c.log = c.log.filter(
-    (e) =>
-      !(e.kind === "stream" && e.role !== "user" && e.messageId === pending),
-  );
+  c.log = c.log.filter((e) => {
+    if (e.kind !== "stream" || e.role === "user" || e.messageId !== pending) {
+      return true;
+    }
+    if (e.idSegStart) {
+      e.text = e.text.slice(0, e.idSegStart);
+      e.messageId = c.lastSeenMessageId;
+      e.idSegStart = undefined;
+      return true;
+    }
+    return false;
+  });
   c.pendingCursorMessageId = c.lastSeenMessageId;
 }
 
