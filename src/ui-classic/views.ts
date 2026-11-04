@@ -5364,9 +5364,11 @@ function diffFileEl(c: ChatState, pane: DiffPaneState, f: FileDiff): HTMLElement
       el("span", null, open ? "▾" : "▸"),
       el("span", { class: "path" }, relativeToCwd(c.cwd, f.path)),
       f.created ? el("span", { class: "pill" }, "new") : null,
+      f.deleted ? el("span", { class: "pill" }, "deleted") : null,
+      f.omitted ? el("span", { class: "pill" }, f.omitted === "binary" ? "binary" : "too large") : null,
       added > 0 ? el("span", { class: "add" }, `+${added}`) : null,
       removed > 0 ? el("span", { class: "del" }, `-${removed}`) : null,
-      el("button", { ...tapHandler(() => openDiffFile(f)), title: "Open file" }, "↗"),
+      f.deleted ? null : el("button", { ...tapHandler(() => openDiffFile(f)), title: "Open file" }, "↗"),
     ),
     ...(open ? f.hunks.map(diffHunkEl) : []),
   );
@@ -5382,11 +5384,19 @@ function renderDiffPane(c: ChatState): Node {
   const files = visibleDiffFiles(c);
   const scopeBtn = (scope: DiffScope, label: string): HTMLElement =>
     el("button", { class: pane.scope === scope ? "on" : "", ...tapHandler(() => setDiffScope(scope)) }, label);
+  const loaded = pane.scope === "session" ? pane.files : pane.scope === "uncommitted" ? pane.uncommitted : [];
   let status: string | null = null;
-  if (pane.scope === "session" && pane.files === null) {
+  if (loaded === null) {
     status = pane.err ?? "Loading…";
+  } else if (pane.scope === "uncommitted" && pane.notRepo) {
+    status = "Not a git repository.";
   } else if (files.length === 0) {
-    status = pane.scope === "turn" ? "No file edits in the loaded turns." : (pane.err ?? "This session has not edited any files.");
+    status =
+      pane.scope === "turn"
+        ? "No file edits in the loaded turns."
+        : pane.scope === "uncommitted"
+          ? (pane.err ?? "No uncommitted changes.")
+          : (pane.err ?? "No edits recorded for this session. Changes made through the shell show under Uncommitted.");
   }
   return el(
     "div",
@@ -5396,9 +5406,9 @@ function renderDiffPane(c: ChatState): Node {
       { class: "topbar", style: "border-bottom:1px solid var(--border)" },
       el("button", { ...tapHandler(closeDiff), title: "Back" }, "‹"),
       el("span", { class: "title" }, "Changes"),
-      el("span", { class: "scope" }, scopeBtn("session", "Session"), scopeBtn("turn", "Turn")),
+      el("span", { class: "scope" }, scopeBtn("session", "Session"), scopeBtn("turn", "Turn"), scopeBtn("uncommitted", "Uncommitted")),
       el("span", { class: "spacer" }),
-      pane.scope === "session" ? el("button", { ...tapHandler(() => void refreshDiff()), title: "Refresh" }, pane.loading ? "…" : "⟳") : null,
+      pane.scope !== "turn" ? el("button", { ...tapHandler(() => void refreshDiff()), title: "Refresh" }, pane.loading ? "…" : "⟳") : null,
     ),
     pane.scope === "turn" && ti >= 0
       ? el(
@@ -5415,6 +5425,7 @@ function renderDiffPane(c: ChatState): Node {
       { class: "diff-list" },
       status !== null ? el("div", { class: "diff-empty" }, status) : null,
       ...files.map((f) => diffFileEl(c, pane, f)),
+      pane.scope === "uncommitted" && pane.truncated ? el("div", { class: "diff-empty" }, "More changed files than are shown.") : null,
     ),
   );
 }
@@ -5431,6 +5442,9 @@ function cachedDiffPane(c: ChatState): Node {
     pane.scope,
     pane.turn,
     pane.files,
+    pane.uncommitted,
+    pane.notRepo,
+    pane.truncated,
     pane.loading,
     pane.err,
     pane.expanded,

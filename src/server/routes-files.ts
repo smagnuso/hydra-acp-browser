@@ -5,6 +5,7 @@ import { HydraRestClient, foreignCwdOwner } from "../hydra/client.js";
 import type { ServerContext } from "./http.js";
 import { isEditedPath } from "./session-files.js";
 import { readFileWindow } from "./file-window.js";
+import { uncommittedChanges } from "./git-changes.js";
 
 interface ListBody {
   sessionId?: string;
@@ -68,7 +69,7 @@ export class PathScopeError extends Error {
 // `remote` appears: the single-session route is forwarded to the peer,
 // which answers about its own session and so never reports itself as
 // remote.
-async function lookupSession(
+export async function lookupSession(
   ctx: ServerContext,
   request: FastifyRequest,
   sessionId: string,
@@ -86,6 +87,30 @@ export function registerFileRoutes(
   app: FastifyInstance,
   ctx: ServerContext,
 ): void {
+  // Working-tree changes under the session's cwd, from git. Unlike the
+  // session diff this also sees edits made through the shell.
+  app.get("/api/sessions/:id/uncommitted", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const session = await lookupSession(ctx, request, id);
+    if (!session) {
+      reply.code(404).send({ error: "session not found" });
+      return;
+    }
+    // Same reasoning as the files routes: this machine's disk is not the
+    // remote session's disk.
+    if (session.remote) {
+      reply.code(400).send({
+        error: `files live on "${session.remote}" and cannot be read from here`,
+      });
+      return;
+    }
+    try {
+      reply.send(await uncommittedChanges(session.cwd));
+    } catch (err) {
+      reply.code(500).send({ error: (err as Error).message });
+    }
+  });
+
   app.post("/api/files/list", async (request, reply) => {
     const body = (request.body ?? {}) as ListBody;
     if (!body.sessionId) {

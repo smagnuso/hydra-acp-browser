@@ -17,6 +17,9 @@ export interface DiffHunk {
 export interface FileDiff {
   path: string;
   created: boolean;
+  // Uncommitted scope only: gone from disk, or listed without hunks.
+  deleted?: boolean;
+  omitted?: "binary" | "large";
   hunks: DiffHunk[];
 }
 
@@ -27,13 +30,17 @@ export interface TurnDiff {
   files: FileDiff[];
 }
 
-export type DiffScope = "session" | "turn";
+export type DiffScope = "session" | "turn" | "uncommitted";
 
 export interface DiffPaneState {
   scope: DiffScope;
   // Which entry of turnDiffs() the turn scope shows; null follows the latest.
   turn: number | null;
   files: FileDiff[] | null;
+  // The uncommitted scope's data: git's view of the working tree under cwd.
+  uncommitted: FileDiff[] | null;
+  notRepo: boolean;
+  truncated: boolean;
   loading: boolean;
   err: string | null;
   // Paths whose hunks are showing; files start collapsed so a big diff is
@@ -99,6 +106,9 @@ export function visibleDiffFiles(c: ChatState): FileDiff[] {
   if (pane.scope === "session") {
     return pane.files ?? [];
   }
+  if (pane.scope === "uncommitted") {
+    return pane.uncommitted ?? [];
+  }
   const turns = turnDiffs(c);
   const i = activeTurnIndex(pane, turns);
   return i < 0 ? [] : turns[i]!.files;
@@ -146,18 +156,31 @@ export async function refreshDiff(): Promise<void> {
     dirty = true;
     return inFlight;
   }
+  const scope = c.diffPane.scope;
+  if (scope === "turn") {
+    return;
+  }
   c.diffPane.loading = true;
   lastFetchAt = Date.now();
   editsAtFetch = editCount(c);
   notifyChange();
+  const base = `/api/sessions/${encodeURIComponent(c.sessionId)}`;
   inFlight = (async () => {
     try {
-      const files = await api<FileDiff[]>(
-        `/api/sessions/${encodeURIComponent(c.sessionId)}/diff?fold=true`,
-      );
-      if (state.current === c && c.diffPane) {
-        c.diffPane.files = reuseFiles(c.diffPane.files, files);
-        c.diffPane.err = null;
+      if (scope === "session") {
+        const files = await api<FileDiff[]>(`${base}/diff?fold=true`);
+        if (state.current === c && c.diffPane) {
+          c.diffPane.files = reuseFiles(c.diffPane.files, files);
+          c.diffPane.err = null;
+        }
+      } else {
+        const res = await api<{ repo: boolean; files: FileDiff[]; truncated?: boolean }>(`${base}/uncommitted`);
+        if (state.current === c && c.diffPane) {
+          c.diffPane.uncommitted = reuseFiles(c.diffPane.uncommitted, res.files);
+          c.diffPane.notRepo = !res.repo;
+          c.diffPane.truncated = res.truncated === true;
+          c.diffPane.err = null;
+        }
       }
     } catch (err) {
       if (state.current === c && c.diffPane) {
@@ -178,12 +201,14 @@ export async function refreshDiff(): Promise<void> {
   return inFlight;
 }
 
-// Called at turn end: refetch only if the pane is showing the session scope
-// and something was edited since the last fetch, and no more often than
-// MIN_REFETCH_MS (the last call in a burst is deferred, not dropped).
+// Called at turn end. The session scope refetches only if an edit tool ran
+// since the last fetch; the uncommitted scope always does, since shell edits
+// leave no trace in the log. No more often than MIN_REFETCH_MS (the last
+// call in a burst is deferred, not dropped).
 export function refreshDiffIfOpen(): void {
   const c = state.current;
-  if (c?.diffPane?.scope !== "session" || editCount(c) === editsAtFetch) {
+  const scope = c?.diffPane?.scope;
+  if (!c || (scope !== "uncommitted" && (scope !== "session" || editCount(c) === editsAtFetch))) {
     return;
   }
   const wait = lastFetchAt + MIN_REFETCH_MS - Date.now();
@@ -203,7 +228,7 @@ export function openDiff(): void {
     return;
   }
   // Reopening shows the last-seen diff at once and revalidates behind it.
-  c.diffPane = c.diffPane ?? c.savedDiffPane ?? { scope: "session", turn: null, files: null, loading: false, err: null, expanded: [], scrollTop: 0 };
+  c.diffPane = c.diffPane ?? c.savedDiffPane ?? { scope: "session", turn: null, files: null, uncommitted: null, notRepo: false, truncated: false, loading: false, err: null, expanded: [], scrollTop: 0 };
   notifyChange();
   void refreshDiff();
 }
@@ -241,7 +266,9 @@ export function setDiffScope(scope: DiffScope): void {
     return;
   }
   pane.scope = scope;
+  pane.scrollTop = 0;
   notifyChange();
+  void refreshDiff();
 }
 
 export function stepDiffTurn(delta: number): void {
@@ -266,7 +293,7 @@ export function openDiffFile(file: FileDiff): void {
     return;
   }
   const first = file.hunks[0];
-  const locate = first ? editAnchor({ path: file.path, ...first }) : null;
+  const locate = first && !file.deleted ? editAnchor({ path: file.path, ...first }) : null;
   openFileAtLine(c, file.path, undefined, undefined, locate ?? undefined);
 }
 

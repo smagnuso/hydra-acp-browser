@@ -32,11 +32,14 @@ and set `BROWSER_UI_DIR=/path`. `src/ui-board/` (a few hundred lines) is a small
   (`compareSessions` in `session-sort.ts`) is the view's call.
 - Session metadata: `setSessionTitle`, `setSessionPriority`,
   `sessionExportUrl`, `createSession`, `killSession`.
-- Changes: `state.current.diffPane` (`scope` "session"|"turn", `turn`,
+- Changes: `state.current.diffPane` (`scope` "session"|"turn"|"uncommitted", `turn`,
   `files`, `loading`, `err`). `openDiff()` fetches `/api/sessions/:id/diff`;
   `refreshDiff()` refetches (core also does it at turn end while the session
   scope is showing). The turn scope is read from the chat log by
-  `turnDiffs(chat)`, so it covers only history the client holds.
+  `turnDiffs(chat)`, so it covers only history the client holds. The
+  uncommitted scope is git's view of the working tree under cwd
+  (`/api/sessions/:id/uncommitted`), so it also shows edits made through
+  the shell, which the other two scopes cannot see.
   `visibleDiffFiles(chat)` gives the files for the current scope,
   `setDiffScope`, `stepDiffTurn(delta)`, `openDiffFile(file)` opens the file
   viewer on top at its first change, `closeDiff()`.

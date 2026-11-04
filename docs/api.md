@@ -49,6 +49,7 @@ your `index.html`. `/login` (form POST, `password`, optional `next`) and
 | `GET /api/sessions/:id` | One session's metadata. |
 | `GET /api/sessions/:id/history?beforeSeq=&turns=` | Older history page ("load earlier"). |
 | `GET /api/sessions/:id/diff?fold=` | Per-file diff of everything the session edited, rebuilt from history by the daemon (`[{path, created, hunks}]`). Paths are added to the edited-files allowlist so the Files API can open them. |
+| `GET /api/sessions/:id/uncommitted` | Working-tree changes under the session's cwd from `git diff HEAD` plus untracked files (`{repo, files:[{path, created, deleted?, omitted?, hunks:[{oldText,newText}]}], truncated?}`). Sees shell edits the session diff cannot. 400 for a session on another machine. |
 | `POST /api/sessions` | Create. `{cwd, agent?, remote?, ...}`; 201 with the session. `cwd` required unless `remote`. |
 | `POST /api/kill` | `{sessionId}`; 204. |
 | `PATCH /api/sessions/:id/priority` | `{priority: positive int or null}`; 204. |

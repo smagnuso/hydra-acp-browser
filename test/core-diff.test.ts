@@ -11,6 +11,9 @@ import assert from "node:assert/strict";
 const urls: string[] = [];
 globalThis.fetch = (async (input: string | URL | Request) => {
   urls.push(String(input));
+  if (String(input).endsWith("/uncommitted")) {
+    return Response.json({ repo: true, files: [{ path: "/w/g.ts", created: true, hunks: [{ oldText: "", newText: "x\n" }] }] });
+  }
   return Response.json([{ path: "/w/a.ts", created: false, hunks: [{ oldText: "x", newText: "y" }] }]);
 }) as typeof fetch;
 
@@ -87,7 +90,7 @@ test("openDiff fetches the folded session diff", async () => {
 
 test("closeTopPane pops the file viewer before the diff", () => {
   const c = chat([]);
-  c.diffPane = { scope: "session", turn: null, files: [], loading: false, err: null, expanded: [], scrollTop: 0 };
+  c.diffPane = { scope: "session", turn: null, files: [], uncommitted: null, notRepo: false, truncated: false, loading: false, err: null, expanded: [], scrollTop: 0 };
   c.fileOverlay = { path: "", entries: [], preview: null, err: null, previewRaw: false };
   diff.closeTopPane();
   assert.equal(c.fileOverlay, null);
@@ -110,4 +113,16 @@ test("closing the pane keeps its data, and a refetch reuses unchanged files", as
   assert.deepEqual(c.diffPane!.expanded, ["/w/a.ts"]);
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(c.diffPane!.files, first);
+});
+
+test("the uncommitted scope fetches git changes and is what the pane then shows", async () => {
+  const c = chat([]);
+  diff.openDiff();
+  await new Promise((r) => setTimeout(r, 0));
+  urls.length = 0;
+  diff.setDiffScope("uncommitted");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(urls[0], "/api/sessions/s%201/uncommitted");
+  assert.deepEqual(diff.visibleDiffFiles(c).map((f) => f.path), ["/w/g.ts"]);
+  assert.equal(c.diffPane!.notRepo, false);
 });
