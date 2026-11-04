@@ -3484,7 +3484,7 @@ function renderChat(c: ChatState): HTMLElement {
         { class: "chat-details" },
         titleRow(c, title),
         detailRow("session", shortSessionId(c.sessionId)),
-        detailRow("directory", displayedCwd || "?"),
+        detailRow("directory", displayedCwd ? shortenCwd(displayedCwd) : "?"),
         priorityRow(c.sessionId, live?.priority),
         workspaceRow(live?.workspace),
         ...c.configOptions.map(configOptionRow),
@@ -4974,16 +4974,18 @@ function copyLineRef(cwd: string, path: string, line: number, node: HTMLElement)
 }
 
 function copyablePathNode(cwd: string, path: string): HTMLElement {
+  // Display only; the copied text stays the absolute path.
+  const shown = path.startsWith("/") ? shortenCwd(path) : path;
   const node: HTMLElement = el(
     "div",
     {
       class: "crumb path-crumb",
       title: "Copy path",
       ...tapHandler(() => copyWithFeedback(absoluteFilePath(cwd, path), node, () => {
-        node.textContent = path;
+        node.textContent = shown;
       })),
     },
-    path,
+    shown,
   );
   return node;
 }
