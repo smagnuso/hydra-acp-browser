@@ -5515,7 +5515,7 @@ function renderDiffPane(c: ChatState): Node {
       { class: "topbar", style: "border-bottom:1px solid var(--border)" },
       paneBackButton(c),
       el("span", { class: "scope" }, scopeBtn("session", "Session"), scopeBtn("turn", "Turn"), scopeBtn("uncommitted", "Uncommitted")),
-      el("span", { class: "spacer" }),
+      el("span", { class: "pill root", title: `Paths are relative to ${c.cwd}` }, shortenCwd(c.cwd)),
       pane.scope !== "turn" ? el("button", { ...tapHandler(() => void refreshDiff()), title: "Refresh" }, pane.loading ? "…" : "⟳") : null,
     ),
     pane.scope === "turn" && ti >= 0
@@ -5528,7 +5528,6 @@ function renderDiffPane(c: ChatState): Node {
           el("button", { ...tapHandler(() => stepDiffTurn(1)), disabled: ti === turns.length - 1 }, "›"),
         )
       : null,
-    el("div", { class: "diff-root", title: c.cwd }, `relative to ${shortenCwd(c.cwd)}`),
     el(
       "div",
       { class: "diff-list" },
