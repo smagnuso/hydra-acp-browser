@@ -102,6 +102,8 @@ export {
   openDiffFile,
   hasOpenPane,
   closeTopPane,
+  nextForwardPane,
+  reopenForwardPane,
 } from "./diff.js";
 export type { FileDiff, TurnDiff, DiffHunk, DiffScope, DiffPaneState } from "./diff.js";
 export {

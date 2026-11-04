@@ -5,7 +5,7 @@
 
 import { api } from "./api.js";
 import { editAnchor } from "./edit-diff.js";
-import { closeFiles, openFileAtLine } from "./files.js";
+import { closeFiles, openFileAtLine, openFiles } from "./files.js";
 import { state, notifyChange } from "./state.js";
 import type { ChatState, EditDiff, EditDiffLogItem } from "./types.js";
 
@@ -227,6 +227,7 @@ export function openDiff(): void {
   if (!c) {
     return;
   }
+  c.forwardPanes = [];
   // Reopening shows the last-seen diff at once and revalidates behind it.
   c.diffPane = c.diffPane ?? c.savedDiffPane ?? { scope: "session", turn: null, files: null, uncommitted: null, notRepo: false, truncated: false, loading: false, err: null, expanded: [], scrollTop: 0 };
   notifyChange();
@@ -302,7 +303,7 @@ export function hasOpenPane(c: ChatState | null): boolean {
 }
 
 // Back: pops the topmost pane (the file viewer, then the diff), leaving
-// the chat when none remain.
+// the chat when none remain. What it closed is kept for a forward gesture.
 export function closeTopPane(): void {
   const c = state.current;
   if (!c) {
@@ -310,7 +311,29 @@ export function closeTopPane(): void {
   }
   if (c.fileOverlay) {
     closeFiles();
+    c.forwardPanes.push("files");
   } else if (c.diffPane) {
     closeDiff();
+    c.forwardPanes.push("diff");
   }
+}
+
+export function nextForwardPane(c: ChatState | null): "diff" | "files" | null {
+  return c?.forwardPanes[c.forwardPanes.length - 1] ?? null;
+}
+
+// Forward: brings back the pane last closed by going back, as it was.
+export function reopenForwardPane(): void {
+  const c = state.current;
+  const kind = nextForwardPane(c);
+  if (!c || !kind) {
+    return;
+  }
+  const rest = c.forwardPanes.slice(0, -1);
+  if (kind === "diff") {
+    openDiff();
+  } else {
+    openFiles();
+  }
+  c.forwardPanes = rest;
 }

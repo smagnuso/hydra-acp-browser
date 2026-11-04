@@ -83,6 +83,7 @@ import {
   stepDiffTurn,
   openDiffFile,
   hasOpenPane,
+  closeTopPane,
   toggleDiffFile,
   setDiffScroll,
   type DiffPaneState,
@@ -5317,7 +5318,7 @@ function renderFileOverlay(c: ChatState): Node {
     el(
       "div",
       { class: "topbar", style: "border-bottom:1px solid var(--border)" },
-      el("button", { ...tapHandler(closeFiles), title: "Back" }, "‹"),
+      el("button", { ...tapHandler(closeTopPane), title: "Back" }, "‹"),
       // Naming the file you're actually looking at, not just "Files".
       el("span", { class: "title" }, fo.preview?.path ? baseName(fo.preview.path) : fo.preview ? "pasted image" : "Files"),
       el("span", { class: "pill" }, fo.preview?.path ? dirName(fo.preview.path, c.cwd) : c.cwd),
@@ -5404,7 +5405,7 @@ function renderDiffPane(c: ChatState): Node {
     el(
       "div",
       { class: "topbar", style: "border-bottom:1px solid var(--border)" },
-      el("button", { ...tapHandler(closeDiff), title: "Back" }, "‹"),
+      el("button", { ...tapHandler(closeTopPane), title: "Back" }, "‹"),
       el("span", { class: "title" }, "Changes"),
       el("span", { class: "scope" }, scopeBtn("session", "Session"), scopeBtn("turn", "Turn"), scopeBtn("uncommitted", "Uncommitted")),
       el("span", { class: "spacer" }),

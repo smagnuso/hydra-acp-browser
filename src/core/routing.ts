@@ -92,6 +92,7 @@ export function createChatState(sessionId: string, session?: SessionInfo): ChatS
     fileOverlay: null,
     diffPane: null,
     savedDiffPane: null,
+    forwardPanes: [],
     savedFileView: null,
     fileMentions: new Map(),
     fileMentionsVersion: 0,

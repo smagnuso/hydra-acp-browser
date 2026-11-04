@@ -124,6 +124,8 @@ const FUNCTIONS = [
   "openDiffFile",
   "hasOpenPane",
   "closeTopPane",
+  "nextForwardPane",
+  "reopenForwardPane",
   "setSessionTitle",
   "setSessionPriority",
   "sessionExportUrl",

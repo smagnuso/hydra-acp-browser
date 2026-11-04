@@ -36,6 +36,7 @@ function chat(log: unknown[]): ChatState {
     cwd: "/w",
     fileOverlay: null,
     diffPane: null,
+    forwardPanes: [],
     savedFileView: null,
     log,
   } as unknown as ChatState;
@@ -125,4 +126,20 @@ test("the uncommitted scope fetches git changes and is what the pane then shows"
   assert.equal(urls[0], "/api/sessions/s%201/uncommitted");
   assert.deepEqual(diff.visibleDiffFiles(c).map((f) => f.path), ["/w/g.ts"]);
   assert.equal(c.diffPane!.notRepo, false);
+});
+
+test("going back leaves a forward trail that restores panes in order", async () => {
+  const c = chat([]);
+  diff.openDiff();
+  await new Promise((r) => setTimeout(r, 0));
+  c.fileOverlay = { path: "", entries: [], preview: null, err: null, previewRaw: false };
+  diff.closeTopPane();
+  diff.closeTopPane();
+  assert.deepEqual(c.forwardPanes, ["files", "diff"]);
+  assert.equal(diff.nextForwardPane(c), "diff");
+  diff.reopenForwardPane();
+  assert.notEqual(c.diffPane, null);
+  assert.deepEqual(c.forwardPanes, ["files"]);
+  diff.openDiff();
+  assert.deepEqual(c.forwardPanes, []);
 });

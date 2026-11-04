@@ -45,7 +45,10 @@ and set `BROWSER_UI_DIR=/path`. `src/ui-board/` (a few hundred lines) is a small
   viewer on top at its first change, `closeDiff()`.
 - Panes: the file viewer and the changes pane form a stack over the chat.
   `hasOpenPane(chat)` and `closeTopPane()` (back: viewer first, then
-  changes) are what a UI's back control, Escape and swipe should call. A UI
+  changes) are what a UI's back control, Escape and swipe should call. Back
+  leaves a trail in `forwardPanes`; `nextForwardPane(chat)` and
+  `reopenForwardPane()` bring the last closed pane back (a forward swipe),
+  and opening any pane afresh clears the trail. A UI
   decides the layout: classic shows the top pane full-screen when narrow and
   docked beside the chat when wide.
 - Files: the browser is a state machine on `state.current.fileOverlay`

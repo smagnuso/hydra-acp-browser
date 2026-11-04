@@ -61,7 +61,7 @@ import {
 } from "../core/routing.js";
 import { hasActiveSelection, isFormControl, isWideLayout } from "./dom.js";
 import { buildChatPreviewPane, buildListPreviewPane, peekChatViewRoot } from "./views.js";
-import { closeTopPane, hasOpenPane } from "../core/diff.js";
+import { closeTopPane, hasOpenPane, nextForwardPane, reopenForwardPane } from "../core/diff.js";
 import { beginExternalRenderHold, endExternalRenderHold } from "./renderer.js";
 import type { ChatState } from "../core/types.js";
 
@@ -71,6 +71,17 @@ const DIRECTION_LOCK_PX = 12;
 // itself, whether it's being revealed or covered; only chat does.
 const SCRIM_MAX_OPACITY = 0.25;
 const SETTLE_MS = 220;
+
+function hasHorizontalScroll(target: EventTarget | null): boolean {
+  let el = target instanceof Element ? target : null;
+  while (el && el !== document.body) {
+    if (el.scrollWidth > el.clientWidth && getComputedStyle(el).overflowX !== "visible" && getComputedStyle(el).overflowX !== "hidden") {
+      return true;
+    }
+    el = el.parentElement;
+  }
+  return false;
+}
 
 function hasScrollableLeftAncestor(target: EventTarget | null): boolean {
   let el = target instanceof Element ? target : null;
@@ -104,11 +115,18 @@ function isInImagePreview(target: EventTarget | null): boolean {
 // patch path leaves it alone while the overlay is open), so there is no
 // preview pane to synthesise and no ChatState to resume — just slide
 // the pane off and call closeTopPane().
-type Mode = "toChat" | "toList" | "closePane";
+//
+// "toPane" is the forward counterpart: a leftward swipe in the chat (or a
+// pane) brings back the pane last closed by going back.
+type Mode = "toChat" | "toList" | "closePane" | "toPane";
 
 let startX: number | null = null;
 let startY: number | null = null;
 let mode: Mode | null = null;
+// What a rightward drag from this touch would do; mode itself is only
+// settled once the drag's direction is known (a leftward one can be forward).
+let baseMode: Mode | null = null;
+let canForward = false;
 let candidate = false;
 let locked = false;
 
@@ -143,11 +161,31 @@ let revealChatState: ChatState | null = null;
 // actually inserted the node.
 let revealScrollFixup: { body: HTMLElement; top: number } | null = null;
 
+// Just the frame of the pane about to arrive; the real one renders when the
+// swipe commits.
+function buildPaneShell(): HTMLElement {
+  const kind = nextForwardPane(state.current);
+  const shell = document.createElement("div");
+  shell.className = "pane";
+  const bar = document.createElement("div");
+  bar.className = "topbar";
+  bar.style.borderBottom = "1px solid var(--border)";
+  const title = document.createElement("span");
+  title.className = "title";
+  title.textContent = kind === "diff" ? "Changes" : "Files";
+  bar.appendChild(title);
+  shell.appendChild(bar);
+  return shell;
+}
+
 function buildRevealPane(m: Mode): HTMLElement | null {
   revealChatState = null;
   revealScrollFixup = null;
   if (m === "toList") {
     return buildListPreviewPane();
+  }
+  if (m === "toPane") {
+    return buildPaneShell();
   }
   const target = state.lastSessionId;
   if (!target) return null;
@@ -357,6 +395,10 @@ function commit(m: Mode): void {
       closeChat();
       return;
     }
+    if (m === "toPane") {
+      reopenForwardPane();
+      return;
+    }
     if (chatState && reopenClosedChat(chatState)) {
       return;
     }
@@ -385,6 +427,8 @@ function cancel(): void {
 }
 
 function reset(): void {
+  baseMode = null;
+  canForward = false;
   startX = null;
   startY = null;
   mode = null;
@@ -405,36 +449,47 @@ function onTouchStart(e: TouchEvent): void {
   // more-vertical drag as an undecided candidate fighting the handle for
   // the same touch, which is what makes handles hard to grab.
   if (hasActiveSelection()) return;
+  baseMode = null;
+  canForward = false;
   if (state.view === "chat" && hasOpenPane(state.current)) {
     // Also stops the chat's own back swipe arming underneath an open
     // pane, which used to send a rightward drag on the viewer all the
     // way out to the session list.
     if (
-      isFormControl(touch.target) ||
-      hasScrollableLeftAncestor(touch.target) ||
-      isInImagePreview(touch.target)
+      !isFormControl(touch.target) &&
+      !hasScrollableLeftAncestor(touch.target) &&
+      !isInImagePreview(touch.target)
     ) {
-      return;
+      baseMode = "closePane";
     }
-    mode = "closePane";
   } else if (state.view === "list" && state.lastSessionId) {
-    mode = "toChat";
+    baseMode = "toChat";
   } else if (
     state.view === "chat" &&
     !isFormControl(touch.target) &&
     !hasScrollableLeftAncestor(touch.target)
   ) {
-    mode = "toList";
-  } else {
+    baseMode = "toList";
+  }
+  // A leftward drag over something that can scroll sideways is that
+  // scroll, not a gesture.
+  canForward =
+    state.view === "chat" &&
+    nextForwardPane(state.current) !== null &&
+    !isFormControl(touch.target) &&
+    !isInImagePreview(touch.target) &&
+    !hasHorizontalScroll(touch.target);
+  if (baseMode === null && !canForward) {
     return;
   }
+  mode = baseMode;
   startX = touch.clientX;
   startY = touch.clientY;
   candidate = true;
 }
 
 function onTouchMove(e: TouchEvent): void {
-  if (!candidate || startX === null || startY === null || !mode) return;
+  if (!candidate || startX === null || startY === null) return;
   const touch = e.touches[0];
   if (!touch) return;
   const dx = touch.clientX - startX;
@@ -447,11 +502,17 @@ function onTouchMove(e: TouchEvent): void {
     // direction this mode expects — anything more vertical (or the
     // opposite direction) is a normal scroll or pull-to-refresh, left
     // completely alone.
-    const directionOk = mode === "toChat" ? dx < 0 : dx > 0;
-    if (Math.abs(dy) > Math.abs(dx) || !directionOk) {
+    let chosen: Mode | null;
+    if (dx < 0) {
+      chosen = baseMode === "toChat" ? "toChat" : canForward ? "toPane" : null;
+    } else {
+      chosen = baseMode === "toChat" ? null : baseMode;
+    }
+    if (Math.abs(dy) > Math.abs(dx) || chosen === null) {
       candidate = false;
       return;
     }
+    mode = chosen;
     locked = true;
     if (!armDrag(mode)) {
       candidate = false;
@@ -462,7 +523,9 @@ function onTouchMove(e: TouchEvent): void {
   // Locked in as our gesture now — stop the browser from also scrolling
   // whatever's still nominally under this touch alongside it.
   e.preventDefault();
-  paint(dx, mode);
+  if (mode) {
+    paint(dx, mode);
+  }
 }
 
 function onTouchEnd(e: TouchEvent): void {
@@ -472,7 +535,7 @@ function onTouchEnd(e: TouchEvent): void {
   }
   const touch = e.changedTouches[0];
   const dx = touch ? touch.clientX - startX : 0;
-  const past = mode === "toChat" ? dx <= -THRESHOLD_PX : dx >= THRESHOLD_PX;
+  const past = mode === "toChat" || mode === "toPane" ? dx <= -THRESHOLD_PX : dx >= THRESHOLD_PX;
   if (past) {
     commit(mode);
   } else {

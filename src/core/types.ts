@@ -500,6 +500,9 @@ export interface ChatState {
   diffPane: DiffPaneState | null;
   // Last state of the changes pane, so reopening it is instant.
   savedDiffPane: DiffPaneState | null;
+  // Panes closed by going back, most recent last, so a forward gesture can
+  // bring them back. Any pane opened afresh clears it.
+  forwardPanes: Array<"diff" | "files">;
   // What the Files overlay was showing when last closed, so reopening it
   // (within the same tab session — this is never persisted) picks up
   // where the user left off instead of resetting to the directory root.

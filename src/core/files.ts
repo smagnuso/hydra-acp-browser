@@ -60,6 +60,7 @@ export function imageUrl(sessionId: string, path: string): string {
 export function openFiles(): void {
   const c = state.current;
   if (!c) return;
+  c.forwardPanes = [];
   uiHooks.beforeFileOverlayOpen();
   const saved = c.savedFileView;
   c.fileOverlay = {
@@ -93,6 +94,7 @@ export function openFiles(): void {
 // omitted for a pasted/sent prompt image, there's no file on the
 // daemon's host to name, only the data: URI already in url.
 export function openImagePreviewAt(c: ChatState, url: string, path?: string): void {
+  c.forwardPanes = [];
   uiHooks.beforeFileOverlayOpen();
   const saved = c.savedFileView;
   c.fileOverlay = {
@@ -196,6 +198,7 @@ export function openFileAtLine(
   // savedFileView elsewhere in the overlay are cwd-relative and an
   // absolute path eats the whole width of a phone.
   uiHooks.beforeFileOverlayOpen();
+  c.forwardPanes = [];
   const path = relativeToCwd(c.cwd, rawPath);
   const outsideCwd = path.startsWith("/");
   // A file outside the cwd is readable only because this session edited
