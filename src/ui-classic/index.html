@@ -700,10 +700,10 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
 .diff-pane .diff-list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0.5rem 0; }
 .diff-pane .diff-empty { padding: 1.5rem; text-align: center; color: var(--muted); }
 .diff-file { margin: 0 0 0.75rem; }
-.diff-file-head { display: grid; grid-template-columns: 1rem minmax(0, 1fr); grid-template-areas: "caret name" ". sub"; align-items: center; column-gap: 0.6rem; row-gap: 0.2rem; padding: 0.5rem 0.75rem; background: var(--panel); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-family: ui-monospace, monospace; font-size: 0.85rem; cursor: pointer; }
+.diff-file-head { display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto; grid-template-areas: "caret name open" ". sub sub"; align-items: center; column-gap: 0.6rem; row-gap: 0.2rem; padding: 0.5rem 0.75rem; background: var(--panel); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-family: ui-monospace, monospace; font-size: 0.85rem; cursor: pointer; }
 .diff-file-head .caret { grid-area: caret; color: var(--muted); }
 .diff-file-head .name { grid-area: name; font-weight: 600; overflow-wrap: anywhere; }
-.diff-file-head .sub button { flex-shrink: 0; }
+.diff-file-head > button { grid-area: open; }
 .diff-file-head .sub { grid-area: sub; display: flex; align-items: center; gap: 0.5rem; min-width: 0; font-size: 0.8rem; }
 .diff-file-head .dir { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .diff-file-head .add { color: var(--good, #3fb950); }
