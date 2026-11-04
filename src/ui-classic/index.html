@@ -485,6 +485,7 @@ pre code { background: transparent; padding: 0; }
    ellipsized span with a sibling after it always shows a ragged gap. */
 .toolcard .head .title .edit-verb,
 .toolcard .head .title .edit-name { flex: 0 0 auto; white-space: nowrap; }
+.toolcard .head .title .edit-name { font-weight: 600; }
 /* The whole head is already the expand/collapse target, so the
    filename link inherits the head's color and only reveals itself as
    a separate target on hover — a dashed underline sitting inside a
@@ -496,8 +497,9 @@ a.edit-name.file-link:hover { color: var(--accent); border-bottom: 1px dashed cu
 .toolcard .body { display: none; padding: 0 0.75rem 0.75rem; border-top: 1px solid var(--border); }
 .toolcard.open .body { display: block; }
 .toolcard pre { margin: 0.5rem 0 0; max-height: 24rem; overflow-y: auto; }
-.toolcard .edit-summary .add { color: var(--good); margin-left: 0.4rem; }
-.toolcard .edit-summary .del { color: var(--bad); margin-left: 0.3rem; }
+.diff-stats { display: inline-flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.diff-stats .add { color: var(--good, #3fb950); }
+.diff-stats .del { color: var(--bad); }
 .diff-line { white-space: pre-wrap; word-break: break-word; padding: 0 0.2rem; font-size: 0.85rem; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
 .diff-gap { color: var(--muted); font-style: italic; }
 
@@ -706,8 +708,6 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
 .diff-file-head > button { grid-area: open; }
 .diff-file-head .sub { grid-area: sub; display: flex; align-items: center; gap: 0.5rem; min-width: 0; font-size: 0.8rem; }
 .diff-file-head .dir { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.diff-file-head .add { color: var(--good, #3fb950); }
-.diff-file-head .del { color: var(--bad); }
 .diff-hunk { margin: 0; padding: 0.3rem 0; overflow-x: auto; }
 .diff-hunk + .diff-hunk { border-top: 1px dashed var(--border); }
 .files { display: flex; flex-direction: column; height: 100%; flex: 1; overflow: hidden; }

@@ -4198,17 +4198,51 @@ function sourceChip(source: ChunkSource): HTMLElement {
   return chip;
 }
 
+// The vocabulary shared by chat edit blocks and the changes pane: file
+// state labels, then +added -removed.
+function diffStatEls(st: {
+  added: number;
+  removed: number;
+  created?: boolean;
+  deleted?: boolean;
+  omitted?: "binary" | "large";
+}): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  if (st.created) {
+    out.push(el("span", { class: "pill" }, "new"));
+  }
+  if (st.deleted) {
+    out.push(el("span", { class: "pill" }, "deleted"));
+  }
+  if (st.omitted) {
+    out.push(el("span", { class: "pill" }, st.omitted === "binary" ? "binary" : "too large"));
+  }
+  if (st.added > 0) {
+    out.push(el("span", { class: "add" }, `+${st.added}`));
+  }
+  if (st.removed > 0) {
+    out.push(el("span", { class: "del" }, `-${st.removed}`));
+  }
+  return out;
+}
+
+function diffBodyEl(lines: DiffDisplayLine[], className = ""): HTMLElement {
+  return el(
+    "pre",
+    className ? { class: className } : null,
+    el(
+      "code",
+      { class: "diff-body" },
+      lines.map((l) => el("div", { class: diffLineClass(l.op) }, diffLinePrefix(l.op) + l.text)),
+    ),
+  );
+}
+
 function renderEditDiff(c: ChatState, item: EditDiffLogItem): HTMLElement {
   const cached = diffCacheFor(item.diff);
   const counts = cached.counts;
   const shownPath = item.diff.path ? shortenCwd(item.diff.path) : "file";
-  const summary: HTMLElement[] = [];
-  if (counts.added > 0) {
-    summary.push(el("span", { class: "add" }, `+${counts.added}`));
-  }
-  if (counts.removed > 0) {
-    summary.push(el("span", { class: "del" }, `-${counts.removed}`));
-  }
+  const summary = diffStatEls({ ...counts, created: item.diff.oldText === "" });
   const head = el(
     "div",
     {
@@ -4221,7 +4255,7 @@ function renderEditDiff(c: ChatState, item: EditDiffLogItem): HTMLElement {
     el("span", null, item.expanded ? "▾" : "▸"),
     editedTitleEl(shownPath, item, c.sessionId),
     item.source ? sourceChip(item.source) : null,
-    summary.length > 0 ? el("span", { class: "kind edit-summary" }, summary) : null,
+    summary.length > 0 ? el("span", { class: "kind edit-summary diff-stats" }, summary) : null,
   );
   const node = el(
     "div",
@@ -4240,17 +4274,7 @@ function renderEditDiff(c: ChatState, item: EditDiffLogItem): HTMLElement {
             render();
           }),
         },
-        el(
-          "pre",
-          null,
-          el(
-            "code",
-            { class: "diff-body" },
-            lines.map((l) =>
-              el("div", { class: diffLineClass(l.op) }, diffLinePrefix(l.op) + l.text),
-            ),
-          ),
-        ),
+        diffBodyEl(lines),
       ),
     );
   }
@@ -5355,15 +5379,7 @@ function splitDiffPath(c: ChatState, path: string): { name: string; dir: string 
 function diffHunkEl(h: DiffHunk): HTMLElement {
   const cached = diffCacheFor(h);
   const lines = cached.lines ?? (cached.lines = buildDiffDisplayLines(h, { maxLines: 400 }));
-  return el(
-    "pre",
-    { class: "diff-hunk" },
-    el(
-      "code",
-      { class: "diff-body" },
-      lines.map((l) => el("div", { class: diffLineClass(l.op) }, diffLinePrefix(l.op) + l.text)),
-    ),
-  );
+  return diffBodyEl(lines, "diff-hunk");
 }
 
 // Hunks are only built for an expanded file, and the line diff behind them
@@ -5391,11 +5407,7 @@ function diffFileEl(c: ChatState, pane: DiffPaneState, f: FileDiff): HTMLElement
         "div",
         { class: "sub" },
         el("span", { class: "dir" }, dir),
-        f.created ? el("span", { class: "pill" }, "new") : null,
-        f.deleted ? el("span", { class: "pill" }, "deleted") : null,
-        f.omitted ? el("span", { class: "pill" }, f.omitted === "binary" ? "binary" : "too large") : null,
-        added > 0 ? el("span", { class: "add" }, `+${added}`) : null,
-        removed > 0 ? el("span", { class: "del" }, `-${removed}`) : null,
+        el("span", { class: "diff-stats" }, diffStatEls({ added, removed, created: f.created, deleted: f.deleted, omitted: f.omitted })),
       ),
     ),
     ...(open ? f.hunks.map(diffHunkEl) : []),
