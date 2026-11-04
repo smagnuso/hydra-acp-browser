@@ -5419,7 +5419,6 @@ function renderDiffPane(c: ChatState): Node {
       "div",
       { class: "topbar", style: "border-bottom:1px solid var(--border)" },
       paneBackButton(c),
-      el("span", { class: "title" }, "Changes"),
       el("span", { class: "scope" }, scopeBtn("session", "Session"), scopeBtn("turn", "Turn"), scopeBtn("uncommitted", "Uncommitted")),
       el("span", { class: "spacer" }),
       pane.scope !== "turn" ? el("button", { ...tapHandler(() => void refreshDiff()), title: "Refresh" }, pane.loading ? "…" : "⟳") : null,

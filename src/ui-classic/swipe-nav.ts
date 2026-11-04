@@ -185,7 +185,7 @@ function buildPaneShell(): HTMLElement {
   bar.style.borderBottom = "1px solid var(--border)";
   const title = document.createElement("span");
   title.className = "title";
-  title.textContent = kind === "diff" ? "Changes" : "Files";
+  title.textContent = kind === "diff" ? "" : "Files";
   bar.appendChild(title);
   shell.appendChild(bar);
   return shell;
