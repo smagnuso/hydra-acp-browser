@@ -5352,7 +5352,7 @@ function renderFileOverlay(c: ChatState): Node {
       paneBackButton(c),
       // Naming the file you're actually looking at, not just "Files".
       el("span", { class: "title" }, fo.preview?.path ? baseName(fo.preview.path) : fo.preview ? "pasted image" : "Files"),
-      el("span", { class: "pill" }, fo.preview?.path ? dirName(fo.preview.path, c.cwd) : c.cwd),
+      el("span", { class: "pill" }, fo.preview?.path ? dirName(fo.preview.path, c.cwd) : shortenCwd(c.cwd)),
       el("span", { class: "spacer" }),
     ),
     fo.preview ? null : fileBreadcrumb(fo.path),
@@ -5378,7 +5378,8 @@ function paneBackButton(c: ChatState): HTMLElement {
 function splitDiffPath(c: ChatState, path: string): { name: string; dir: string } {
   const rel = relativeToCwd(c.cwd, path);
   const slash = rel.lastIndexOf("/");
-  return { name: rel.slice(slash + 1), dir: slash >= 0 ? rel.slice(0, slash + 1) : "" };
+  const dir = slash >= 0 ? rel.slice(0, slash + 1) : "";
+  return { name: rel.slice(slash + 1), dir: dir.startsWith("/") ? shortenCwd(dir) : dir };
 }
 
 function diffHunkEl(h: DiffHunk): HTMLElement {
