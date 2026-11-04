@@ -17,6 +17,7 @@ const PERSISTED_KEYS = [
   "theme",
   "fontScale",
   "railWidth",
+  "paneWidth",
   // Which session to come back to on a cold load — see
   // maybeRestoreLastSession.
   "lastSessionId",
@@ -57,6 +58,7 @@ export const state: AppState = {
   sessionSearch: "",
   fontScale: 1,
   railWidth: null,
+  paneWidth: null,
   // Default to local: imported sessions (from peer hosts via the
   // archiver) are noisy if they all show up alongside the user's own
   // work. The dropdown lets them switch to a specific peer or "all".

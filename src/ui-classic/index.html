@@ -214,7 +214,6 @@ pre code { background: transparent; padding: 0; }
 .splitter { flex: 0 0 6px; margin-left: -3px; margin-right: -3px; z-index: 3; cursor: col-resize; background: transparent; }
 .splitter:hover, .splitter.dragging { background: var(--accent); opacity: 0.5; }
 .split-detail { flex: 1 1 0; min-width: 0; display: flex; flex-direction: row; overflow: hidden; }
-.split-detail > .chat { min-width: 0; }
 .split-detail-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); }
 /* .chat-body/.composer's reading-column clamp (below) sizes off 50% of
    their own containing block. In split view that's .split-detail, whose
@@ -685,8 +684,17 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
    screens, docked beside it in the split layout. Breakpoint mirrors
    dom.ts's isWideLayout(). */
 .pane { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: var(--bg); min-width: 0; overflow: hidden; }
+.pane-splitter { display: none; }
 @media (min-width: 1000px) {
-  .split-detail > .pane { position: static; inset: auto; z-index: auto; flex: 0 0 min(55%, 64rem); border-left: 1px solid var(--border); }
+  .split-detail > .pane { position: relative; inset: auto; z-index: auto; flex: 0 1 clamp(20rem, 40%, 52rem); min-width: 20rem; border-left: 1px solid var(--border); }
+  .split-detail > .chat { min-width: 26rem; }
+  .pane-splitter { display: block; position: absolute; top: 0; bottom: 0; left: -3px; width: 6px; z-index: 3; cursor: col-resize; }
+  .pane-splitter:hover, .pane-splitter.dragging { background: var(--accent); opacity: 0.5; }
+}
+/* Not enough room for rail, chat and pane at once: give the rail's width to
+   the pane while one is open. Closing the pane brings the rail back. */
+@media (min-width: 1000px) and (max-width: 1399px) {
+  .split:has(.split-detail > .pane) > .rail, .split:has(.split-detail > .pane) > .splitter { display: none; }
 }
 .pane .topbar .title { flex-shrink: 0; }
 .pane .topbar .pill { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

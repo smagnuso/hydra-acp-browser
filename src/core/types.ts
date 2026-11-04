@@ -798,6 +798,8 @@ export interface AppState {
   // Width of the session rail in split view, in px. null = the CSS
   // default (flex-basis). Persisted so a chosen split survives reloads.
   railWidth: number | null;
+  // Same for the docked pane (file viewer, changes) beside the chat.
+  paneWidth: number | null;
   // Filled in when the options modal opens — see describeCachedSession.
   cacheInfo?: string;
   // Filled in when the options modal opens — see openOptionsModal.

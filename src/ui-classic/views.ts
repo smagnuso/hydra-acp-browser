@@ -399,6 +399,54 @@ function clampRailWidth(px: number): number {
 // a full rebuild per pointermove would be both janky and pointless,
 // since only one element's width is changing. State is committed once,
 // on release.
+// Width bounds for the docked pane: never so wide the chat beside it is
+// squeezed under CHAT_MIN_PX, never so narrow a diff row is unreadable.
+const PANE_MIN_PX = 320;
+const CHAT_MIN_PX = 416;
+
+function clampPaneWidth(px: number, available: number): number {
+  const max = Math.max(PANE_MIN_PX, available - CHAT_MIN_PX);
+  return Math.round(Math.max(PANE_MIN_PX, Math.min(px, max)));
+}
+
+// Drag handle on a docked pane's left edge. Like the rail's splitter it
+// writes to the pane's own style during the drag and commits once on release.
+function paneResizeHandle(): HTMLElement {
+  const sp = el("div", { class: "pane-splitter", title: "Drag to resize (double-click to reset)" });
+  sp.addEventListener("dblclick", () => setState({ paneWidth: null }));
+  sp.addEventListener("pointerdown", (e: PointerEvent) => {
+    const pane = sp.parentElement;
+    const detail = pane?.parentElement;
+    if (!pane || !detail) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = pane.getBoundingClientRect().width;
+    const available = detail.getBoundingClientRect().width;
+    sp.setPointerCapture(e.pointerId);
+    sp.classList.add("dragging");
+    const move = (ev: PointerEvent): void => {
+      pane.style.flex = `0 0 ${clampPaneWidth(startW - (ev.clientX - startX), available)}px`;
+    };
+    const done = (): void => {
+      sp.releasePointerCapture(e.pointerId);
+      sp.classList.remove("dragging");
+      sp.removeEventListener("pointermove", move);
+      sp.removeEventListener("pointerup", done);
+      sp.removeEventListener("pointercancel", done);
+      setState({ paneWidth: clampPaneWidth(pane.getBoundingClientRect().width, available) });
+    };
+    sp.addEventListener("pointermove", move);
+    sp.addEventListener("pointerup", done);
+    sp.addEventListener("pointercancel", done);
+  });
+  return sp;
+}
+
+// The saved drag width, applied to a pane node as it is built.
+function paneWidthStyle(): string | undefined {
+  return isWideLayout() && state.paneWidth !== null ? `flex: 0 0 ${state.paneWidth}px` : undefined;
+}
+
 function renderSplitter(): HTMLElement {
   const sp = el("div", { class: "splitter", title: "Drag to resize (double-click to reset)" });
   sp.addEventListener("dblclick", () => {
@@ -5003,6 +5051,7 @@ function fileOverlaySig(c: ChatState, fo: FileOverlayState): unknown[] {
     c.cwd,
     c.diffPane !== null,
     isWideLayout(),
+    state.paneWidth,
   ];
 }
 
@@ -5326,7 +5375,9 @@ function renderFileOverlay(c: ChatState): Node {
       // restores it rather than dropping to body.
       tabindex: "-1",
       "data-focus-key": "file-modal",
+      style: paneWidthStyle(),
     },
+    paneResizeHandle(),
     el(
       "div",
       { class: "topbar", style: "border-bottom:1px solid var(--border)" },
@@ -5408,7 +5459,8 @@ function renderDiffPane(c: ChatState): Node {
   }
   return el(
     "div",
-    { class: "pane diff-pane", tabindex: "-1", "data-focus-key": "diff-pane" },
+    { class: "pane diff-pane", tabindex: "-1", "data-focus-key": "diff-pane", style: paneWidthStyle() },
+    paneResizeHandle(),
     el(
       "div",
       { class: "topbar", style: "border-bottom:1px solid var(--border)" },
@@ -5458,6 +5510,7 @@ function cachedDiffPane(c: ChatState): Node {
     pane.expanded,
     c.cwd,
     isWideLayout(),
+    state.paneWidth,
     c.log.filter((i) => i.kind === "stream" && i.role === "user").length,
     edits.length,
     edits.map((i) => (i as EditDiffLogItem).status ?? "").join(","),
