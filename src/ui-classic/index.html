@@ -498,6 +498,7 @@ a.edit-name.file-link:hover { color: var(--accent); border-bottom: 1px dashed cu
 .toolcard.open .body { display: block; }
 .toolcard pre { margin: 0.5rem 0 0; max-height: 24rem; overflow-y: auto; }
 .diff-stats { display: inline-flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.toolcard .head .title .pill { flex: 0 0 auto; }
 .diff-stats .add { color: var(--good, #3fb950); }
 .diff-stats .del { color: var(--bad); }
 .diff-line { white-space: pre-wrap; word-break: break-word; padding: 0 0.2rem; font-size: 0.85rem; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
@@ -702,12 +703,14 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
 .diff-pane .diff-list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0.5rem 0; }
 .diff-pane .diff-empty { padding: 1.5rem; text-align: center; color: var(--muted); }
 .diff-file { margin: 0 0 0.75rem; }
-.diff-file-head { display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto; grid-template-areas: "caret name open" ". sub sub"; align-items: center; column-gap: 0.6rem; row-gap: 0.2rem; padding: 0.5rem 0.75rem; background: var(--panel); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-family: ui-monospace, monospace; font-size: 0.85rem; cursor: pointer; }
+.diff-file-head { display: grid; grid-template-columns: 1rem minmax(0, 1fr) auto auto; grid-template-areas: "caret title stats open" ". sub sub sub"; align-items: center; column-gap: 0.6rem; row-gap: 0.2rem; padding: 0.5rem 0.75rem; background: var(--panel); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-family: ui-monospace, monospace; font-size: 0.85rem; cursor: pointer; }
 .diff-file-head .caret { grid-area: caret; color: var(--muted); }
-.diff-file-head .name { grid-area: name; font-weight: 600; overflow-wrap: anywhere; }
+.diff-file-head .title { grid-area: title; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.5rem; min-width: 0; }
+.diff-file-head .name { font-weight: 600; overflow-wrap: anywhere; }
+.diff-file-head .diff-stats { grid-area: stats; font-size: 0.8rem; }
 .diff-file-head > button { grid-area: open; }
-.diff-file-head .sub { grid-area: sub; display: flex; align-items: center; gap: 0.5rem; min-width: 0; font-size: 0.8rem; }
-.diff-file-head .dir { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.diff-file-head .sub { grid-area: sub; min-width: 0; font-size: 0.8rem; }
+.diff-file-head .dir { display: block; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .diff-hunk { margin: 0; padding: 0.3rem 0; overflow-x: auto; }
 .diff-hunk + .diff-hunk { border-top: 1px dashed var(--border); }
 .files { display: flex; flex-direction: column; height: 100%; flex: 1; overflow: hidden; }

@@ -4148,6 +4148,7 @@ function editedTitleEl(
   shownPath: string,
   item?: EditDiffLogItem,
   sessionId?: string,
+  labels: HTMLElement[] = [],
 ): HTMLElement {
   const slashIdx = shownPath.lastIndexOf("/");
   const name = slashIdx >= 0 ? shownPath.slice(slashIdx + 1) : shownPath;
@@ -4172,6 +4173,7 @@ function editedTitleEl(
     { class: "title" },
     el("span", { class: "edit-verb" }, "Edited"),
     nameEl,
+    ...labels,
     dir.length > 0 ? el("span", { class: "edit-dir" }, dir) : null,
   );
 }
@@ -4198,11 +4200,9 @@ function sourceChip(source: ChunkSource): HTMLElement {
   return chip;
 }
 
-// The vocabulary shared by chat edit blocks and the changes pane: file
-// state labels, then +added -removed.
-function diffStatEls(st: {
-  added: number;
-  removed: number;
+// The vocabulary shared by chat edit blocks and the changes pane. File
+// state labels sit right after the filename; the counts go at the far end.
+function diffLabelEls(st: {
   created?: boolean;
   deleted?: boolean;
   omitted?: "binary" | "large";
@@ -4217,6 +4217,11 @@ function diffStatEls(st: {
   if (st.omitted) {
     out.push(el("span", { class: "pill" }, st.omitted === "binary" ? "binary" : "too large"));
   }
+  return out;
+}
+
+function diffCountEls(st: { added: number; removed: number }): HTMLElement[] {
+  const out: HTMLElement[] = [];
   if (st.added > 0) {
     out.push(el("span", { class: "add" }, `+${st.added}`));
   }
@@ -4242,7 +4247,7 @@ function renderEditDiff(c: ChatState, item: EditDiffLogItem): HTMLElement {
   const cached = diffCacheFor(item.diff);
   const counts = cached.counts;
   const shownPath = item.diff.path ? shortenCwd(item.diff.path) : "file";
-  const summary = diffStatEls({ ...counts, created: item.diff.oldText === "" });
+  const summary = diffCountEls(counts);
   const head = el(
     "div",
     {
@@ -4253,7 +4258,7 @@ function renderEditDiff(c: ChatState, item: EditDiffLogItem): HTMLElement {
       }),
     },
     el("span", null, item.expanded ? "▾" : "▸"),
-    editedTitleEl(shownPath, item, c.sessionId),
+    editedTitleEl(shownPath, item, c.sessionId, diffLabelEls({ created: item.diff.oldText === "" })),
     item.source ? sourceChip(item.source) : null,
     summary.length > 0 ? el("span", { class: "kind edit-summary diff-stats" }, summary) : null,
   );
@@ -5401,14 +5406,10 @@ function diffFileEl(c: ChatState, pane: DiffPaneState, f: FileDiff): HTMLElement
       "div",
       { class: "diff-file-head", ...tapHandler(() => toggleDiffFile(f.path)), title: f.path },
       el("span", { class: "caret" }, open ? "▾" : "▸"),
-      el("span", { class: "name" }, name),
+      el("span", { class: "title" }, el("span", { class: "name" }, name), ...diffLabelEls(f)),
+      el("span", { class: "diff-stats" }, diffCountEls({ added, removed })),
       f.deleted ? null : el("button", { ...tapHandler(() => openDiffFile(f)), title: "Open file" }, "↗"),
-      el(
-        "div",
-        { class: "sub" },
-        el("span", { class: "dir" }, dir),
-        el("span", { class: "diff-stats" }, diffStatEls({ added, removed, created: f.created, deleted: f.deleted, omitted: f.omitted })),
-      ),
+      el("div", { class: "sub" }, el("span", { class: "dir" }, dir)),
     ),
     ...(open ? f.hunks.map(diffHunkEl) : []),
   );
