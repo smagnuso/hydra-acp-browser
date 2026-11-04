@@ -60,7 +60,7 @@ import {
   reopenClosedChat,
 } from "../core/routing.js";
 import { hasActiveSelection, isFormControl, isWideLayout } from "./dom.js";
-import { buildChatPreviewPane, buildListPreviewPane, peekChatViewRoot } from "./views.js";
+import { buildChatPreviewPane, buildListPreviewPane, paneBelowPreview, peekChatViewRoot } from "./views.js";
 import { closeTopPane, hasOpenPane, nextForwardPane, reopenForwardPane } from "../core/diff.js";
 import { beginExternalRenderHold, endExternalRenderHold } from "./renderer.js";
 import type { ChatState } from "../core/types.js";
@@ -135,6 +135,8 @@ let locked = false;
 // gesture locks in onTouchMove, cleared on cleanup.
 let frontNodes: HTMLElement[] = [];
 // The synthetic preview layer behind them, inserted fresh per gesture.
+// The pane uncovered by a closePane drag when it is not the chat.
+let belowNode: HTMLElement | null = null;
 let revealLayer: HTMLElement | null = null;
 let revealContent: HTMLElement | null = null;
 let revealScrim: HTMLElement | null = null;
@@ -238,6 +240,19 @@ function armDrag(m: Mode): boolean {
     const overlay = app.querySelector<HTMLElement>(":scope > .pane");
     if (!overlay) return false;
     frontNodes = [overlay];
+    // Over the changes pane, going back lands there, not on the chat.
+    const below = state.current ? paneBelowPreview(state.current) : null;
+    if (below) {
+      belowNode = below;
+      below.style.zIndex = "51";
+      overlay.style.zIndex = "52";
+      app.insertBefore(below, overlay);
+      const list = below.querySelector<HTMLElement>(".diff-list");
+      const top = state.current?.diffPane?.scrollTop;
+      if (list && top) {
+        list.scrollTop = top;
+      }
+    }
     beginExternalRenderHold();
     return true;
   }
@@ -327,6 +342,11 @@ function cleanup(): void {
     node.style.zIndex = "";
   }
   frontNodes = [];
+  if (belowNode) {
+    belowNode.style.zIndex = "";
+    belowNode.remove();
+    belowNode = null;
+  }
   revealLayer?.remove();
   revealScrim?.remove();
   revealLayer = null;
@@ -387,7 +407,12 @@ function commit(m: Mode): void {
     if (m === "closePane") {
       // Saves savedFileView and drops the overlay; the render that
       // follows discards the node we were dragging, inline styles and
-      // all, same as the other two paths.
+      // all, same as the other two paths. The pane it uncovered is the
+      // live one now, so only forget it here; cleanup() must not remove it.
+      if (belowNode) {
+        belowNode.style.zIndex = "";
+        belowNode = null;
+      }
       closeTopPane();
       return;
     }

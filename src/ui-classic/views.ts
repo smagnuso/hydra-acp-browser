@@ -5463,6 +5463,17 @@ function cachedDiffPane(c: ChatState): Node {
   return node;
 }
 
+// What closing the file viewer will reveal when it sits over the changes
+// pane, for the back swipe to show while dragging (the chat is otherwise
+// what is behind it in the DOM). Null when the chat is what comes next.
+export function paneBelowPreview(c: ChatState): HTMLElement | null {
+  if (!c.fileOverlay || !c.diffPane) {
+    return null;
+  }
+  const node = cachedDiffPane(c);
+  return node instanceof HTMLElement ? node : null;
+}
+
 // The topmost pane: the file viewer over the changes pane over the chat.
 function cachedPane(c: ChatState): Node {
   return c.fileOverlay ? cachedFileOverlay(c) : cachedDiffPane(c);
