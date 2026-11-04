@@ -170,6 +170,14 @@ Ships as `hydra-acp-browser` on PATH. Registered via
   JS involved: a pure CSS/scroll-chaining bug, not a render or pin
   timing issue. Any new independently-scrolling panel needs the same
   property.
+- **Panes (file viewer, changes) must be a direct child of `#app` (narrow)
+  or `.split-detail` (wide), with class `pane`.** `swipe-nav.ts` drags
+  `:scope > .pane` and the renderer's in-place patch swaps `childNodes[1]`
+  of those two parents. A pane mounted anywhere else renders fine but loses
+  the back swipe and is rebuilt on every streaming render. Back and forward
+  go through `closeTopPane()` / `reopenForwardPane()` in `core/diff.ts`,
+  not `closeFiles()` / `closeDiff()` directly, or the forward trail is
+  skipped.
 
 ## Debugging a "the transcript is missing X" report
 
