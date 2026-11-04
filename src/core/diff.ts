@@ -222,6 +222,21 @@ export function refreshDiffIfOpen(): void {
   }
 }
 
+export function newDiffPane(): DiffPaneState {
+  return {
+    scope: "session",
+    turn: null,
+    files: null,
+    uncommitted: null,
+    notRepo: false,
+    truncated: false,
+    loading: false,
+    err: null,
+    expanded: [],
+    scrollTop: 0,
+  };
+}
+
 export function openDiff(): void {
   const c = state.current;
   if (!c) {
@@ -229,7 +244,7 @@ export function openDiff(): void {
   }
   c.forwardPanes = [];
   // Reopening shows the last-seen diff at once and revalidates behind it.
-  c.diffPane = c.diffPane ?? c.savedDiffPane ?? { scope: "session", turn: null, files: null, uncommitted: null, notRepo: false, truncated: false, loading: false, err: null, expanded: [], scrollTop: 0 };
+  c.diffPane = c.diffPane ?? c.savedDiffPane ?? newDiffPane();
   notifyChange();
   void refreshDiff();
 }
@@ -318,8 +333,13 @@ export function closeTopPane(): void {
   }
 }
 
+// What a forward gesture opens: the pane last closed by going back, or the
+// changes pane when the chat has none open and nothing to return to.
 export function nextForwardPane(c: ChatState | null): "diff" | "files" | null {
-  return c?.forwardPanes[c.forwardPanes.length - 1] ?? null;
+  if (!c) {
+    return null;
+  }
+  return c.forwardPanes[c.forwardPanes.length - 1] ?? (hasOpenPane(c) ? null : "diff");
 }
 
 // Forward: brings back the pane last closed by going back, as it was.

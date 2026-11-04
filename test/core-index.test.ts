@@ -116,6 +116,7 @@ const FUNCTIONS = [
   "visibleDiffFiles",
   "refreshDiff",
   "openDiff",
+  "newDiffPane",
   "closeDiff",
   "toggleDiffFile",
   "setDiffScroll",

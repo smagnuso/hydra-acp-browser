@@ -83,6 +83,7 @@ import {
   stepDiffTurn,
   openDiffFile,
   hasOpenPane,
+  newDiffPane,
   closeTopPane,
   toggleDiffFile,
   setDiffScroll,
@@ -5523,8 +5524,8 @@ export function paneBelowPreview(c: ChatState): HTMLElement | null {
 // to state; null when nothing was saved.
 export function forwardPanePreview(c: ChatState, kind: "diff" | "files"): HTMLElement | null {
   let node: Node | null = null;
-  if (kind === "diff" && c.savedDiffPane) {
-    node = renderDiffPane({ ...c, diffPane: c.savedDiffPane, fileOverlay: null });
+  if (kind === "diff") {
+    node = renderDiffPane({ ...c, diffPane: c.savedDiffPane ?? newDiffPane(), fileOverlay: null });
   } else if (kind === "files" && c.savedFileOverlay) {
     node = renderFileOverlay({ ...c, fileOverlay: c.savedFileOverlay });
   }

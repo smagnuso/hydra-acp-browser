@@ -143,3 +143,13 @@ test("going back leaves a forward trail that restores panes in order", async () 
   diff.openDiff();
   assert.deepEqual(c.forwardPanes, []);
 });
+
+test("a forward gesture defaults to the changes pane when nothing was closed", () => {
+  const c = chat([]);
+  assert.equal(diff.nextForwardPane(c), "diff");
+  c.diffPane = diff.newDiffPane();
+  assert.equal(diff.nextForwardPane(c), null);
+  c.diffPane = null;
+  c.forwardPanes = ["files"];
+  assert.equal(diff.nextForwardPane(c), "files");
+});
