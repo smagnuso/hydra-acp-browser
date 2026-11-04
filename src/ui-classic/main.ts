@@ -41,6 +41,8 @@ import {
   scrollToTurn,
   initFileWindowPaging,
   initDiffScrollTracking,
+  closeRailPeek,
+  initRailPeek,
   fileOverlayViewHooks,
 } from "./views.js";
 import { state, subscribe } from "../core/state.js";
@@ -124,6 +126,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Loads the next slice of a large file as the preview nears an edge.
   initFileWindowPaging();
   initDiffScrollTracking();
+  initRailPeek();
   // File mentions the bridge confirmed, rendered as links inside message
   // bodies (innerHTML, so they can't carry their own tapHandler).
   delegatedTap(".file-link", (target) => {
@@ -267,6 +270,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || !hasOpenPane(state.current)) return;
   e.preventDefault();
   e.stopImmediatePropagation();
+  if (closeRailPeek()) return;
   closeTopPane();
 });
 

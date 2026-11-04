@@ -691,10 +691,20 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
   .pane-splitter { display: block; position: absolute; top: 0; bottom: 0; left: -3px; width: 6px; z-index: 3; cursor: col-resize; }
   .pane-splitter:hover, .pane-splitter.dragging { background: var(--accent); opacity: 0.5; }
 }
-/* Not enough room for rail, chat and pane at once: give the rail's width to
-   the pane while one is open. Closing the pane brings the rail back. */
+.rail-strip { display: none; }
+/* Not enough room for rail, chat and pane at once: while a pane is open the
+   rail collapses to a strip, and its button opens it as a drawer over the
+   chat (sized by the same splitter, via --rail-w). */
 @media (min-width: 1000px) and (max-width: 1399px) {
-  .split:has(.split-detail > .pane) > .rail, .split:has(.split-detail > .pane) > .splitter { display: none; }
+  .split:has(.split-detail > .pane) { position: relative; }
+  .split:has(.split-detail > .pane) > .rail-strip { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; flex: 0 0 3rem; padding: 0.7rem 0; border: 0; border-right: 1px solid var(--border); border-radius: 0; background: var(--panel); color: var(--muted); cursor: pointer; }
+  .rail-strip .icon { font-size: 1.1rem; }
+  .rail-strip .label { writing-mode: vertical-rl; font-size: 0.8rem; }
+  .split.peek > .rail-strip { color: var(--accent); }
+  .split:has(.split-detail > .pane) > .rail { display: none; position: absolute; left: 3rem; top: 0; bottom: 0; width: var(--rail-w, 24rem); z-index: 20; background: var(--bg); box-shadow: 4px 0 16px rgba(0, 0, 0, 0.35); }
+  .split:has(.split-detail > .pane) > .splitter { display: none; }
+  .split.peek:has(.split-detail > .pane) > .rail { display: flex; }
+  .split.peek:has(.split-detail > .pane) > .splitter { display: block; position: absolute; left: calc(3rem + var(--rail-w, 24rem)); top: 0; bottom: 0; margin: 0; z-index: 21; }
 }
 .pane .topbar .title { flex-shrink: 0; }
 .pane .topbar .pill { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

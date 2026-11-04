@@ -456,6 +456,7 @@ function renderSplitter(): HTMLElement {
     // would keep overriding it forever, including any future default
     // width change, until the user happened to drag again.
     if (rail) rail.style.flex = "";
+    sp.parentElement?.style.removeProperty("--rail-w");
     setState({ railWidth: null });
   });
   sp.addEventListener("pointerdown", (e: PointerEvent) => {
@@ -468,7 +469,10 @@ function renderSplitter(): HTMLElement {
     sp.setPointerCapture(e.pointerId);
     sp.classList.add("dragging");
     const move = (ev: PointerEvent): void => {
-      rail.style.flex = `0 0 ${clampRailWidth(startW + (ev.clientX - startX))}px`;
+      const w = clampRailWidth(startW + (ev.clientX - startX));
+      rail.style.flex = `0 0 ${w}px`;
+      // The drawer (rail collapsed beside a pane) sizes from this instead.
+      sp.parentElement?.style.setProperty("--rail-w", `${w}px`);
     };
     const done = (): void => {
       sp.releasePointerCapture(e.pointerId);
@@ -483,6 +487,44 @@ function renderSplitter(): HTMLElement {
     sp.addEventListener("pointercancel", done);
   });
   return sp;
+}
+
+// Beside a docked pane on a mid-width window the rail collapses to a strip
+// (index.html); its button opens the rail as a drawer over the chat. Pure
+// DOM state, so toggling never re-renders.
+let railPeek = false;
+
+function setRailPeek(on: boolean): void {
+  railPeek = on;
+  document.querySelector(".split")?.classList.toggle("peek", on);
+}
+
+export function closeRailPeek(): boolean {
+  if (!railPeek) return false;
+  setRailPeek(false);
+  return true;
+}
+
+export function initRailPeek(): void {
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      const t = e.target;
+      if (railPeek && t instanceof Element && !t.closest(".rail, .rail-strip, .splitter")) {
+        setRailPeek(false);
+      }
+    },
+    true,
+  );
+}
+
+function renderRailStrip(): HTMLElement {
+  return el(
+    "button",
+    { class: "rail-strip", title: "Sessions", ...tapHandler(() => setRailPeek(!railPeek)) },
+    el("span", { class: "icon" }, "☰"),
+    el("span", { class: "label" }, "Sessions"),
+  );
 }
 
 function renderSplitLayout(s: AppState): HTMLElement {
@@ -506,7 +548,14 @@ function renderSplitLayout(s: AppState): HTMLElement {
       el("div", { class: "split-detail-empty" }, "Select a session from the list"),
     );
   }
-  return el("div", { class: "split" }, renderRail(), renderSplitter(), detail);
+  if (!s.current || !hasOpenPane(s.current)) {
+    railPeek = false;
+  }
+  const split = el("div", { class: railPeek ? "split peek" : "split" }, renderRailStrip(), renderRail(), renderSplitter(), detail);
+  if (state.railWidth !== null) {
+    split.style.setProperty("--rail-w", `${clampRailWidth(state.railWidth)}px`);
+  }
+  return split;
 }
 
 // Moves keyboard focus to the session-list rail (wide layout only) so
