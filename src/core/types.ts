@@ -500,6 +500,8 @@ export interface ChatState {
   diffPane: DiffPaneState | null;
   // Last state of the changes pane, so reopening it is instant.
   savedDiffPane: DiffPaneState | null;
+  // The viewer exactly as last closed, for a forward swipe to preview.
+  savedFileOverlay: FileOverlayState | null;
   // Panes closed by going back, most recent last, so a forward gesture can
   // bring them back. Any pane opened afresh clears it.
   forwardPanes: Array<"diff" | "files">;

@@ -414,6 +414,7 @@ export function closeFiles(): void {
       previewRaw: fo.previewRaw,
     };
   }
+  c.savedFileOverlay = fo;
   c.fileOverlay = null;
   uiHooks.fileOverlayClosing();
   notifyChange();

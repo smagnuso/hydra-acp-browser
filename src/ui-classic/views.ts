@@ -5488,6 +5488,19 @@ export function paneBelowPreview(c: ChatState): HTMLElement | null {
   return node instanceof HTMLElement ? node : null;
 }
 
+// The pane a forward swipe will bring back, rendered from what was saved
+// when it closed so the drag shows the real thing. Never cached or attached
+// to state; null when nothing was saved.
+export function forwardPanePreview(c: ChatState, kind: "diff" | "files"): HTMLElement | null {
+  let node: Node | null = null;
+  if (kind === "diff" && c.savedDiffPane) {
+    node = renderDiffPane({ ...c, diffPane: c.savedDiffPane, fileOverlay: null });
+  } else if (kind === "files" && c.savedFileOverlay) {
+    node = renderFileOverlay({ ...c, fileOverlay: c.savedFileOverlay });
+  }
+  return node instanceof HTMLElement ? node : null;
+}
+
 // The topmost pane: the file viewer over the changes pane over the chat.
 function cachedPane(c: ChatState): Node {
   return c.fileOverlay ? cachedFileOverlay(c) : cachedDiffPane(c);

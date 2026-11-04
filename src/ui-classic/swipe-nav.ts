@@ -60,7 +60,7 @@ import {
   reopenClosedChat,
 } from "../core/routing.js";
 import { hasActiveSelection, isFormControl, isWideLayout } from "./dom.js";
-import { buildChatPreviewPane, buildListPreviewPane, paneBelowPreview, peekChatViewRoot } from "./views.js";
+import { buildChatPreviewPane, buildListPreviewPane, forwardPanePreview, paneBelowPreview, peekChatViewRoot } from "./views.js";
 import { closeTopPane, hasOpenPane, nextForwardPane, reopenForwardPane } from "../core/diff.js";
 import { beginExternalRenderHold, endExternalRenderHold } from "./renderer.js";
 import type { ChatState } from "../core/types.js";
@@ -165,8 +165,19 @@ let revealScrollFixup: { body: HTMLElement; top: number } | null = null;
 
 // Just the frame of the pane about to arrive; the real one renders when the
 // swipe commits.
+let pendingDiffScroll = 0;
+
 function buildPaneShell(): HTMLElement {
   const kind = nextForwardPane(state.current);
+  const real = state.current && kind ? forwardPanePreview(state.current, kind) : null;
+  if (real) {
+    const top = kind === "diff" ? state.current?.savedDiffPane?.scrollTop : 0;
+    if (top) {
+      revealScrollFixup = null;
+      pendingDiffScroll = top;
+    }
+    return real;
+  }
   const shell = document.createElement("div");
   shell.className = "pane";
   const bar = document.createElement("div");
@@ -286,6 +297,13 @@ function armDrag(m: Mode): boolean {
   app.insertBefore(revealLayer, app.firstChild);
   if (revealScrollFixup) {
     revealScrollFixup.body.scrollTop = revealScrollFixup.top;
+  }
+  if (pendingDiffScroll) {
+    const list = revealContent.querySelector<HTMLElement>(".diff-list");
+    if (list) {
+      list.scrollTop = pendingDiffScroll;
+    }
+    pendingDiffScroll = 0;
   }
   // A render landing mid-drag is already held off by renderer.ts's
   // ordinary pointerDown gate — but that gate's pointerup handler
