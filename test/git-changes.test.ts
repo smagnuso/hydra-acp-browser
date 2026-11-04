@@ -44,7 +44,7 @@ test("parseGitDiff builds old and new text per hunk and flags new files", () => 
     "",
   ].join("\n");
   const files = parseGitDiff(patch, "/r");
-  assert.deepEqual(files.map((f) => f.path), ["/r/a.ts", "/r/n.ts", "/r/img.png"]);
+  assert.deepEqual(files.map((f) => f.path), [join("/r", "a.ts"), join("/r", "n.ts"), join("/r", "img.png")]);
   assert.deepEqual(files[0]!.hunks, [
     { oldText: "keep\nold\ntail\n", newText: "keep\nnew\ntail\n" },
     { oldText: "ctx\n", newText: "ctx\nextra\n" },
