@@ -5344,18 +5344,12 @@ function paneBackButton(c: ChatState): HTMLElement {
   );
 }
 
-// Filename first with its directory dimmed after it, so truncation eats the
-// directory rather than the name. Paths outside the session's cwd stay
-// absolute, which is what tells them apart from the relative ones.
-function diffPathEl(c: ChatState, path: string): HTMLElement {
+// Paths outside the session's cwd stay absolute, which is what tells them
+// apart from the relative ones.
+function splitDiffPath(c: ChatState, path: string): { name: string; dir: string } {
   const rel = relativeToCwd(c.cwd, path);
   const slash = rel.lastIndexOf("/");
-  return el(
-    "span",
-    { class: "path" },
-    el("span", { class: "name" }, rel.slice(slash + 1)),
-    slash >= 0 ? el("span", { class: "dir" }, rel.slice(0, slash + 1)) : null,
-  );
+  return { name: rel.slice(slash + 1), dir: slash >= 0 ? rel.slice(0, slash + 1) : "" };
 }
 
 function diffHunkEl(h: DiffHunk): HTMLElement {
@@ -5383,30 +5377,26 @@ function diffFileEl(c: ChatState, pane: DiffPaneState, f: FileDiff): HTMLElement
     removed += n.removed;
   }
   const open = pane.expanded.includes(f.path);
+  const { name, dir } = splitDiffPath(c, f.path);
   return el(
     "div",
     { class: "diff-file" },
     el(
       "div",
       { class: "diff-file-head", ...tapHandler(() => toggleDiffFile(f.path)), title: f.path },
-      el("span", null, open ? "▾" : "▸"),
+      el("span", { class: "caret" }, open ? "▾" : "▸"),
+      el("span", { class: "name" }, name),
+      f.deleted ? null : el("button", { ...tapHandler(() => openDiffFile(f)), title: "Open file" }, "↗"),
       el(
         "div",
-        { class: "main" },
-        diffPathEl(c, f.path),
-        f.created || f.deleted || f.omitted || added > 0 || removed > 0
-          ? el(
-              "div",
-              { class: "meta" },
-              f.created ? el("span", { class: "pill" }, "new") : null,
-              f.deleted ? el("span", { class: "pill" }, "deleted") : null,
-              f.omitted ? el("span", { class: "pill" }, f.omitted === "binary" ? "binary" : "too large") : null,
-              added > 0 ? el("span", { class: "add" }, `+${added}`) : null,
-              removed > 0 ? el("span", { class: "del" }, `-${removed}`) : null,
-            )
-          : null,
+        { class: "sub" },
+        el("span", { class: "dir" }, dir),
+        f.created ? el("span", { class: "pill" }, "new") : null,
+        f.deleted ? el("span", { class: "pill" }, "deleted") : null,
+        f.omitted ? el("span", { class: "pill" }, f.omitted === "binary" ? "binary" : "too large") : null,
+        added > 0 ? el("span", { class: "add" }, `+${added}`) : null,
+        removed > 0 ? el("span", { class: "del" }, `-${removed}`) : null,
       ),
-      f.deleted ? null : el("button", { ...tapHandler(() => openDiffFile(f)), title: "Open file" }, "↗"),
     ),
     ...(open ? f.hunks.map(diffHunkEl) : []),
   );
