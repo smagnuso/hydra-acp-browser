@@ -48,6 +48,7 @@ your `index.html`. `/login` (form POST, `password`, optional `next`) and
 | `GET /api/sessions?cwd=&all=true&since=<cursor>` | Session list; `since` is a delta cursor. |
 | `GET /api/sessions/:id` | One session's metadata. |
 | `GET /api/sessions/:id/history?beforeSeq=&turns=` | Older history page ("load earlier"). |
+| `GET /api/sessions/:id/diff?fold=` | Per-file diff of everything the session edited, rebuilt from history by the daemon (`[{path, created, hunks}]`). Paths are added to the edited-files allowlist so the Files API can open them. |
 | `POST /api/sessions` | Create. `{cwd, agent?, remote?, ...}`; 201 with the session. `cwd` required unless `remote`. |
 | `POST /api/kill` | `{sessionId}`; 204. |
 | `PATCH /api/sessions/:id/priority` | `{priority: positive int or null}`; 204. |

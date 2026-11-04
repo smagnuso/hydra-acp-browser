@@ -387,6 +387,8 @@ export interface FileEntry {
   mtimeMs?: number;
 }
 
+import type { DiffPaneState } from "./diff.js";
+
 export interface FileOverlayState {
   path: string;
   entries: FileEntry[];
@@ -416,7 +418,6 @@ export interface FileOverlayState {
     | { path?: string; isImage: true; url: string }
     | null;
   err: string | null;
-  maximized: boolean;
   // Markdown files default to a rendered preview; this forces the raw,
   // syntax-highlighted source view instead. Ignored for non-markdown files.
   previewRaw: boolean;
@@ -495,6 +496,10 @@ export interface ChatState {
   contextSize: number | null;
   cost: unknown;
   fileOverlay: FileOverlayState | null;
+  // The changes pane, shown under the file viewer when both are open.
+  diffPane: DiffPaneState | null;
+  // Last state of the changes pane, so reopening it is instant.
+  savedDiffPane: DiffPaneState | null;
   // What the Files overlay was showing when last closed, so reopening it
   // (within the same tab session — this is never persisted) picks up
   // where the user left off instead of resetting to the directory root.
@@ -502,7 +507,6 @@ export interface ChatState {
     dirPath: string;
     previewPath: string | null;
     previewRaw: boolean;
-    maximized: boolean;
   } | null;
   // File mentions the server confirmed are real files in this session's
   // cwd, keyed by the exact text substring that was matched. Nothing is

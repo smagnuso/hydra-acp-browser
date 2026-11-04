@@ -32,8 +32,21 @@ and set `BROWSER_UI_DIR=/path`. `src/ui-board/` (a few hundred lines) is a small
   (`compareSessions` in `session-sort.ts`) is the view's call.
 - Session metadata: `setSessionTitle`, `setSessionPriority`,
   `sessionExportUrl`, `createSession`, `killSession`.
+- Changes: `state.current.diffPane` (`scope` "session"|"turn", `turn`,
+  `files`, `loading`, `err`). `openDiff()` fetches `/api/sessions/:id/diff`;
+  `refreshDiff()` refetches (core also does it at turn end while the session
+  scope is showing). The turn scope is read from the chat log by
+  `turnDiffs(chat)`, so it covers only history the client holds.
+  `visibleDiffFiles(chat)` gives the files for the current scope,
+  `setDiffScope`, `stepDiffTurn(delta)`, `openDiffFile(file)` opens the file
+  viewer on top at its first change, `closeDiff()`.
+- Panes: the file viewer and the changes pane form a stack over the chat.
+  `hasOpenPane(chat)` and `closeTopPane()` (back: viewer first, then
+  changes) are what a UI's back control, Escape and swipe should call. A UI
+  decides the layout: classic shows the top pane full-screen when narrow and
+  docked beside the chat when wide.
 - Files: the browser is a state machine on `state.current.fileOverlay`
-  (`path`, `entries`, windowed `preview`, `err`, `maximized`,
+  (`path`, `entries`, windowed `preview`, `err`,
   `previewRaw`, one-shot `scrollToLine`/`keepLine`). Drive it with
   `openFiles()`, `listFiles(dir)`, `readFile(path)`, `navigateFile(entry)`,
   `openFileAtLine(chat, path, line)`, `extendFileWindow("up"|"down")` as

@@ -4,6 +4,7 @@ import { HydraRestClient, HydraRestError } from "../hydra/client.js";
 import { UpstreamConnection, runInitialize } from "../hydra/ws.js";
 import { logger } from "../util/log.js";
 import type { ServerContext } from "./http.js";
+import { recordEditedPath } from "./session-files.js";
 
 function clientFor(ctx: ServerContext, request: FastifyRequest): HydraRestClient {
   // Prefer the per-user session token from the hb_session cookie. Fall
@@ -116,6 +117,26 @@ export function registerSessionRoutes(
         turns: query.turns !== undefined ? Number(query.turns) : undefined,
       });
       reply.send(result);
+    } catch (err) {
+      const status = err instanceof HydraRestError ? err.status : 502;
+      reply.code(status).send({ error: (err as Error).message });
+    }
+  });
+
+  // Files this session edited, reconstructed from history by the daemon.
+  // Each path is also added to the edited-paths allowlist so the diff
+  // pane can open a file the agent changed outside the session's cwd.
+  app.get("/api/sessions/:id/diff", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const query = request.query as { fold?: string };
+    try {
+      const files = await clientFor(ctx, request).getSessionDiff(id, {
+        fold: query.fold === "true" || query.fold === "1",
+      });
+      for (const f of files) {
+        recordEditedPath(id, f.path);
+      }
+      reply.send(files);
     } catch (err) {
       const status = err instanceof HydraRestError ? err.status : 502;
       reply.code(status).send({ error: (err as Error).message });

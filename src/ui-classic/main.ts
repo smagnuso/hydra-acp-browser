@@ -14,7 +14,8 @@ import {
   endReplayPaintHold,
 } from "./renderer.js";
 import { installUiHooks } from "../core/hooks.js";
-import { openFileAtLine, editAnchorForToolCall, closeFiles } from "../core/files.js";
+import { openFileAtLine, editAnchorForToolCall } from "../core/files.js";
+import { closeTopPane, hasOpenPane } from "../core/diff.js";
 import {
   applyHashRoute,
   applyProtocolLaunch,
@@ -39,6 +40,7 @@ import {
   closeModal,
   scrollToTurn,
   initFileWindowPaging,
+  initDiffScrollTracking,
   fileOverlayViewHooks,
 } from "./views.js";
 import { state, subscribe } from "../core/state.js";
@@ -121,6 +123,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   initSwipeBack();
   // Loads the next slice of a large file as the preview nears an edge.
   initFileWindowPaging();
+  initDiffScrollTracking();
   // File mentions the bridge confirmed, rendered as links inside message
   // bodies (innerHTML, so they can't carry their own tapHandler).
   delegatedTap(".file-link", (target) => {
@@ -261,10 +264,10 @@ window.addEventListener("keydown", (e) => {
 // Not gated on being a desktop — Escape implies a keyboard either way,
 // and gating it would only break a tablet with one attached.
 window.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape" || !state.current?.fileOverlay) return;
+  if (e.key !== "Escape" || !hasOpenPane(state.current)) return;
   e.preventDefault();
   e.stopImmediatePropagation();
-  closeFiles();
+  closeTopPane();
 });
 
 // Cmd/Ctrl-A inside the Files overlay selects just the previewed file, not

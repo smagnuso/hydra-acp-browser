@@ -102,6 +102,12 @@ export interface HydraAgentInfo {
   [key: string]: unknown;
 }
 
+export interface HydraFileDiff {
+  path: string;
+  created?: boolean;
+  hunks: unknown[];
+}
+
 export class HydraRestClient {
   constructor(
     private readonly baseUrl: string,
@@ -211,6 +217,19 @@ export class HydraRestClient {
     return this.json(
       "GET",
       `/v1/sessions/${encodeURIComponent(sessionId)}/history/page?${q}`,
+    );
+  }
+
+  // Per-file diff reconstructed from the session's recorded history. See
+  // the daemon's GET /v1/sessions/:id/diff.
+  async getSessionDiff(
+    sessionId: string,
+    opts: { fold?: boolean } = {},
+  ): Promise<HydraFileDiff[]> {
+    const q = opts.fold ? "?fold=true" : "";
+    return this.json(
+      "GET",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/diff${q}`,
     );
   }
 

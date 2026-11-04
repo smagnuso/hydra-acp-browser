@@ -64,7 +64,6 @@ import {
   imageUrl,
   openFiles,
   openImagePreviewAt,
-  toggleMaximizeFiles,
   togglePreviewRaw,
   listFiles,
   readFile,
@@ -73,6 +72,24 @@ import {
   closeFiles,
   extendFileWindow,
 } from "../core/files.js";
+import {
+  turnDiffs,
+  activeTurnIndex,
+  visibleDiffFiles,
+  refreshDiff,
+  openDiff,
+  closeDiff,
+  setDiffScope,
+  stepDiffTurn,
+  openDiffFile,
+  hasOpenPane,
+  toggleDiffFile,
+  setDiffScroll,
+  type DiffPaneState,
+  type DiffHunk,
+  type DiffScope,
+  type FileDiff,
+} from "../core/diff.js";
 import { setNotifications } from "../core/push.js";
 import { loadUiChoices, uiSwitchUrl } from "../core/ui-switch.js";
 import {
@@ -189,7 +206,7 @@ export function renderApp(root: HTMLElement, s: AppState): void {
   }
   if (isWideLayout()) {
     root.appendChild(renderSplitLayout(s));
-    if (s.view === "chat" && s.current?.fileOverlay) {
+    if (s.view === "chat" && s.current && hasOpenPane(s.current)) {
       applyKeepLine(s.current);
     }
   } else if (s.view === "list") {
@@ -198,8 +215,8 @@ export function renderApp(root: HTMLElement, s: AppState): void {
     root.appendChild(renderList());
   } else if (s.view === "chat" && s.current) {
     root.appendChild(renderChat(s.current));
-    if (s.current.fileOverlay) {
-      root.appendChild(cachedFileOverlay(s.current));
+    if (hasOpenPane(s.current)) {
+      root.appendChild(cachedPane(s.current));
       applyKeepLine(s.current);
     }
   }
@@ -425,8 +442,8 @@ function renderSplitLayout(s: AppState): HTMLElement {
   const detail = el("div", { class: "split-detail" });
   if (s.current) {
     detail.appendChild(renderChat(s.current));
-    if (s.current.fileOverlay) {
-      detail.appendChild(cachedFileOverlay(s.current));
+    if (hasOpenPane(s.current)) {
+      detail.appendChild(cachedPane(s.current));
       // No applyKeepLine here: this subtree is still detached, so the
       // scroller cannot be measured or scrolled yet. renderApp calls it
       // once the layout is in the document.
@@ -2996,7 +3013,7 @@ export function tryPatchChat(root: HTMLElement, s: AppState): boolean {
   // chat can leave it alone entirely, exactly as it already leaves the
   // rail alone. Its own content is dirty-gated (cachedFileOverlay), so
   // an unchanged overlay is not even re-created, let alone re-attached.
-  const wantsOverlay = s.current.fileOverlay !== null;
+  const wantsOverlay = hasOpenPane(s.current);
   const expectedChildren = wantsOverlay ? 2 : 1;
   if (isWideLayout()) {
     // Split layout: root -> .split -> [.rail, .split-detail -> view.root].
@@ -3044,11 +3061,37 @@ export function tryPatchChat(root: HTMLElement, s: AppState): boolean {
 function patchFileOverlayInPlace(parent: HTMLElement, c: ChatState): void {
   const existing = parent.childNodes[1];
   if (!existing) return;
-  const next = cachedFileOverlay(c);
+  const next = cachedPane(c);
   if (existing !== next) {
     parent.replaceChild(next, existing);
     applyKeepLine(c);
   }
+}
+
+// The changes list's position, kept on the pane so it survives the node
+// being detached (back from the file viewer) or rebuilt.
+function restoreDiffScroll(c: ChatState): void {
+  const top = c.diffPane?.scrollTop;
+  if (!top || c.fileOverlay) {
+    return;
+  }
+  const list = document.querySelector<HTMLElement>(".diff-list");
+  if (list && list.scrollTop !== top) {
+    list.scrollTop = top;
+  }
+}
+
+export function initDiffScrollTracking(): void {
+  document.addEventListener(
+    "scroll",
+    (e) => {
+      const t = e.target;
+      if (t instanceof HTMLElement && t.classList.contains("diff-list")) {
+        setDiffScroll(t.scrollTop);
+      }
+    },
+    true,
+  );
 }
 
 // Restores the reader's position after a window extension replaced the
@@ -3060,6 +3103,7 @@ function patchFileOverlayInPlace(parent: HTMLElement, c: ChatState): void {
 // Returns whether it actually moved the scroller, which actuallyRender
 // uses to decide whether its own blanket scroll restore should stand down.
 function applyKeepLine(c: ChatState): boolean {
+  restoreDiffScroll(c);
   const fo = c.fileOverlay;
   const keep = fo?.keepLine;
   if (!fo || !keep || !fo.preview || !("fromLine" in fo.preview)) return false;
@@ -3419,6 +3463,7 @@ function renderChat(c: ChatState): HTMLElement {
         isWideLayout()
           ? null
           : el("button", { ...tapHandler(openOptionsModal), title: "Options" }, "⚙"),
+        el("button", { ...tapHandler(openDiff), title: "Changes" }, "±"),
         el("button", { ...tapHandler(openFiles), title: "Files" }, "📁"),
         el(
           "button",
@@ -4703,7 +4748,7 @@ function blurForOverlay(): void {
 // keyboard.
 function focusOverlay(): void {
   requestAnimationFrame(() => {
-    document.querySelector<HTMLElement>(".file-modal")?.focus();
+    document.querySelector<HTMLElement>(".pane")?.focus();
   });
 }
 
@@ -4941,7 +4986,6 @@ function fileOverlaySig(c: ChatState, fo: FileOverlayState): unknown[] {
     fo.entries,
     fo.preview,
     fo.err,
-    fo.maximized,
     fo.previewRaw,
     // Read by copyablePathNode/copyLineRef, and backfilled after the
     // first session poll (see api.ts), so it can change under us.
@@ -5261,53 +5305,152 @@ function renderFileOverlay(c: ChatState): Node {
   return el(
     "div",
     {
-      class: "modal-bg",
-      ...tapHandler((ev) => {
-        if ((ev.target as HTMLElement).classList.contains("modal-bg")) closeFiles();
-      }),
+      class: "pane file-pane",
+      // Focused when the pane opens (see focusOverlay). tabindex -1 so it
+      // can hold focus without joining the tab order itself: without it,
+      // focus stays on whatever was clicked behind the viewer and Tab
+      // walks the chat instead. data-focus-key so a teardown render
+      // restores it rather than dropping to body.
+      tabindex: "-1",
+      "data-focus-key": "file-modal",
     },
     el(
       "div",
-      {
-        class: fo.maximized ? "modal file-modal maximized" : "modal file-modal",
-        // Focused when the overlay opens (see focusOverlay). tabindex -1
-        // so it can hold focus without joining the tab order itself,
-        // which is the ordinary way to move the caret into a modal:
-        // without it, focus stays on whatever was clicked behind the
-        // viewer and Tab walks the chat underneath instead of the
-        // viewer. data-focus-key so a teardown render (a banner
-        // appearing, say) restores it rather than dropping to body.
-        tabindex: "-1",
-        "data-focus-key": "file-modal",
-      },
-      el(
-        "div",
-        { class: "topbar", style: "border-bottom:1px solid var(--border)" },
-        // Naming the file you're actually looking at, not just "Files".
-        // The header used to read "Files" plus the cwd, so the most
-        // prominent line told you the project while the filename only
-        // appeared in the smaller crumb row underneath — with a whole
-        // desktop-width header to spend on it.
-        el("span", { class: "title" }, fo.preview?.path ? baseName(fo.preview.path) : fo.preview ? "pasted image" : "Files"),
-        el("span", { class: "pill" }, fo.preview?.path ? dirName(fo.preview.path, c.cwd) : c.cwd),
-        el("span", { class: "spacer" }),
-        el(
-          "button",
-          { ...tapHandler(toggleMaximizeFiles), title: fo.maximized ? "Restore" : "Maximize" },
-          fo.maximized ? "⤡" : "⤢",
-        ),
-        el("button", { ...tapHandler(closeFiles) }, "×"),
-      ),
-      fo.preview ? null : fileBreadcrumb(fo.path),
-      el(
-        "div",
-        {
-          class: "files",
-        },
-        body,
-      ),
+      { class: "topbar", style: "border-bottom:1px solid var(--border)" },
+      el("button", { ...tapHandler(closeFiles), title: "Back" }, "‹"),
+      // Naming the file you're actually looking at, not just "Files".
+      el("span", { class: "title" }, fo.preview?.path ? baseName(fo.preview.path) : fo.preview ? "pasted image" : "Files"),
+      el("span", { class: "pill" }, fo.preview?.path ? dirName(fo.preview.path, c.cwd) : c.cwd),
+      el("span", { class: "spacer" }),
+    ),
+    fo.preview ? null : fileBreadcrumb(fo.path),
+    el("div", { class: "files" }, body),
+  );
+}
+
+// ---- Changes pane ------------------------------------------------
+
+function diffHunkEl(h: DiffHunk): HTMLElement {
+  const cached = diffCacheFor(h);
+  const lines = cached.lines ?? (cached.lines = buildDiffDisplayLines(h, { maxLines: 400 }));
+  return el(
+    "pre",
+    { class: "diff-hunk" },
+    el(
+      "code",
+      { class: "diff-body" },
+      lines.map((l) => el("div", { class: diffLineClass(l.op) }, diffLinePrefix(l.op) + l.text)),
     ),
   );
+}
+
+// Hunks are only built for an expanded file, and the line diff behind them
+// is cached per hunk object, so a collapsed list costs one row per file.
+function diffFileEl(c: ChatState, pane: DiffPaneState, f: FileDiff): HTMLElement {
+  let added = 0;
+  let removed = 0;
+  for (const h of f.hunks) {
+    const n = diffCacheFor(h).counts;
+    added += n.added;
+    removed += n.removed;
+  }
+  const open = pane.expanded.includes(f.path);
+  return el(
+    "div",
+    { class: "diff-file" },
+    el(
+      "div",
+      { class: "diff-file-head", ...tapHandler(() => toggleDiffFile(f.path)), title: f.path },
+      el("span", null, open ? "▾" : "▸"),
+      el("span", { class: "path" }, relativeToCwd(c.cwd, f.path)),
+      f.created ? el("span", { class: "pill" }, "new") : null,
+      added > 0 ? el("span", { class: "add" }, `+${added}`) : null,
+      removed > 0 ? el("span", { class: "del" }, `-${removed}`) : null,
+      el("button", { ...tapHandler(() => openDiffFile(f)), title: "Open file" }, "↗"),
+    ),
+    ...(open ? f.hunks.map(diffHunkEl) : []),
+  );
+}
+
+function renderDiffPane(c: ChatState): Node {
+  const pane = c.diffPane;
+  if (!pane) {
+    return document.createTextNode("");
+  }
+  const turns = turnDiffs(c);
+  const ti = activeTurnIndex(pane, turns);
+  const files = visibleDiffFiles(c);
+  const scopeBtn = (scope: DiffScope, label: string): HTMLElement =>
+    el("button", { class: pane.scope === scope ? "on" : "", ...tapHandler(() => setDiffScope(scope)) }, label);
+  let status: string | null = null;
+  if (pane.scope === "session" && pane.files === null) {
+    status = pane.err ?? "Loading…";
+  } else if (files.length === 0) {
+    status = pane.scope === "turn" ? "No file edits in the loaded turns." : (pane.err ?? "This session has not edited any files.");
+  }
+  return el(
+    "div",
+    { class: "pane diff-pane", tabindex: "-1", "data-focus-key": "diff-pane" },
+    el(
+      "div",
+      { class: "topbar", style: "border-bottom:1px solid var(--border)" },
+      el("button", { ...tapHandler(closeDiff), title: "Back" }, "‹"),
+      el("span", { class: "title" }, "Changes"),
+      el("span", { class: "scope" }, scopeBtn("session", "Session"), scopeBtn("turn", "Turn")),
+      el("span", { class: "spacer" }),
+      pane.scope === "session" ? el("button", { ...tapHandler(() => void refreshDiff()), title: "Refresh" }, pane.loading ? "…" : "⟳") : null,
+    ),
+    pane.scope === "turn" && ti >= 0
+      ? el(
+          "div",
+          { class: "turn-nav" },
+          el("button", { ...tapHandler(() => stepDiffTurn(-1)), disabled: ti === 0 }, "‹"),
+          el("span", null, `Turn ${ti + 1} of ${turns.length}`),
+          el("span", { class: "prompt" }, turns[ti]!.prompt),
+          el("button", { ...tapHandler(() => stepDiffTurn(1)), disabled: ti === turns.length - 1 }, "›"),
+        )
+      : null,
+    el(
+      "div",
+      { class: "diff-list" },
+      status !== null ? el("div", { class: "diff-empty" }, status) : null,
+      ...files.map((f) => diffFileEl(c, pane, f)),
+    ),
+  );
+}
+
+let diffCache: { chat: ChatState; sig: unknown[]; node: Node } | null = null;
+
+function cachedDiffPane(c: ChatState): Node {
+  const pane = c.diffPane;
+  if (!pane) {
+    return document.createTextNode("");
+  }
+  const edits = c.log.filter((i) => i.kind === "edit-diff");
+  const sig = [
+    pane.scope,
+    pane.turn,
+    pane.files,
+    pane.loading,
+    pane.err,
+    pane.expanded,
+    c.cwd,
+    c.log.filter((i) => i.kind === "stream" && i.role === "user").length,
+    edits.length,
+    edits.map((i) => (i as EditDiffLogItem).status ?? "").join(","),
+  ];
+  const hit = diffCache;
+  if (hit && hit.chat === c && hit.sig.length === sig.length && hit.sig.every((v, i) => v === sig[i])) {
+    return hit.node;
+  }
+  const node = renderDiffPane(c);
+  diffCache = { chat: c, sig, node };
+  return node;
+}
+
+// The topmost pane: the file viewer over the changes pane over the chat.
+function cachedPane(c: ChatState): Node {
+  return c.fileOverlay ? cachedFileOverlay(c) : cachedDiffPane(c);
 }
 
 // ---- Composer helpers --------------------------------------------

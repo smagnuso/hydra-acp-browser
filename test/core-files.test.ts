@@ -59,13 +59,12 @@ test("path helpers", () => {
 
 test("listFiles fills the overlay, and an error keeps the path", async () => {
   const c = chat();
-  c.fileOverlay = { path: "", entries: [], preview: null, err: null, maximized: true, previewRaw: false };
+  c.fileOverlay = { path: "", entries: [], preview: null, err: null, previewRaw: false };
   reply = () => Response.json({ path: "src", entries: [{ name: "a.ts", kind: "file", size: 1 }] });
   await files.listFiles("src");
   assert.deepEqual(calls[0], { url: "/api/files/list", body: { sessionId: "s1", path: "src" } });
   assert.equal(c.fileOverlay!.path, "src");
   assert.equal(c.fileOverlay!.entries.length, 1);
-  assert.equal(c.fileOverlay!.maximized, true);
   reply = () => Response.json({ error: "denied" }, { status: 400 });
   await files.listFiles("nope");
   assert.equal(c.fileOverlay!.path, "nope");
@@ -74,7 +73,7 @@ test("listFiles fills the overlay, and an error keeps the path", async () => {
 
 test("readFile loads text, and skips the read for an image", async () => {
   const c = chat();
-  c.fileOverlay = { path: "src", entries: [], preview: null, err: null, maximized: false, previewRaw: false };
+  c.fileOverlay = { path: "src", entries: [], preview: null, err: null, previewRaw: false };
   reply = () => Response.json({ content: "a\nb", fromLine: 1, hasMore: true });
   await files.readFile("src/a.ts");
   assert.deepEqual(c.fileOverlay!.preview, { path: "src/a.ts", content: "a\nb", fromLine: 1, hasMore: true });
@@ -124,7 +123,6 @@ test("extendFileWindow appends below, then reports the end", async () => {
     entries: [],
     preview: { path: "a.ts", content: "1\n2\n3", fromLine: 1, hasMore: true },
     err: null,
-    maximized: false,
     previewRaw: false,
   };
   reply = () => Response.json({ content: "4\n5", fromLine: 4, hasMore: false });
@@ -144,7 +142,6 @@ test("extendFileWindow prepends above and keeps the reader's line", async () => 
     entries: [],
     preview: { path: "a.ts", content: "500\n501", fromLine: 500, hasMore: false },
     err: null,
-    maximized: false,
     previewRaw: false,
   };
   reply = (call) => {
@@ -165,7 +162,6 @@ test("an empty slice past EOF clears hasMore instead of adding a phantom line", 
     entries: [],
     preview: { path: "a.ts", content: "1", fromLine: 1, hasMore: true },
     err: null,
-    maximized: false,
     previewRaw: false,
   };
   reply = () => Response.json({ content: "" });
@@ -182,7 +178,6 @@ test("closeFiles remembers the view and tells the UI before the repaint", async 
     entries: [],
     preview: { path: "src/a.ts", content: "x", fromLine: 1, hasMore: false },
     err: null,
-    maximized: true,
     previewRaw: true,
   };
   files.closeFiles();
@@ -191,12 +186,10 @@ test("closeFiles remembers the view and tells the UI before the repaint", async 
     dirPath: "src",
     previewPath: "src/a.ts",
     previewRaw: true,
-    maximized: true,
   });
   assert.deepEqual(events, ["closing"]);
   reply = () => Response.json({ path: "src", entries: [] });
   files.openFiles();
   await settle();
-  assert.equal(c.fileOverlay!.maximized, true);
   assert.equal(c.fileOverlay!.previewRaw, true);
 });

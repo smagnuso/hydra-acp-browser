@@ -82,13 +82,28 @@ export {
   closeFiles,
   closeFilePreview,
   togglePreviewRaw,
-  toggleMaximizeFiles,
   editAnchorForToolCall,
   isImagePath,
   isMarkdownPath,
   imageUrl,
   relativeToCwd,
 } from "./files.js";
+export {
+  turnDiffs,
+  activeTurnIndex,
+  visibleDiffFiles,
+  refreshDiff,
+  openDiff,
+  closeDiff,
+  toggleDiffFile,
+  setDiffScroll,
+  setDiffScope,
+  stepDiffTurn,
+  openDiffFile,
+  hasOpenPane,
+  closeTopPane,
+} from "./diff.js";
+export type { FileDiff, TurnDiff, DiffHunk, DiffScope, DiffPaneState } from "./diff.js";
 export {
   addImageAttachments,
   removeAttachment,

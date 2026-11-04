@@ -7,6 +7,7 @@ import { state, setState, notifyChange } from "./state.js";
 import { markOpenChatRead } from "./read-state.js";
 import { contentToText } from "./markdown.js";
 import { extractEditDiff, extractPatchDiffs } from "./edit-diff.js";
+import { refreshDiffIfOpen } from "./diff.js";
 import { queueFrameForCache } from "./history-cache.js";
 import type {
   ArmedTask,
@@ -983,6 +984,7 @@ export function finalizeTurn(
   // history). Tool-call records remain in state but are no longer
   // rendered as a clutter list.
   freezeSpinner(endedAt, stopReason);
+  refreshDiffIfOpen();
   // Close the streaming agent message so the next turn starts a
   // fresh bubble even if the agent immediately resumes streaming.
   closeOpenStream();

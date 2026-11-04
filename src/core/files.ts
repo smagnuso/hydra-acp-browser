@@ -33,17 +33,6 @@ export function relativeToCwd(cwd: string, path: string): string {
   return path.startsWith(base) ? path.slice(base.length) : path;
 }
 
-// Unmaximized is 80vw x 80vh inside a padded backdrop (index.html's
-// .file-modal), which on a phone leaves about 300px of usable width to
-// read code in. Width-based rather than pointer-based on purpose: what
-// makes the windowed size unusable is the room available, so a narrow
-// desktop window wants the same treatment a phone does. Only the
-// starting state, an explicit toggle is remembered in savedFileView
-// and takes precedence on reopen.
-export function defaultMaximized(): boolean {
-  return !uiHooks.isWideLayout();
-}
-
 export type ReadWindow = {
   content: string;
   fromLine?: number;
@@ -78,7 +67,6 @@ export function openFiles(): void {
     entries: [],
     preview: null,
     err: null,
-    maximized: saved?.maximized ?? defaultMaximized(),
     previewRaw: saved?.previewRaw ?? false,
   };
   notifyChange();
@@ -112,7 +100,6 @@ export function openImagePreviewAt(c: ChatState, url: string, path?: string): vo
     entries: [],
     preview: { path, isImage: true, url },
     err: null,
-    maximized: saved?.maximized ?? defaultMaximized(),
     previewRaw: false,
   };
   notifyChange();
@@ -156,7 +143,6 @@ export async function restoreFileView(
         }),
   ]);
   if (state.current !== c || !c.fileOverlay) return;
-  const maximized = c.fileOverlay.maximized;
   let from = scrollToLine;
   let to = scrollToLineEnd;
   // The server resolves the anchor now and reports which line it hit,
@@ -185,7 +171,6 @@ export async function restoreFileView(
           }
         : null,
     err: readErr ?? listErr,
-    maximized,
     previewRaw,
     // highlightLine is set here rather than where the scroll is consumed
     // below: the gutter is built earlier in that same render pass, so
@@ -230,20 +215,12 @@ export function openFileAtLine(
     entries: [],
     preview: null,
     err: null,
-    maximized: c.fileOverlay?.maximized ?? c.savedFileView?.maximized ?? defaultMaximized(),
     previewRaw,
   };
   notifyChange();
   uiHooks.afterFileOverlayOpen();
   void restoreFileView(c, dirPath, path, previewRaw, line, lineEnd, locate);
 
-}
-
-export function toggleMaximizeFiles(): void {
-  const fo = state.current?.fileOverlay;
-  if (!fo) return;
-  fo.maximized = !fo.maximized;
-  notifyChange();
 }
 
 // Anchor for an edit block's header link, looked up at click time so the
@@ -266,7 +243,6 @@ export function togglePreviewRaw(): void {
 
 export async function listFiles(p: string): Promise<void> {
   if (!state.current) return;
-  const maximized = state.current.fileOverlay?.maximized ?? false;
   try {
     const data = await api<{ path: string; entries?: FileEntry[] }>(
       "/api/files/list",
@@ -280,7 +256,6 @@ export async function listFiles(p: string): Promise<void> {
       entries: data.entries ?? [],
       preview: null,
       err: null,
-      maximized,
       previewRaw: false,
     };
     notifyChange();
@@ -290,7 +265,6 @@ export async function listFiles(p: string): Promise<void> {
       entries: [],
       preview: null,
       err: (err as Error).message,
-      maximized,
       previewRaw: false,
     };
     notifyChange();
@@ -412,7 +386,6 @@ export async function readFile(p: string): Promise<void> {
         hasMore: data.hasMore ?? false,
       },
       err: null,
-      maximized: fo.maximized,
       previewRaw: false,
     };
     notifyChange();
@@ -436,7 +409,6 @@ export function closeFiles(): void {
       dirPath: fo.path,
       previewPath: fo.preview?.path ?? null,
       previewRaw: fo.previewRaw,
-      maximized: fo.maximized,
     };
   }
   c.fileOverlay = null;
