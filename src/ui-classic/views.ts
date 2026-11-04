@@ -5344,6 +5344,20 @@ function paneBackButton(c: ChatState): HTMLElement {
   );
 }
 
+// Filename first with its directory dimmed after it, so truncation eats the
+// directory rather than the name. Paths outside the session's cwd stay
+// absolute, which is what tells them apart from the relative ones.
+function diffPathEl(c: ChatState, path: string): HTMLElement {
+  const rel = relativeToCwd(c.cwd, path);
+  const slash = rel.lastIndexOf("/");
+  return el(
+    "span",
+    { class: "path" },
+    el("span", { class: "name" }, rel.slice(slash + 1)),
+    slash >= 0 ? el("span", { class: "dir" }, rel.slice(0, slash + 1)) : null,
+  );
+}
+
 function diffHunkEl(h: DiffHunk): HTMLElement {
   const cached = diffCacheFor(h);
   const lines = cached.lines ?? (cached.lines = buildDiffDisplayLines(h, { maxLines: 400 }));
@@ -5376,7 +5390,7 @@ function diffFileEl(c: ChatState, pane: DiffPaneState, f: FileDiff): HTMLElement
       "div",
       { class: "diff-file-head", ...tapHandler(() => toggleDiffFile(f.path)), title: f.path },
       el("span", null, open ? "▾" : "▸"),
-      el("span", { class: "path" }, relativeToCwd(c.cwd, f.path)),
+      diffPathEl(c, f.path),
       f.created ? el("span", { class: "pill" }, "new") : null,
       f.deleted ? el("span", { class: "pill" }, "deleted") : null,
       f.omitted ? el("span", { class: "pill" }, f.omitted === "binary" ? "binary" : "too large") : null,
@@ -5433,6 +5447,7 @@ function renderDiffPane(c: ChatState): Node {
           el("button", { ...tapHandler(() => stepDiffTurn(1)), disabled: ti === turns.length - 1 }, "›"),
         )
       : null,
+    el("div", { class: "diff-root", title: c.cwd }, `relative to ${shortenCwd(c.cwd)}`),
     el(
       "div",
       { class: "diff-list" },
