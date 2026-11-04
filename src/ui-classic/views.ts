@@ -442,9 +442,14 @@ function paneResizeHandle(): HTMLElement {
   return sp;
 }
 
-// The saved drag width, applied to a pane node as it is built.
-function paneWidthStyle(): string | undefined {
-  return isWideLayout() && state.paneWidth !== null ? `flex: 0 0 ${state.paneWidth}px` : undefined;
+// The saved drag width, applied to a pane node as it is built. Through the
+// element's style property: the CSP (server/http.ts) has no 'unsafe-inline'
+// for styles, so a style attribute set from markup is ignored.
+function withPaneWidth(node: HTMLElement): HTMLElement {
+  if (isWideLayout() && state.paneWidth !== null) {
+    node.style.flex = `0 0 ${state.paneWidth}px`;
+  }
+  return node;
 }
 
 function renderSplitter(): HTMLElement {
@@ -5413,7 +5418,7 @@ function renderFileOverlay(c: ChatState): Node {
         ),
       );
   }
-  return el(
+  return withPaneWidth(el(
     "div",
     {
       class: "pane file-pane",
@@ -5424,7 +5429,6 @@ function renderFileOverlay(c: ChatState): Node {
       // restores it rather than dropping to body.
       tabindex: "-1",
       "data-focus-key": "file-modal",
-      style: paneWidthStyle(),
     },
     paneResizeHandle(),
     el(
@@ -5438,7 +5442,7 @@ function renderFileOverlay(c: ChatState): Node {
     ),
     fo.preview ? null : fileBreadcrumb(fo.path),
     el("div", { class: "files" }, body),
-  );
+  ));
 }
 
 // ---- Changes pane ------------------------------------------------
@@ -5506,9 +5510,9 @@ function renderDiffPane(c: ChatState): Node {
           ? "No uncommitted changes."
           : "No edits recorded for this session. Changes made through the shell show under Uncommitted.";
   }
-  return el(
+  return withPaneWidth(el(
     "div",
-    { class: "pane diff-pane", tabindex: "-1", "data-focus-key": "diff-pane", style: paneWidthStyle() },
+    { class: "pane diff-pane", tabindex: "-1", "data-focus-key": "diff-pane" },
     paneResizeHandle(),
     el(
       "div",
@@ -5535,7 +5539,7 @@ function renderDiffPane(c: ChatState): Node {
       ...files.map((f) => diffFileEl(c, pane, f)),
       pane.scope === "uncommitted" && pane.truncated ? el("div", { class: "diff-empty" }, "More changed files than are shown.") : null,
     ),
-  );
+  ));
 }
 
 let diffCache: { chat: ChatState; sig: unknown[]; node: Node } | null = null;
