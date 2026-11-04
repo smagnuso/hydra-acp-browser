@@ -41,6 +41,9 @@ and set `BROWSER_UI_DIR=/path`. `src/ui-board/` (a few hundred lines) is a small
   (`/api/sessions/:id/uncommitted`), so it also shows edits made through
   the shell, which the other two scopes cannot see.
   `visibleDiffFiles(chat)` gives the files for the current scope,
+  `fileDiffCounts(file)` its +/- totals, `splitDiffPath(cwd, path)` the
+  name and directory to show, and `diffPaneStatus(chat)` why the list is
+  empty (loading, error, not a repo, nothing changed) for the UI to word,
   `setDiffScope`, `stepDiffTurn(delta)`, `openDiffFile(file)` opens the file
   viewer on top at its first change, `closeDiff()`.
 - Panes: the file viewer and the changes pane form a stack over the chat.

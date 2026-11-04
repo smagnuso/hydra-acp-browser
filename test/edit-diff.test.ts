@@ -77,3 +77,13 @@ test("buildDiffDisplayLines returns nothing for a no-op edit", () => {
   const lines = buildDiffDisplayLines({ oldText: "same\n", newText: "same\n" });
   assert.deepEqual(lines, []);
 });
+
+test("cachedDiffLines keeps a separate result per cap, for the same diff object", async () => {
+  const { cachedDiffLines, cachedDiffCounts } = await import("../src/core/edit-diff.js");
+  const big = { oldText: "", newText: Array.from({ length: 100 }, (_, i) => `l${i}`).join("\n") + "\n" };
+  const short = cachedDiffLines(big);
+  const long = cachedDiffLines(big, 400);
+  assert.ok(short.length < long.length);
+  assert.equal(cachedDiffLines(big), short);
+  assert.deepEqual(cachedDiffCounts(big), { added: 100, removed: 0 });
+});

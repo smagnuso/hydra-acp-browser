@@ -4,8 +4,9 @@
 // goes through the Files viewer (files.ts).
 
 import { api } from "./api.js";
-import { editAnchor } from "./edit-diff.js";
-import { closeFiles, openFileAtLine, openFiles } from "./files.js";
+import { cachedDiffCounts, editAnchor } from "./edit-diff.js";
+import { shortenCwd } from "./session-list.js";
+import { closeFiles, openFileAtLine, openFiles, relativeToCwd } from "./files.js";
 import { state, notifyChange } from "./state.js";
 import type { ChatState, EditDiff, EditDiffLogItem } from "./types.js";
 
@@ -356,4 +357,52 @@ export function reopenForwardPane(): void {
     openFiles();
   }
   c.forwardPanes = rest;
+}
+
+// Total +/- for a file across its hunks.
+export function fileDiffCounts(file: FileDiff): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const h of file.hunks) {
+    const n = cachedDiffCounts(h);
+    added += n.added;
+    removed += n.removed;
+  }
+  return { added, removed };
+}
+
+// Display parts of a file's path: relative to the cwd when inside it, with
+// a home directory abbreviated to ~ when outside (so those stay absolute,
+// which tells them apart from the relative ones).
+export function splitDiffPath(cwd: string, path: string): { name: string; dir: string } {
+  const rel = relativeToCwd(cwd, path);
+  const slash = rel.lastIndexOf("/");
+  const dir = slash >= 0 ? rel.slice(0, slash + 1) : "";
+  return { name: rel.slice(slash + 1), dir: dir.startsWith("/") ? shortenCwd(dir) : dir };
+}
+
+export type DiffPaneStatus =
+  | { kind: "loading" }
+  | { kind: "error"; error: string }
+  | { kind: "not-repo" }
+  | { kind: "empty" };
+
+// Why the pane has no files to list, or null when it has some. The wording
+// is the view's.
+export function diffPaneStatus(c: ChatState): DiffPaneStatus | null {
+  const pane = c.diffPane;
+  if (!pane) {
+    return null;
+  }
+  const loaded = pane.scope === "session" ? pane.files : pane.scope === "uncommitted" ? pane.uncommitted : [];
+  if (loaded === null) {
+    return pane.err ? { kind: "error", error: pane.err } : { kind: "loading" };
+  }
+  if (pane.scope === "uncommitted" && pane.notRepo) {
+    return { kind: "not-repo" };
+  }
+  if (visibleDiffFiles(c).length === 0) {
+    return pane.err ? { kind: "error", error: pane.err } : { kind: "empty" };
+  }
+  return null;
 }

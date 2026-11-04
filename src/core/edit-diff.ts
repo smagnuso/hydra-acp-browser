@@ -324,6 +324,41 @@ export function buildDiffDisplayLines(
   return rendered;
 }
 
+// The LCS diff behind countDiffChanges/buildDiffDisplayLines is quadratic,
+// and a view rebuilds every visible edit from scratch on each repaint (up
+// to 10/s while streaming), so results are cached. Keyed by the EditDiff
+// object itself: acp.ts replaces item.diff wholesale when a tool_call_update
+// revises it, so object identity is a correct (and free) invalidation
+// signal. Lines are cached per maxLines because a chat edit card and the
+// changes pane show the same diff at different caps.
+const diffCache = new WeakMap<
+  EditDiff,
+  { counts: { added: number; removed: number }; lines: Map<number, DiffDisplayLine[]> }
+>();
+
+function diffCacheEntry(diff: EditDiff) {
+  let hit = diffCache.get(diff);
+  if (!hit) {
+    hit = { counts: diff.counts ?? countDiffChanges(diff), lines: new Map() };
+    diffCache.set(diff, hit);
+  }
+  return hit;
+}
+
+export function cachedDiffCounts(diff: EditDiff): { added: number; removed: number } {
+  return diffCacheEntry(diff).counts;
+}
+
+export function cachedDiffLines(diff: EditDiff, maxLines = EDIT_DIFF_MAX_LINES): DiffDisplayLine[] {
+  const entry = diffCacheEntry(diff);
+  let lines = entry.lines.get(maxLines);
+  if (!lines) {
+    lines = buildDiffDisplayLines(diff, { maxLines });
+    entry.lines.set(maxLines, lines);
+  }
+  return lines;
+}
+
 // Where in the post-edit file this patch landed. The ACP payload carries
 // no line number for a diff (verified across 740 real diff blocks: the
 // keys are exactly type/path/oldText/newText), and only about a fifth of

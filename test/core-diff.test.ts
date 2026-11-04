@@ -153,3 +153,37 @@ test("a forward gesture defaults to the changes pane when nothing was closed", (
   c.forwardPanes = ["files"];
   assert.equal(diff.nextForwardPane(c), "files");
 });
+
+test("fileDiffCounts sums hunks, and splitDiffPath keeps outside paths absolute with ~", () => {
+  const file = {
+    path: "/w/a.ts",
+    created: false,
+    hunks: [
+      { oldText: "a\n", newText: "a\nb\n" },
+      { oldText: "x\ny\n", newText: "x\n" },
+    ],
+  };
+  assert.deepEqual(diff.fileDiffCounts(file), { added: 1, removed: 1 });
+  assert.deepEqual(diff.splitDiffPath("/w", "/w/src/a.ts"), { name: "a.ts", dir: "src/" });
+  assert.deepEqual(diff.splitDiffPath("/w", "a.ts"), { name: "a.ts", dir: "" });
+  assert.deepEqual(diff.splitDiffPath("/w", "/home/sam/x/a.ts"), { name: "a.ts", dir: "~/x/" });
+});
+
+test("diffPaneStatus says why the pane is empty", () => {
+  const c = chat([]);
+  assert.equal(diff.diffPaneStatus(c), null);
+  c.diffPane = diff.newDiffPane();
+  assert.deepEqual(diff.diffPaneStatus(c), { kind: "loading" });
+  c.diffPane.err = "boom";
+  assert.deepEqual(diff.diffPaneStatus(c), { kind: "error", error: "boom" });
+  c.diffPane.err = null;
+  c.diffPane.files = [];
+  assert.deepEqual(diff.diffPaneStatus(c), { kind: "empty" });
+  c.diffPane.scope = "uncommitted";
+  c.diffPane.uncommitted = [];
+  c.diffPane.notRepo = true;
+  assert.deepEqual(diff.diffPaneStatus(c), { kind: "not-repo" });
+  c.diffPane.notRepo = false;
+  c.diffPane.uncommitted = [{ path: "/w/a", created: false, hunks: [] }];
+  assert.equal(diff.diffPaneStatus(c), null);
+});

@@ -90,6 +90,9 @@ export {
 } from "./files.js";
 export {
   turnDiffs,
+  fileDiffCounts,
+  splitDiffPath,
+  diffPaneStatus,
   activeTurnIndex,
   visibleDiffFiles,
   refreshDiff,
@@ -106,7 +109,7 @@ export {
   nextForwardPane,
   reopenForwardPane,
 } from "./diff.js";
-export type { FileDiff, TurnDiff, DiffHunk, DiffScope, DiffPaneState } from "./diff.js";
+export type { DiffPaneStatus, FileDiff, TurnDiff, DiffHunk, DiffScope, DiffPaneState } from "./diff.js";
 export {
   addImageAttachments,
   removeAttachment,

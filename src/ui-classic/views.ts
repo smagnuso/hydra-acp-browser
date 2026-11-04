@@ -74,6 +74,9 @@ import {
 } from "../core/files.js";
 import {
   turnDiffs,
+  fileDiffCounts,
+  splitDiffPath,
+  diffPaneStatus,
   activeTurnIndex,
   visibleDiffFiles,
   refreshDiff,
@@ -131,7 +134,7 @@ import {
   subscribeForPush,
   unsubscribeFromPush,
 } from "../core/notifications.js";
-import { buildDiffDisplayLines, countDiffChanges, editAnchor } from "../core/edit-diff.js";
+import { cachedDiffCounts, cachedDiffLines, editAnchor } from "../core/edit-diff.js";
 import { applyFontScale, applyTheme } from "./theme.js";
 import { describeCachedSession } from "../core/history-cache.js";
 import { bump, describeSlow, describeCounts } from "../core/perf.js";
@@ -4100,30 +4103,6 @@ function diffLinePrefix(op: DiffDisplayLine["op"]): string {
   return "  ";
 }
 
-// The LCS diff behind countDiffChanges/buildDiffDisplayLines is quadratic,
-// and render() rebuilds every visible log item from scratch — without this
-// cache every repaint (up to 10/s while streaming) re-diffed every visible
-// edit card, collapsed or not, which was a main-thread hog on sessions with
-// big edits. Keyed by the EditDiff object itself: acp.ts replaces item.diff
-// wholesale when a tool_call_update revises it, so object identity is a
-// correct (and free) invalidation signal.
-const diffComputeCache = new WeakMap<
-  EditDiff,
-  { counts: { added: number; removed: number }; lines?: DiffDisplayLine[] }
->();
-
-function diffCacheFor(diff: EditDiff): {
-  counts: { added: number; removed: number };
-  lines?: DiffDisplayLine[];
-} {
-  let hit = diffComputeCache.get(diff);
-  if (!hit) {
-    hit = { counts: diff.counts ?? countDiffChanges(diff) };
-    diffComputeCache.set(diff, hit);
-  }
-  return hit;
-}
-
 // Filename first, directory after it as dimmed context, so the only
 // thing end-truncation can eat is path. Middle-truncating the natural
 // "dir/file" order instead needs two spans with the ellipsized one in
@@ -4245,8 +4224,7 @@ function diffBodyEl(lines: DiffDisplayLine[], className = ""): HTMLElement {
 }
 
 function renderEditDiff(c: ChatState, item: EditDiffLogItem): HTMLElement {
-  const cached = diffCacheFor(item.diff);
-  const counts = cached.counts;
+  const counts = cachedDiffCounts(item.diff);
   const shownPath = item.diff.path ? shortenCwd(item.diff.path) : "file";
   const summary = diffCountEls(counts);
   const head = el(
@@ -4269,7 +4247,7 @@ function renderEditDiff(c: ChatState, item: EditDiffLogItem): HTMLElement {
     head,
   );
   if (item.expanded) {
-    const lines = cached.lines ?? (cached.lines = buildDiffDisplayLines(item.diff));
+    const lines = cachedDiffLines(item.diff);
     node.appendChild(
       el(
         "div",
@@ -5376,33 +5354,16 @@ function paneBackButton(c: ChatState): HTMLElement {
   );
 }
 
-// Paths outside the session's cwd stay absolute, which is what tells them
-// apart from the relative ones.
-function splitDiffPath(c: ChatState, path: string): { name: string; dir: string } {
-  const rel = relativeToCwd(c.cwd, path);
-  const slash = rel.lastIndexOf("/");
-  const dir = slash >= 0 ? rel.slice(0, slash + 1) : "";
-  return { name: rel.slice(slash + 1), dir: dir.startsWith("/") ? shortenCwd(dir) : dir };
-}
-
 function diffHunkEl(h: DiffHunk): HTMLElement {
-  const cached = diffCacheFor(h);
-  const lines = cached.lines ?? (cached.lines = buildDiffDisplayLines(h, { maxLines: 400 }));
-  return diffBodyEl(lines, "diff-hunk");
+  return diffBodyEl(cachedDiffLines(h, 400), "diff-hunk");
 }
 
 // Hunks are only built for an expanded file, and the line diff behind them
 // is cached per hunk object, so a collapsed list costs one row per file.
 function diffFileEl(c: ChatState, pane: DiffPaneState, f: FileDiff): HTMLElement {
-  let added = 0;
-  let removed = 0;
-  for (const h of f.hunks) {
-    const n = diffCacheFor(h).counts;
-    added += n.added;
-    removed += n.removed;
-  }
+  const { added, removed } = fileDiffCounts(f);
   const open = pane.expanded.includes(f.path);
-  const { name, dir } = splitDiffPath(c, f.path);
+  const { name, dir } = splitDiffPath(c.cwd, f.path);
   return el(
     "div",
     { class: "diff-file" },
@@ -5429,19 +5390,21 @@ function renderDiffPane(c: ChatState): Node {
   const files = visibleDiffFiles(c);
   const scopeBtn = (scope: DiffScope, label: string): HTMLElement =>
     el("button", { class: pane.scope === scope ? "on" : "", ...tapHandler(() => setDiffScope(scope)) }, label);
-  const loaded = pane.scope === "session" ? pane.files : pane.scope === "uncommitted" ? pane.uncommitted : [];
+  const st = diffPaneStatus(c);
   let status: string | null = null;
-  if (loaded === null) {
-    status = pane.err ?? "Loading…";
-  } else if (pane.scope === "uncommitted" && pane.notRepo) {
+  if (st?.kind === "loading") {
+    status = "Loading…";
+  } else if (st?.kind === "error") {
+    status = st.error;
+  } else if (st?.kind === "not-repo") {
     status = "Not a git repository.";
-  } else if (files.length === 0) {
+  } else if (st?.kind === "empty") {
     status =
       pane.scope === "turn"
         ? "No file edits in the loaded turns."
         : pane.scope === "uncommitted"
-          ? (pane.err ?? "No uncommitted changes.")
-          : (pane.err ?? "No edits recorded for this session. Changes made through the shell show under Uncommitted.");
+          ? "No uncommitted changes."
+          : "No edits recorded for this session. Changes made through the shell show under Uncommitted.";
   }
   return el(
     "div",
