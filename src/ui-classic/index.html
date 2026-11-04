@@ -700,8 +700,11 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
 .diff-pane .diff-list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0.5rem 0; }
 .diff-pane .diff-empty { padding: 1.5rem; text-align: center; color: var(--muted); }
 .diff-file { margin: 0 0 0.75rem; }
-.diff-file-head { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; background: var(--panel); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-family: ui-monospace, monospace; font-size: 0.85rem; cursor: pointer; }
-.diff-file-head .path { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.diff-file-head { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.4rem 0.75rem; background: var(--panel); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-family: ui-monospace, monospace; font-size: 0.85rem; cursor: pointer; }
+.diff-file-head .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.diff-file-head .path { overflow-wrap: anywhere; }
+.diff-file-head .meta { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
+.diff-file-head > button { flex-shrink: 0; }
 .diff-file-head .path .dir { color: var(--muted); margin-left: 0.5rem; }
 .diff-pane .diff-root { padding: 0.3rem 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.8rem; color: var(--muted); font-family: ui-monospace, monospace; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .diff-file-head .add { color: var(--good, #3fb950); }

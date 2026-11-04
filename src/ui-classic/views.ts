@@ -5390,12 +5390,22 @@ function diffFileEl(c: ChatState, pane: DiffPaneState, f: FileDiff): HTMLElement
       "div",
       { class: "diff-file-head", ...tapHandler(() => toggleDiffFile(f.path)), title: f.path },
       el("span", null, open ? "▾" : "▸"),
-      diffPathEl(c, f.path),
-      f.created ? el("span", { class: "pill" }, "new") : null,
-      f.deleted ? el("span", { class: "pill" }, "deleted") : null,
-      f.omitted ? el("span", { class: "pill" }, f.omitted === "binary" ? "binary" : "too large") : null,
-      added > 0 ? el("span", { class: "add" }, `+${added}`) : null,
-      removed > 0 ? el("span", { class: "del" }, `-${removed}`) : null,
+      el(
+        "div",
+        { class: "main" },
+        diffPathEl(c, f.path),
+        f.created || f.deleted || f.omitted || added > 0 || removed > 0
+          ? el(
+              "div",
+              { class: "meta" },
+              f.created ? el("span", { class: "pill" }, "new") : null,
+              f.deleted ? el("span", { class: "pill" }, "deleted") : null,
+              f.omitted ? el("span", { class: "pill" }, f.omitted === "binary" ? "binary" : "too large") : null,
+              added > 0 ? el("span", { class: "add" }, `+${added}`) : null,
+              removed > 0 ? el("span", { class: "del" }, `-${removed}`) : null,
+            )
+          : null,
+      ),
       f.deleted ? null : el("button", { ...tapHandler(() => openDiffFile(f)), title: "Open file" }, "↗"),
     ),
     ...(open ? f.hunks.map(diffHunkEl) : []),
