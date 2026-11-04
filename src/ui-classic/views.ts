@@ -4991,6 +4991,8 @@ function fileOverlaySig(c: ChatState, fo: FileOverlayState): unknown[] {
     // Read by copyablePathNode/copyLineRef, and backfilled after the
     // first session poll (see api.ts), so it can change under us.
     c.cwd,
+    c.diffPane !== null,
+    isWideLayout(),
   ];
 }
 
@@ -5318,7 +5320,7 @@ function renderFileOverlay(c: ChatState): Node {
     el(
       "div",
       { class: "topbar", style: "border-bottom:1px solid var(--border)" },
-      el("button", { class: "pane-back", ...tapHandler(closeTopPane), title: "Back" }, "‹"),
+      paneBackButton(c),
       // Naming the file you're actually looking at, not just "Files".
       el("span", { class: "title" }, fo.preview?.path ? baseName(fo.preview.path) : fo.preview ? "pasted image" : "Files"),
       el("span", { class: "pill" }, fo.preview?.path ? dirName(fo.preview.path, c.cwd) : c.cwd),
@@ -5330,6 +5332,17 @@ function renderFileOverlay(c: ChatState): Node {
 }
 
 // ---- Changes pane ------------------------------------------------
+
+// Docked beside the chat there is no "back" to speak of unless the viewer
+// sits over the changes pane; otherwise the button just closes the dock.
+function paneBackButton(c: ChatState): HTMLElement {
+  const closes = isWideLayout() && !(c.fileOverlay && c.diffPane);
+  return el(
+    "button",
+    { class: "pane-back", ...tapHandler(closeTopPane), title: closes ? "Close" : "Back" },
+    closes ? "×" : "‹",
+  );
+}
 
 function diffHunkEl(h: DiffHunk): HTMLElement {
   const cached = diffCacheFor(h);
@@ -5405,7 +5418,7 @@ function renderDiffPane(c: ChatState): Node {
     el(
       "div",
       { class: "topbar", style: "border-bottom:1px solid var(--border)" },
-      el("button", { class: "pane-back", ...tapHandler(closeTopPane), title: "Back" }, "‹"),
+      paneBackButton(c),
       el("span", { class: "title" }, "Changes"),
       el("span", { class: "scope" }, scopeBtn("session", "Session"), scopeBtn("turn", "Turn"), scopeBtn("uncommitted", "Uncommitted")),
       el("span", { class: "spacer" }),
@@ -5450,6 +5463,7 @@ function cachedDiffPane(c: ChatState): Node {
     pane.err,
     pane.expanded,
     c.cwd,
+    isWideLayout(),
     c.log.filter((i) => i.kind === "stream" && i.role === "user").length,
     edits.length,
     edits.map((i) => (i as EditDiffLogItem).status ?? "").join(","),
