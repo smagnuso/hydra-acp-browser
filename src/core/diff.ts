@@ -303,14 +303,15 @@ export function stepDiffTurn(delta: number): void {
   notifyChange();
 }
 
-// Opens the file viewer on top of the diff, at the file's first change.
-export function openDiffFile(file: FileDiff): void {
+// Opens the file viewer on top of the diff, at one hunk's first change
+// (the first hunk when none is given).
+export function openDiffFile(file: FileDiff, hunk = 0): void {
   const c = state.current;
   if (!c) {
     return;
   }
-  const first = file.hunks[0];
-  const locate = first && !file.deleted ? editAnchor({ path: file.path, ...first }) : null;
+  const h = file.hunks[hunk];
+  const locate = h && !file.deleted ? editAnchor({ path: file.path, ...h }) : null;
   openFileAtLine(c, file.path, undefined, undefined, locate ?? undefined);
 }
 

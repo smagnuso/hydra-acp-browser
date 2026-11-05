@@ -44,8 +44,8 @@ and set `BROWSER_UI_DIR=/path`. `src/ui-board/` (a few hundred lines) is a small
   `fileDiffCounts(file)` its +/- totals, `splitDiffPath(cwd, path)` the
   name and directory to show, and `diffPaneStatus(chat)` why the list is
   empty (loading, error, not a repo, nothing changed) for the UI to word,
-  `setDiffScope`, `stepDiffTurn(delta)`, `openDiffFile(file)` opens the file
-  viewer on top at its first change, `closeDiff()`.
+  `setDiffScope`, `stepDiffTurn(delta)`, `openDiffFile(file, hunk?)` opens the file
+  viewer on top at that hunk's first change, `closeDiff()`.
 - Panes: the file viewer and the changes pane form a stack over the chat.
   `hasOpenPane(chat)` and `closeTopPane()` (back: viewer first, then
   changes) are what a UI's back control, Escape and swipe should call. Back

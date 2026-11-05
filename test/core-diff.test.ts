@@ -9,8 +9,10 @@ import assert from "node:assert/strict";
 };
 
 const urls: string[] = [];
-globalThis.fetch = (async (input: string | URL | Request) => {
+const bodies: string[] = [];
+globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   urls.push(String(input));
+  bodies.push(String(init?.body ?? ""));
   if (String(input).endsWith("/uncommitted")) {
     return Response.json({ repo: true, files: [{ path: "/w/g.ts", created: true, hunks: [{ oldText: "", newText: "x\n" }] }] });
   }
@@ -186,4 +188,22 @@ test("diffPaneStatus says why the pane is empty", () => {
   c.diffPane.notRepo = false;
   c.diffPane.uncommitted = [{ path: "/w/a", created: false, hunks: [] }];
   assert.equal(diff.diffPaneStatus(c), null);
+});
+
+test("openDiffFile locates the tapped hunk, not always the first", async () => {
+  const c = chat([]);
+  c.fileOverlay = null;
+  const file = {
+    path: "/w/a.ts",
+    created: false,
+    hunks: [
+      { oldText: "one\n", newText: "ONE\n" },
+      { oldText: "two\n", newText: "TWO\n" },
+    ],
+  };
+  bodies.length = 0;
+  diff.openDiffFile(file, 1);
+  await new Promise((r) => setTimeout(r, 0));
+  const read = bodies.map((b) => (b ? JSON.parse(b) : {})).find((b) => "locate" in b);
+  assert.equal(read?.locate, "TWO");
 });

@@ -12,6 +12,7 @@ import {
   isFormControl,
   isDesktopPointer,
   isWideLayout,
+  hasActiveSelection,
   lastTapActivatedAt,
   noteTapRescued,
   TAP_MOVE_THRESHOLD,
@@ -4313,10 +4314,10 @@ function diffCountEls(st: { added: number; removed: number }): HTMLElement[] {
   return out;
 }
 
-function diffBodyEl(lines: DiffDisplayLine[], className = ""): HTMLElement {
+function diffBodyEl(lines: DiffDisplayLine[], className = "", attrs: Record<string, unknown> = {}): HTMLElement {
   return el(
     "pre",
-    className ? { class: className } : null,
+    { ...(className ? { class: className } : {}), ...attrs },
     el(
       "code",
       { class: "diff-body" },
@@ -5458,8 +5459,17 @@ function paneBackButton(c: ChatState): HTMLElement {
   );
 }
 
-function diffHunkEl(h: DiffHunk): HTMLElement {
-  return diffBodyEl(cachedDiffLines(h, 400), "diff-hunk");
+// Tapping a hunk shows it in the file viewer; a drag to select its text
+// does not.
+function diffHunkEl(h: DiffHunk, open: () => void): HTMLElement {
+  return diffBodyEl(cachedDiffLines(h, 400), "diff-hunk", {
+    ...tapHandler(() => {
+      if (!hasActiveSelection()) {
+        open();
+      }
+    }),
+    title: "Show in file",
+  });
 }
 
 // Hunks are only built for an expanded file, and the line diff behind them
@@ -5480,7 +5490,7 @@ function diffFileEl(c: ChatState, pane: DiffPaneState, f: FileDiff): HTMLElement
       f.deleted ? null : el("button", { ...tapHandler(() => openDiffFile(f)), title: "Open file" }, "↗"),
       el("div", { class: "sub" }, el("span", { class: "dir" }, dir)),
     ),
-    ...(open ? f.hunks.map(diffHunkEl) : []),
+    ...(open ? f.hunks.map((h, i) => diffHunkEl(h, () => openDiffFile(f, i))) : []),
   );
 }
 
