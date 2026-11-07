@@ -13,23 +13,23 @@ session cookie.
 
 ## Screenshots
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/desktop-2-session-dark.png"><img alt="A session: the session list, the transcript with an attached image, and an expanded edit" src="docs/img/desktop-2-session-light.png"></picture>
+<a href="docs/img/desktop-2-session-dark.png"><img alt="A session: the session list, the transcript with an attached image, and an expanded edit" src="docs/img/desktop-2-session-dark.png#gh-dark-mode-only"></a><a href="docs/img/desktop-2-session-light.png"><img alt="A session: the session list, the transcript with an attached image, and an expanded edit" src="docs/img/desktop-2-session-light.png#gh-light-mode-only"></a>
 
 ### See where the money went
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/desktop-3-cost-dark.png"><img alt="Usage and cost by model over 30 days" src="docs/img/desktop-3-cost-light.png"></picture>
+<a href="docs/img/desktop-3-cost-dark.png"><img alt="Usage and cost by model over 30 days" src="docs/img/desktop-3-cost-dark.png#gh-dark-mode-only"></a><a href="docs/img/desktop-3-cost-light.png"><img alt="Usage and cost by model over 30 days" src="docs/img/desktop-3-cost-light.png#gh-light-mode-only"></a>
 
 ### Review what the agent changed, beside the conversation
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/desktop-4-diff-dark.png"><img alt="The changes pane docked beside the session" src="docs/img/desktop-4-diff-light.png"></picture>
+<a href="docs/img/desktop-4-diff-dark.png"><img alt="The changes pane docked beside the session" src="docs/img/desktop-4-diff-dark.png#gh-dark-mode-only"></a><a href="docs/img/desktop-4-diff-light.png"><img alt="The changes pane docked beside the session" src="docs/img/desktop-4-diff-light.png#gh-light-mode-only"></a>
 
 ### Open any file, jumping to the changed lines
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/desktop-5-file-dark.png"><img alt="The file viewer docked beside the session" src="docs/img/desktop-5-file-light.png"></picture>
+<a href="docs/img/desktop-5-file-dark.png"><img alt="The file viewer docked beside the session" src="docs/img/desktop-5-file-dark.png#gh-dark-mode-only"></a><a href="docs/img/desktop-5-file-light.png"><img alt="The file viewer docked beside the session" src="docs/img/desktop-5-file-light.png#gh-light-mode-only"></a>
 
 ### From your phone
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/mobile-1-sessions-dark.png"><img alt="Session list" src="docs/img/mobile-1-sessions-light.png" width="165"></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/mobile-2-session-dark.png"><img alt="A session" src="docs/img/mobile-2-session-light.png" width="165"></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/mobile-3-cost-dark.png"><img alt="Usage and cost" src="docs/img/mobile-3-cost-light.png" width="165"></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/mobile-4-diff-dark.png"><img alt="Changes pane" src="docs/img/mobile-4-diff-light.png" width="165"></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/mobile-5-file-dark.png"><img alt="File viewer" src="docs/img/mobile-5-file-light.png" width="165"></picture>
+<a href="docs/img/mobile-1-sessions-dark.png"><img alt="Session list" src="docs/img/mobile-1-sessions-dark.png#gh-dark-mode-only" width="165"></a><a href="docs/img/mobile-1-sessions-light.png"><img alt="Session list" src="docs/img/mobile-1-sessions-light.png#gh-light-mode-only" width="165"></a> <a href="docs/img/mobile-2-session-dark.png"><img alt="A session" src="docs/img/mobile-2-session-dark.png#gh-dark-mode-only" width="165"></a><a href="docs/img/mobile-2-session-light.png"><img alt="A session" src="docs/img/mobile-2-session-light.png#gh-light-mode-only" width="165"></a> <a href="docs/img/mobile-3-cost-dark.png"><img alt="Usage and cost" src="docs/img/mobile-3-cost-dark.png#gh-dark-mode-only" width="165"></a><a href="docs/img/mobile-3-cost-light.png"><img alt="Usage and cost" src="docs/img/mobile-3-cost-light.png#gh-light-mode-only" width="165"></a> <a href="docs/img/mobile-4-diff-dark.png"><img alt="Changes pane" src="docs/img/mobile-4-diff-dark.png#gh-dark-mode-only" width="165"></a><a href="docs/img/mobile-4-diff-light.png"><img alt="Changes pane" src="docs/img/mobile-4-diff-light.png#gh-light-mode-only" width="165"></a> <a href="docs/img/mobile-5-file-dark.png"><img alt="File viewer" src="docs/img/mobile-5-file-dark.png#gh-dark-mode-only" width="165"></a><a href="docs/img/mobile-5-file-light.png"><img alt="File viewer" src="docs/img/mobile-5-file-light.png#gh-light-mode-only" width="165"></a>
 
 ## Install
 
