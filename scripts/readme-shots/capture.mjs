@@ -113,6 +113,8 @@ try {
     const tap = (selector) =>
       evalJs(`(() => { const n = document.querySelector(${JSON.stringify(selector)}); if (!n) return false; n.dispatchEvent(new PointerEvent('pointerup', {bubbles:true})); return true; })()`);
     const shot = async (file) => {
+      // Programmatic focus after synthetic taps draws a keyboard focus ring a real tap would not.
+      await evalJs(`document.activeElement?.blur()`);
       await sleep(600);
       const { data } = await send("Page.captureScreenshot", { format: "png" });
       writeFileSync(join(out, `${name}-${file}-${theme}.png`), Buffer.from(data, "base64"));
