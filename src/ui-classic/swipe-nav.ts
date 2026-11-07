@@ -479,7 +479,20 @@ function reset(): void {
   locked = false;
 }
 
+// A second finger means a pinch, never a swipe: drop any gesture the first
+// finger had already armed or started dragging.
+function abortForMultiTouch(): void {
+  if (locked) {
+    cancel();
+  }
+  reset();
+}
+
 function onTouchStart(e: TouchEvent): void {
+  if (e.touches.length > 1) {
+    abortForMultiTouch();
+    return;
+  }
   reset();
   if (isWideLayout() || state.modal || state.banner) return;
   const touch = e.touches[0];
@@ -532,6 +545,10 @@ function onTouchStart(e: TouchEvent): void {
 }
 
 function onTouchMove(e: TouchEvent): void {
+  if (e.touches.length > 1) {
+    abortForMultiTouch();
+    return;
+  }
   if (!candidate || startX === null || startY === null) return;
   const touch = e.touches[0];
   if (!touch) return;
