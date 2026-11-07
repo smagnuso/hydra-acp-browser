@@ -11,6 +11,26 @@ The hydra master token never leaves the machine; the browser authenticates
 you with a password (set via `hydra-acp auth password`) and issues its own
 session cookie.
 
+## Screenshots
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/desktop-2-session-dark.png"><img alt="A session: the session list, the transcript with an attached image, and an expanded edit" src="docs/img/desktop-2-session-light.png"></picture>
+
+### See where the money went
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/desktop-3-cost-dark.png"><img alt="Usage and cost by model over 30 days" src="docs/img/desktop-3-cost-light.png"></picture>
+
+### Review what the agent changed, beside the conversation
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/desktop-4-diff-dark.png"><img alt="The changes pane docked beside the session" src="docs/img/desktop-4-diff-light.png"></picture>
+
+### Open any file, jumping to the changed lines
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/desktop-5-file-dark.png"><img alt="The file viewer docked beside the session" src="docs/img/desktop-5-file-light.png"></picture>
+
+### From your phone
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/mobile-1-sessions-dark.png"><img alt="Session list" src="docs/img/mobile-1-sessions-light.png" width="165"></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/mobile-2-session-dark.png"><img alt="A session" src="docs/img/mobile-2-session-light.png" width="165"></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/mobile-3-cost-dark.png"><img alt="Usage and cost" src="docs/img/mobile-3-cost-light.png" width="165"></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/mobile-4-diff-dark.png"><img alt="Changes pane" src="docs/img/mobile-4-diff-light.png" width="165"></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/mobile-5-file-dark.png"><img alt="File viewer" src="docs/img/mobile-5-file-light.png" width="165"></picture>
+
 ## Install
 
 ```sh
