@@ -415,7 +415,16 @@ export interface FileOverlayState {
         fromLine: number;
         hasMore: boolean;
       }
-    | { path?: string; isImage: true; url: string }
+    | {
+        path?: string;
+        // Display name for a pasted image (no file behind it).
+        name?: string;
+        isImage: true;
+        url: string;
+        // Set when opened from a chat bubble: the sibling images (all
+        // pasted prompt images, or all agent images) to step through.
+        gallery?: { items: { url: string; path?: string; name?: string }[]; index: number };
+      }
     | null;
   err: string | null;
   // Markdown files default to a rendered preview; this forces the raw,

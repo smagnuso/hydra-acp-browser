@@ -7,8 +7,9 @@ import { api } from "./api.js";
 import { uiHooks } from "./hooks.js";
 import { state, notifyChange } from "./state.js";
 import { editAnchor, type EditAnchor } from "./edit-diff.js";
+import { attachmentSrc } from "./attachments.js";
 import { isAbsolutePath, lastSeparator, pathBelow } from "./path-text.js";
-import type { ChatState, FileEntry } from "./types.js";
+import type { ChatState, FileEntry, FileOverlayState } from "./types.js";
 
 // How far a paging pill moves. Smaller than the server's window so the
 // new slice overlaps the old one and you don't lose your place.
@@ -95,6 +96,13 @@ export function openFiles(): void {
 // useful "back to listing" needs beyond closing the preview. path is
 // omitted for a pasted/sent prompt image, there's no file on the
 // daemon's host to name, only the data: URI already in url.
+function previewForImage(c: ChatState, url: string, path?: string): FileOverlayState["preview"] {
+  const group = findImageGroup(c, url);
+  const name = path === undefined ? group?.items[group.index]?.name : undefined;
+  const gallery = group && group.items.length > 1 ? group : undefined;
+  return { path, name, isImage: true, url, gallery };
+}
+
 export function openImagePreviewAt(c: ChatState, url: string, path?: string): void {
   c.forwardPanes = [];
   uiHooks.beforeFileOverlayOpen();
@@ -102,12 +110,64 @@ export function openImagePreviewAt(c: ChatState, url: string, path?: string): vo
   c.fileOverlay = {
     path: "",
     entries: [],
-    preview: { path, isImage: true, url },
+    preview: previewForImage(c, url, path),
     err: null,
     previewRaw: false,
   };
   notifyChange();
   uiHooks.afterFileOverlayOpen();
+}
+
+type GalleryItem = { url: string; path?: string; name?: string };
+
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+
+// Pasted images carry no filename, so one is derived from the prompt's send
+// time; stable across reloads because sentAt comes from the daemon.
+function pastedName(sentAt: number | undefined, n: number, mimeType: string): string {
+  const ext = (mimeType.split("/")[1] ?? "png").replace("jpeg", "jpg").replace(/\+.*/, "");
+  if (sentAt === undefined) {
+    return `pasted-image-${n}.${ext}`;
+  }
+  const d = new Date(sentAt);
+  const stamp = `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
+  return `pasted-${stamp}-${n}.${ext}`;
+}
+
+// Siblings of the clicked image: pasted prompt images if it is one,
+// otherwise the agent's images.
+function findImageGroup(c: ChatState, url: string): { items: GalleryItem[]; index: number } | undefined {
+  const groups: GalleryItem[][] = [[], []];
+  for (const item of c.log) {
+    if (item.kind === "stream" && item.role === "user" && item.attachments) {
+      item.attachments.forEach((a, i) => {
+        groups[0]!.push({ url: attachmentSrc(a), path: a.path, name: pastedName(item.sentAt, i + 1, a.mimeType) });
+      });
+    } else if (item.kind === "image") {
+      for (const a of item.attachments) {
+        groups[1]!.push({ url: attachmentSrc(a), path: a.path });
+      }
+    }
+  }
+  const items = groups.find((g) => g.some((i) => i.url === url));
+  return items ? { items, index: items.findIndex((i) => i.url === url) } : undefined;
+}
+
+// Steps the open gallery image by delta, clamped at the ends.
+export function stepImagePreview(delta: number): void {
+  const fo = state.current?.fileOverlay;
+  const pv = fo?.preview;
+  if (!fo || !pv || !("isImage" in pv) || !pv.gallery) {
+    return;
+  }
+  const { items, index } = pv.gallery;
+  const next = Math.min(items.length - 1, Math.max(0, index + delta));
+  if (next === index) {
+    return;
+  }
+  const it = items[next]!;
+  fo.preview = { path: it.path, name: it.name, isImage: true, url: it.url, gallery: { items, index: next } };
+  notifyChange();
 }
 
 export async function restoreFileView(

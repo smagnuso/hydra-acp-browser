@@ -75,6 +75,7 @@ export {
   openFiles,
   openFileAtLine,
   openImagePreviewAt,
+  stepImagePreview,
   listFiles,
   readFile,
   navigateFile,

@@ -16,6 +16,7 @@ import {
 import { installUiHooks } from "../core/hooks.js";
 import { openFileAtLine, editAnchorForToolCall } from "../core/files.js";
 import { closeTopPane, hasOpenPane } from "../core/diff.js";
+import { stepImagePreview } from "../core/files.js";
 import {
   applyHashRoute,
   applyProtocolLaunch,
@@ -272,6 +273,23 @@ window.addEventListener("keydown", (e) => {
   e.stopImmediatePropagation();
   if (closeRailPeek()) return;
   closeTopPane();
+});
+
+// Left/Right step through the image gallery in the viewer.
+window.addEventListener("keydown", (e) => {
+  if ((e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.metaKey || e.ctrlKey || e.altKey) {
+    return;
+  }
+  const pv = state.current?.fileOverlay?.preview;
+  if (!pv || !("isImage" in pv) || !pv.gallery || state.modal) {
+    return;
+  }
+  const t = e.target;
+  if (t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) {
+    return;
+  }
+  e.preventDefault();
+  stepImagePreview(e.key === "ArrowLeft" ? -1 : 1);
 });
 
 // Cmd/Ctrl-A inside the Files overlay selects just the previewed file, not

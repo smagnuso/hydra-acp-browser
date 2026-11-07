@@ -65,6 +65,7 @@ import {
   imageUrl,
   openFiles,
   openImagePreviewAt,
+  stepImagePreview,
   togglePreviewRaw,
   listFiles,
   readFile,
@@ -5264,12 +5265,19 @@ function downloadFile(sessionId: string, path: string): void {
   a.remove();
 }
 
+function pastedPill(pv: NonNullable<FileOverlayState["preview"]>): string {
+  const g = "gallery" in pv ? pv.gallery : undefined;
+  return g ? `pasted image ${g.index + 1} of ${g.items.length}` : "pasted image";
+}
+
 function renderFileOverlay(c: ChatState): Node {
   const fo = c.fileOverlay;
   if (!fo) return document.createTextNode("");
   let body: HTMLElement;
   if (fo.preview && "isImage" in fo.preview) {
-    const { path, url } = fo.preview;
+    const { path, url, gallery } = fo.preview;
+    const atStart = !gallery || gallery.index === 0;
+    const atEnd = !gallery || gallery.index === gallery.items.length - 1;
     body = el(
       "div",
       { class: "preview" },
@@ -5279,13 +5287,31 @@ function renderFileOverlay(c: ChatState): Node {
         el(
           "div",
           { class: "crumbs-actions" },
-          el("span", { class: "crumb", ...tapHandler(() => closeFilePreview()) }, "← back to listing"),
+          gallery
+            ? el(
+                "span",
+                { class: "gallery-nav" },
+                el("span", { class: "crumb", style: atStart ? "opacity:0.3" : "", ...tapHandler(() => stepImagePreview(-1)) }, "‹ prev"),
+                el("span", { class: "crumb" }, `${gallery.index + 1} / ${gallery.items.length}`),
+                el("span", { class: "crumb", style: atEnd ? "opacity:0.3" : "", ...tapHandler(() => stepImagePreview(1)) }, "next ›"),
+              )
+            : el("span", { class: "crumb", ...tapHandler(() => closeFilePreview()) }, "← back to listing"),
         ),
         // No real file behind a pasted/sent prompt image — nothing to
         // copy a path for.
         path !== undefined ? copyablePathNode(c.cwd, path) : null,
       ),
-      imagePreviewEl(url),
+      el(
+        "div",
+        { class: "image-stage" },
+        imagePreviewEl(url),
+        gallery && !atStart
+          ? el("button", { class: "image-step prev", title: "Previous image", ...tapHandler(() => stepImagePreview(-1)) }, "‹")
+          : null,
+        gallery && !atEnd
+          ? el("button", { class: "image-step next", title: "Next image", ...tapHandler(() => stepImagePreview(1)) }, "›")
+          : null,
+      ),
     );
   } else if (fo.preview) {
     const { path, content, fromLine, hasMore } = fo.preview;
@@ -5437,8 +5463,8 @@ function renderFileOverlay(c: ChatState): Node {
       { class: "topbar", style: "border-bottom:1px solid var(--border)" },
       paneBackButton(c),
       // Naming the file you're actually looking at, not just "Files".
-      el("span", { class: "title" }, fo.preview?.path ? baseName(fo.preview.path) : fo.preview ? "pasted image" : "Files"),
-      el("span", { class: "pill" }, fo.preview?.path ? dirName(fo.preview.path, c.cwd) : shortenCwd(c.cwd)),
+      el("span", { class: "title" }, fo.preview?.path ? baseName(fo.preview.path) : fo.preview ? (("name" in fo.preview && fo.preview.name) || "pasted image") : "Files"),
+      el("span", { class: "pill" }, fo.preview?.path ? dirName(fo.preview.path, c.cwd) : fo.preview ? pastedPill(fo.preview) : shortenCwd(c.cwd)),
       el("span", { class: "spacer" }),
     ),
     fo.preview ? null : fileBreadcrumb(fo.path),
