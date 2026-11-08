@@ -450,6 +450,22 @@ export interface FileOverlayState {
   keepLine?: { line: number; viewportOffset: number };
 }
 
+// What a committed "@" mention points at.
+export type MentionTarget =
+  | { kind: "file"; path: string }
+  | { kind: "session"; id: string; title: string };
+
+export interface SessionMentionItem {
+  kind: "session";
+  id: string;
+  title: string;
+  cwd: string;
+}
+
+// One row of the "@" picker: a cwd-relative path (a trailing "/" marks a
+// directory) or another session.
+export type MentionItem = { kind: "file"; path: string } | SessionMentionItem;
+
 export interface ChatState {
   sessionId: string;
   title: string;
@@ -533,13 +549,15 @@ export interface ChatState {
   fileMentionsVersion: number;
   // Composer "@" mentions picked this session: inserted "@token" -> cwd-
   // relative file. Only those still present in the text are sent.
-  mentions: Map<string, string>;
+  mentions: Map<string, MentionTarget>;
   // Open "@" file picker, or null. start/end span the typed "@query".
   mentionPicker: {
     start: number;
     end: number;
     query: string;
     files: string[];
+    // Other sessions matching the query, computed locally from the list.
+    sessions: SessionMentionItem[];
     selected: number;
     // The server's file listing hit its cap, so results may be incomplete.
     truncated: boolean;

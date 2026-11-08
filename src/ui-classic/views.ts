@@ -133,6 +133,7 @@ import { openChat, closeChat, requestFullHistory, warmSession, loadEarlierHistor
 import { queueDraftWrite } from "../core/composer-draft.js";
 import {
   closeMentionPicker,
+  mentionItems,
   moveMentionSelection,
   pickMention,
   updateMentionPicker,
@@ -204,22 +205,35 @@ function renderAttachmentChips(c: ChatState): Node | null {
 // something to pick. Rows act on tap (pointerup) like every other control.
 function renderMentionPicker(c: ChatState, pick: (index: number) => void): Node | null {
   const p = c.mentionPicker;
-  if (p === null || p.files.length === 0) return null;
+  if (p === null) return null;
+  const items = mentionItems(p);
+  if (items.length === 0) return null;
   if (!c.composerValue.slice(p.start, p.end).startsWith("@")) return null;
   return el(
     "div",
     { class: "mention-picker", role: "listbox" },
-    ...p.files.map((file, i) => {
-      const isDir = file.endsWith("/");
-      const body = isDir ? file.slice(0, -1) : file;
+    ...items.map((item, i) => {
+      const cls = `mention-row${i === p.selected ? " selected" : ""}`;
+      if (item.kind === "session") {
+        const title = item.title.length > 0 ? item.title : "(untitled)";
+        return el(
+          "button",
+          { class: cls, role: "option", ...tapHandler(() => pick(i)) },
+          el("span", { class: "mention-badge" }, "session"),
+          el("span", { class: "mention-name" }, title),
+          el(
+            "span",
+            { class: "mention-dir" },
+            `${shortSessionId(item.id).slice(0, 4)}  ${shortenCwd(item.cwd)}`,
+          ),
+        );
+      }
+      const isDir = item.path.endsWith("/");
+      const body = isDir ? item.path.slice(0, -1) : item.path;
       const slash = body.lastIndexOf("/");
       return el(
         "button",
-        {
-          class: `mention-row${i === p.selected ? " selected" : ""}`,
-          role: "option",
-          ...tapHandler(() => pick(i)),
-        },
+        { class: cls, role: "option", ...tapHandler(() => pick(i)) },
         el("span", { class: "mention-name" }, body.slice(slash + 1) + (isDir ? "/" : "")),
         el("span", { class: "mention-dir" }, slash >= 0 ? body.slice(0, slash) : ""),
       );
@@ -2612,6 +2626,10 @@ function ensureChatView(c: ChatState): ChatView {
         startY = null;
         locked = false;
         committed = false;
+        // A drag inside the "@" picker scrolls it; it is not a dismiss swipe.
+        if ((e.target as Element | null)?.closest?.(".mention-picker")) {
+          return;
+        }
         const active = document.activeElement;
         if (!(active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement)) return;
         const touch = e.touches[0];
@@ -2718,12 +2736,43 @@ function ensureChatView(c: ChatState): ChatView {
   composerSlot.addEventListener(
     "touchstart",
     (e: TouchEvent) => {
-      if ((e.target as Element | null)?.closest?.(".composer-buttons button, .mention-picker button")) {
+      if ((e.target as Element | null)?.closest?.(".composer-buttons button")) {
         e.preventDefault();
       }
     },
     { passive: false },
   );
+  // Rows in the "@" picker. A drag must scroll the list, so touchstart stays
+  // uncancelled; a stationary tap is cancelled at touchend instead, which
+  // still keeps the textarea (and the keyboard) from losing focus.
+  {
+    const PICKER_TAP_MOVE_PX = 10;
+    let pickerStart: { x: number; y: number } | null = null;
+    composerSlot.addEventListener(
+      "touchstart",
+      (e: TouchEvent) => {
+        const t = e.touches[0];
+        const onRow = (e.target as Element | null)?.closest?.(".mention-picker button");
+        pickerStart = t && onRow ? { x: t.clientX, y: t.clientY } : null;
+      },
+      { passive: true },
+    );
+    composerSlot.addEventListener(
+      "touchend",
+      (e: TouchEvent) => {
+        const start = pickerStart;
+        pickerStart = null;
+        const t = e.changedTouches[0];
+        if (!start || !t || !e.cancelable) {
+          return;
+        }
+        if (Math.hypot(t.clientX - start.x, t.clientY - start.y) <= PICKER_TAP_MOVE_PX) {
+          e.preventDefault();
+        }
+      },
+      { passive: false },
+    );
+  }
   installComposerTapRescue();
   return view;
 }
@@ -3663,7 +3712,7 @@ function renderChat(c: ChatState): HTMLElement {
   const composerOnKey = (e: KeyboardEvent): void => {
     if (e.isComposing) return;
     const picker = c.mentionPicker;
-    if (picker !== null && picker.files.length > 0 && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+    if (picker !== null && mentionItems(picker).length > 0 && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         moveMentionSelection(c, e.key === "ArrowDown" ? 1 : -1);

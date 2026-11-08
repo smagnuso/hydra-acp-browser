@@ -6,8 +6,24 @@
 
 import { api } from "./api.js";
 import { queueDraftWrite } from "./composer-draft.js";
-import { notifyChange } from "./state.js";
-import type { ChatState } from "./types.js";
+import { displayCwd, matchesSessionSearch, shortSessionId } from "./session-list.js";
+import { notifyChange, state } from "./state.js";
+import type {
+  ChatState,
+  MentionItem,
+  MentionTarget,
+  SessionInfo,
+  SessionMentionItem,
+} from "./types.js";
+
+const MAX_SESSION_ROWS = 5;
+// With sessions in the list, the first few files stay on top and the
+// sessions follow, so they are on screen rather than below the fold.
+const FILE_ROWS_WITH_SESSIONS = 15;
+const FILES_BEFORE_SESSIONS = 2;
+const SLUG_MAX = 24;
+const MIN_SLUG_WORD = 8;
+const SHORT_ID_LEN = 4;
 
 export interface ActiveMention {
   start: number;
@@ -75,14 +91,104 @@ export function fileUri(cwd: string, file: string): string {
   return encoded.startsWith("/") ? `file://${encoded}` : `file:///${encoded}`;
 }
 
+export function slugify(title: string): string {
+  const full = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (full.length <= SLUG_MAX) {
+    return full;
+  }
+  // Cut at a word boundary when there is one worth keeping.
+  const head = full.slice(0, SLUG_MAX + 1);
+  const boundary = head.lastIndexOf("-");
+  const cut = boundary >= MIN_SLUG_WORD ? head.slice(0, boundary) : full.slice(0, SLUG_MAX);
+  return cut.replace(/-+$/g, "");
+}
+
+// The short id is always in the token: a mention is recorded by its token
+// text, and two sessions can share a title.
+export function sessionMentionToken(id: string, title: string): string {
+  const slug = slugify(title);
+  return `@${slug.length > 0 ? slug : "session"}-${shortSessionId(id).slice(0, SHORT_ID_LEN)}`;
+}
+
+export function sessionUri(id: string): string {
+  return `hydra://sessions/${encodeURIComponent(id)}`;
+}
+
+// Sessions matching an "@query", newest first. Federated sessions and the
+// chat's own session are left out, and a path-shaped query is a file search.
+export function sessionMentionItems(
+  query: string,
+  sessions: readonly SessionInfo[],
+  opts: { excludeId?: string; limit?: number } = {},
+): SessionMentionItem[] {
+  if (query.includes("/") || query.includes("\\") || query.startsWith(".")) {
+    return [];
+  }
+  // Titles have spaces where the typed token has hyphens; try both forms.
+  const term = query.replace(/[-_]+/g, " ").trim();
+  const recency = (s: SessionInfo): number => {
+    const t = s.updatedAt === undefined ? NaN : Date.parse(s.updatedAt);
+    return Number.isNaN(t) ? 0 : t;
+  };
+  const q = query.toLowerCase();
+  const t = term.toLowerCase();
+  // A title hit beats a hit on the cwd, id or agent, which are far looser.
+  const inTitle = (s: SessionInfo): boolean => {
+    const title = (s.title ?? "").toLowerCase();
+    return title.includes(q) || title.includes(t);
+  };
+  return sessions
+    .filter(
+      (s) =>
+        s.remote === undefined &&
+        s.sessionId !== opts.excludeId &&
+        (matchesSessionSearch(s, query) || matchesSessionSearch(s, term)),
+    )
+    .sort((a, b) => Number(inTitle(b)) - Number(inTitle(a)) || recency(b) - recency(a))
+    .slice(0, opts.limit ?? MAX_SESSION_ROWS)
+    .map((s) => ({
+      kind: "session" as const,
+      id: s.sessionId,
+      title: s.title?.trim() ?? "",
+      cwd: displayCwd(s),
+    }));
+}
+
+// The rows to show: a couple of files, then the sessions, then more files.
+export function mentionItems(
+  p: Pick<NonNullable<ChatState["mentionPicker"]>, "files" | "sessions">,
+): MentionItem[] {
+  const files = p.sessions.length > 0 ? p.files.slice(0, FILE_ROWS_WITH_SESSIONS) : p.files;
+  const rows = files.map((path) => ({ kind: "file" as const, path }));
+  return [
+    ...rows.slice(0, FILES_BEFORE_SESSIONS),
+    ...p.sessions,
+    ...rows.slice(FILES_BEFORE_SESSIONS),
+  ];
+}
+
 export function mentionBlocks(
   c: Pick<ChatState, "mentions" | "cwd">,
   text: string,
 ): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [];
-  for (const [token, file] of c.mentions) {
-    if (present(text, token)) {
-      out.push({ type: "resource_link", uri: fileUri(c.cwd, file), name: file });
+  for (const [token, target] of c.mentions) {
+    if (!present(text, token)) {
+      continue;
+    }
+    if (target.kind === "file") {
+      out.push({ type: "resource_link", uri: fileUri(c.cwd, target.path), name: target.path });
+    } else {
+      out.push({
+        type: "resource_link",
+        uri: sessionUri(target.id),
+        name: target.title.length > 0 ? target.title : target.id,
+        description: `Hydra session ${target.id}; read it with: hydra session transcript ${target.id}`,
+        mimeType: "text/markdown",
+      });
     }
   }
   return out;
@@ -106,13 +212,15 @@ export function updateMentionPicker(c: ChatState, text: string, caret: number): 
     return;
   }
   const prev = c.mentionPicker;
+  const same = prev !== null && prev.query === m.query;
   c.mentionPicker = {
     start: m.start,
     end: m.end,
     query: m.query,
-    files: prev !== null && prev.query === m.query ? prev.files : [],
-    selected: prev !== null && prev.query === m.query ? prev.selected : 0,
-    truncated: prev !== null && prev.query === m.query ? prev.truncated : false,
+    files: same ? prev.files : [],
+    sessions: sessionMentionItems(m.query, state.sessions, { excludeId: c.sessionId }),
+    selected: same ? prev.selected : 0,
+    truncated: same ? prev.truncated : false,
   };
   notifyChange();
   const seq = ++searchSeq;
@@ -131,34 +239,47 @@ export function updateMentionPicker(c: ChatState, text: string, caret: number): 
       notifyChange();
     })
     .catch(() => {
-      if (seq === searchSeq) {
-        closeMentionPicker(c);
+      if (seq !== searchSeq) {
+        return;
       }
+      // Files can be unavailable (a federated chat) while sessions still work.
+      const cur = c.mentionPicker;
+      if (cur !== null && cur.sessions.length > 0) {
+        cur.files = [];
+        notifyChange();
+        return;
+      }
+      closeMentionPicker(c);
     });
 }
 
 export function moveMentionSelection(c: ChatState, delta: number): void {
   const p = c.mentionPicker;
-  if (p === null || p.files.length === 0) {
+  if (p === null) {
     return;
   }
-  p.selected = (p.selected + delta + p.files.length) % p.files.length;
+  const count = mentionItems(p).length;
+  if (count === 0) {
+    return;
+  }
+  p.selected = (p.selected + delta + count) % count;
   notifyChange();
 }
 
-// Insert the chosen file in place of the typed "@query". Returns the new
+// Insert the chosen row in place of the typed "@query". Returns the new
 // caret for the view to apply, or null when there is nothing to pick.
 export function pickMention(c: ChatState, index?: number): number | null {
   const p = c.mentionPicker;
   if (p === null) {
     return null;
   }
-  const file = p.files[index ?? p.selected];
-  if (file === undefined) {
+  const item = mentionItems(p)[index ?? p.selected];
+  if (item === undefined) {
     return null;
   }
-  const token = mentionToken(file);
-  const isDir = file.endsWith("/");
+  const isSession = item.kind === "session";
+  const isDir = item.kind === "file" && item.path.endsWith("/");
+  const token = isSession ? sessionMentionToken(item.id, item.title) : mentionToken(item.path);
   const text = c.composerValue;
   const tail = text.slice(p.end);
   const gap = !isDir && (tail.length === 0 || !/^\s/.test(tail)) ? " " : "";
@@ -171,7 +292,12 @@ export function pickMention(c: ChatState, index?: number): number | null {
     updateMentionPicker(c, c.composerValue, caret);
     return caret;
   }
-  c.mentions.set(token, file);
+  c.mentions.set(
+    token,
+    item.kind === "session"
+      ? { kind: "session", id: item.id, title: item.title }
+      : { kind: "file", path: item.path },
+  );
   c.mentionPicker = null;
   notifyChange();
   return caret;
