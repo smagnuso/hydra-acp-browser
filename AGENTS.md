@@ -240,7 +240,18 @@ data.
   `restartExtension` in `src/setup/tailscale-wizard.ts`). Never spawn a bare
   npm-installed command on Windows; use `resolveSpawnTarget` (a copy of the
   CLI's, keep it in step) and handle the throw from `quoteForCmd`. The Tailscale
-  cert flow still calls `sudo` and `chown`, which do not exist on Windows.
+  cert flow is platform-aware: on Windows a permission failure fails with an
+  "elevate and rerun" message and never reaches `sudo` or `chown`.
+- **Platform-dependent setup wording lives in `src/setup/platform-hints.ts`**
+  (`permissionAdvice`, `confWrittenNote`, `certChmodWarning`, `confHeader`), and
+  `step2MintCert` takes an injectable `platform` and `deps`, so both OS branches
+  are testable on Linux. Windows has no `sudo`, `chown` or `$(whoami)`, and file
+  modes are not applied there, so no message may claim one.
+- **Expand `~` on user input only through `expandTilde`** (`util/home-path.ts`),
+  which handles `~`, `~/` and `~\` and leaves `~foo` alone; never hand-roll it.
+- **Server code builds file paths with the host `path.join`**, so on Windows they
+  are backslashed and the front-end helpers must stay separator-agnostic. Tests
+  simulate this with `path.win32` (see the git-changes path-chain test).
 
 ## Updating this file
 
