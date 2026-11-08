@@ -88,3 +88,24 @@ test("uncommittedChanges reports a non-repository", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// The server joins with the host's path module, so on Windows every file
+// path is backslashed; win32.join reproduces that string on any host.
+test("Windows git-changes paths display as project-relative names through the front-end helpers", async () => {
+  const { win32 } = await import("node:path");
+  const { relativeToCwd } = await import("../src/core/files.js");
+  const { splitDiffPath } = await import("../src/core/diff.js");
+  const serverPath = (root: string, rel: string): string => win32.join(root, rel);
+  for (const [cwd, root] of [
+    ["C:\\proj", "C:\\proj"],
+    ["C:/proj", "C:\\proj"],
+    ["c:\\Proj\\", "C:\\proj"],
+  ] as const) {
+    const nested = serverPath(root, "src/ui/a.ts");
+    assert.equal(nested, "C:\\proj\\src\\ui\\a.ts");
+    assert.equal(relativeToCwd(cwd, nested), "src\\ui\\a.ts");
+    assert.deepEqual(splitDiffPath(cwd, nested), { name: "a.ts", dir: "src\\ui\\" });
+    assert.deepEqual(splitDiffPath(cwd, serverPath(root, "top.ts")), { name: "top.ts", dir: "" });
+  }
+  assert.deepEqual(splitDiffPath("C:\\proj", "C:\\other\\x.ts"), { name: "x.ts", dir: "C:\\other\\" });
+});
