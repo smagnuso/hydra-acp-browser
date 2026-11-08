@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { HydraRestClient, HydraRestError } from "../hydra/client.js";
 import { UpstreamConnection, runInitialize } from "../hydra/ws.js";
+import { expandTilde } from "../util/home-path.js";
 import { logger } from "../util/log.js";
 import type { ServerContext } from "./http.js";
 import { recordEditedPath } from "./session-files.js";
@@ -15,10 +16,8 @@ function clientFor(ctx: ServerContext, request: FastifyRequest): HydraRestClient
   return HydraRestClient.forRequest(ctx.config.hydraDaemonUrl, token);
 }
 
-function expandHome(p: string): string {
-  if (p === "~") return homedir();
-  if (p.startsWith("~/")) return homedir() + p.slice(1);
-  return p;
+export function expandHome(p: string): string {
+  return expandTilde(p, homedir());
 }
 
 const log = logger("routes-sessions");

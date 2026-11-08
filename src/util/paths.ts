@@ -1,14 +1,15 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { expandTilde } from "./home-path.js";
 
 const HOME_DIR = resolve(homedir(), ".hydra-acp", "browser");
 const PRIMARY_CONF = resolve(homedir(), ".hydra-acp", "browser.conf");
 const LEGACY_CONF = resolve(homedir(), ".hydra-acp-browser.conf");
 
 export function expandHome(p: string): string {
-  if (p.startsWith("~/")) {
-    return resolve(homedir(), p.slice(2));
+  if (p === "~" || p.startsWith("~/") || p.startsWith("~\\")) {
+    return resolve(expandTilde(p, homedir()));
   }
   return p;
 }
