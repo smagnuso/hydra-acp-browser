@@ -1,9 +1,10 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { userInfo } from "node:os";
 import { createInterface } from "node:readline";
 import { delimiter, join, resolve } from "node:path";
 import { paths } from "../util/paths.js";
+import { resolveSpawnTarget, type ResolveDeps } from "../util/windows-command.js";
 import { CONF_PATH, readExisting, writeConf } from "./conf-writer.js";
 
 const BOLD = "\x1b[1m";
@@ -254,6 +255,26 @@ function step3WriteConfig(args: {
   return port;
 }
 
+type SpawnSyncFn = (
+  command: string,
+  args: string[],
+  options: { stdio: "inherit"; shell: boolean },
+) => SpawnSyncReturns<Buffer>;
+
+// npm installs hydra-acp as a .cmd shim on Windows, which spawnSync cannot
+// launch without a shell.
+export function restartExtension(
+  spawn: SpawnSyncFn = spawnSync as SpawnSyncFn,
+  deps: ResolveDeps = {},
+): SpawnSyncReturns<Buffer> {
+  const target = resolveSpawnTarget(
+    "hydra-acp",
+    ["extensions", "restart", "hydra-acp-browser"],
+    deps,
+  );
+  return spawn(target.command, target.args, { stdio: "inherit", shell: target.shell });
+}
+
 async function step4RestartExtension(): Promise<void> {
   header(4, TOTAL_STEPS, "Apply");
 
@@ -265,9 +286,7 @@ async function step4RestartExtension(): Promise<void> {
     info("Skipped. Apply later with: hydra-acp extensions restart hydra-acp-browser");
     return;
   }
-  const result = spawnSync("hydra-acp", ["extensions", "restart", "hydra-acp-browser"], {
-    stdio: "inherit",
-  });
+  const result = restartExtension();
   if (result.status === 0) {
     ok("Restarted.");
   } else {
