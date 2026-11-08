@@ -56,7 +56,7 @@ your `index.html`. `/login` (form POST, `password`, optional `next`) and
 | `GET /api/sessions/:id/export` | Bundle download. |
 | `POST /api/sessions/import` | `{bundle}`. |
 | `POST /api/files/list` `/read`, `GET /api/files/download` `/image` | Rooted at the session's `cwd`; traversal rejected. |
-| `POST /api/files/search` | `{sessionId, query}`; fuzzy-ranked cwd-relative paths (`{files}`, up to 20; git-tracked plus untracked-not-ignored, else a bounded walk) for composer `@` mentions. 400 for a session on another machine. |
+| `POST /api/files/search` | `{sessionId, query}`; fuzzy-ranked cwd-relative paths (`{files, truncated}`, up to 20; git-tracked plus untracked-not-ignored, else a bounded walk) for composer `@` mentions. Dotfiles are included only when the query names one. When the listing hit its size cap (`truncated: true`, a huge non-repo cwd), a query with an existing directory prefix searches just that subtree. 400 for a session on another machine. |
 | `GET /api/usage` | Budgeter aggregates (`since`, `bucket`, `by`, `metric`, `depth`, `refresh`). |
 | `GET /api/push/vapid-public-key`, `POST /api/push/subscribe` `/unsubscribe` | Web Push. |
 | `GET /api/health` | Unauthenticated; `{status, upstream}`. |

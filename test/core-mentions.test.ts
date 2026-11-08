@@ -38,7 +38,7 @@ test("activeMention spans an escaped space", () => {
 test("pickMention inserts the token, records it, and returns the caret", () => {
   const c = chat({
     composerValue: "see @rea now",
-    mentionPicker: { start: 4, end: 8, query: "rea", files: ["README.md"], selected: 0 },
+    mentionPicker: { start: 4, end: 8, query: "rea", files: ["README.md"], selected: 0, truncated: false },
   });
   const caret = m.pickMention(c);
   assert.equal(c.composerValue, "see @README.md now");
@@ -50,7 +50,7 @@ test("pickMention inserts the token, records it, and returns the caret", () => {
 test("pickMention adds a trailing space at end of text and escapes spaces", () => {
   const c = chat({
     composerValue: "@not",
-    mentionPicker: { start: 0, end: 4, query: "not", files: ["docs/my notes.md"], selected: 0 },
+    mentionPicker: { start: 0, end: 4, query: "not", files: ["docs/my notes.md"], selected: 0, truncated: false },
   });
   m.pickMention(c);
   assert.equal(c.composerValue, "@docs/my\\ notes.md ");
@@ -71,7 +71,7 @@ test("fileUri handles Windows cwds and encodes spaces", () => {
 test("picking a directory inserts it as text, records no link, and keeps drilling", () => {
   const c = chat({
     composerValue: "@sr",
-    mentionPicker: { start: 0, end: 3, query: "sr", files: ["src/"], selected: 0 },
+    mentionPicker: { start: 0, end: 3, query: "sr", files: ["src/"], selected: 0, truncated: false },
   });
   const caret = m.pickMention(c);
   assert.equal(c.composerValue, "@src/");

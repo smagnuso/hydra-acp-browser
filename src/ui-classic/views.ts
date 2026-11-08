@@ -224,6 +224,9 @@ function renderMentionPicker(c: ChatState, pick: (index: number) => void): Node 
         el("span", { class: "mention-dir" }, slash >= 0 ? body.slice(0, slash) : ""),
       );
     }),
+    p.truncated
+      ? el("div", { class: "mention-note" }, "Results truncated, add a directory to narrow")
+      : null,
   );
 }
 

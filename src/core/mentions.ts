@@ -112,10 +112,11 @@ export function updateMentionPicker(c: ChatState, text: string, caret: number): 
     query: m.query,
     files: prev !== null && prev.query === m.query ? prev.files : [],
     selected: prev !== null && prev.query === m.query ? prev.selected : 0,
+    truncated: prev !== null && prev.query === m.query ? prev.truncated : false,
   };
   notifyChange();
   const seq = ++searchSeq;
-  void api<{ files?: string[] }>("/api/files/search", {
+  void api<{ files?: string[]; truncated?: boolean }>("/api/files/search", {
     method: "POST",
     body: JSON.stringify({ sessionId: c.sessionId, query: m.query }),
   })
@@ -125,6 +126,7 @@ export function updateMentionPicker(c: ChatState, text: string, caret: number): 
         return;
       }
       cur.files = res.files ?? [];
+      cur.truncated = res.truncated === true;
       cur.selected = 0;
       notifyChange();
     })

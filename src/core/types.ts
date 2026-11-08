@@ -541,6 +541,8 @@ export interface ChatState {
     query: string;
     files: string[];
     selected: number;
+    // The server's file listing hit its cap, so results may be incomplete.
+    truncated: boolean;
   } | null;
   composerValue: string;
   // Images pasted into the composer, waiting to go out with the next send.

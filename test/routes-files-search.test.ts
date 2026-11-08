@@ -67,7 +67,7 @@ test("search refuses a session whose files live on another machine", async () =>
 test("search returns fuzzy-ranked files and directories under the cwd", async () => {
   const res = await search({ sessionId: "local", query: "app" });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json().files, ["src/app.ts"]);
+  assert.deepEqual(res.json(), { files: ["src/app.ts"], truncated: false });
   const dirs = await search({ sessionId: "local", query: "src" });
   assert.equal(dirs.json().files[0], "src/");
 });

@@ -210,7 +210,7 @@ export function registerFileRoutes(
     }
     try {
       const cwd = await fsp.realpath(session.cwd);
-      reply.send({ files: await searchFiles(cwd, body.query ?? "") });
+      reply.send(await searchFiles(cwd, body.query ?? ""));
     } catch (err) {
       reply.code(500).send({ error: (err as Error).message });
     }

@@ -100,12 +100,23 @@ async function gitFiles(dir: string): Promise<string[] | null> {
   }
 }
 
+export interface FileListing {
+  files: string[];
+  // True when the listing stopped at the size cap, so it may be missing files.
+  truncated: boolean;
+}
+
 // Fallback for a cwd that is not itself a repo. A nested repo is listed
 // through git so its .gitignore applies, and is not descended into.
-async function walk(root: string): Promise<string[]> {
+async function walk(root: string, hidden: boolean): Promise<FileListing> {
   const out: string[] = [];
   const queue = [""];
-  while (queue.length > 0 && out.length < MAX_FILES) {
+  let truncated = false;
+  while (queue.length > 0) {
+    if (out.length >= MAX_FILES) {
+      truncated = true;
+      break;
+    }
     const rel = queue.shift() as string;
     let dirents;
     try {
@@ -123,7 +134,7 @@ async function walk(root: string): Promise<string[]> {
       }
     }
     for (const d of dirents) {
-      if (d.name.startsWith(".") || SKIP_DIRS.has(d.name)) {
+      if ((!hidden && d.name.startsWith(".")) || SKIP_DIRS.has(d.name)) {
         continue;
       }
       const child = rel === "" ? d.name : `${rel}/${d.name}`;
@@ -134,28 +145,98 @@ async function walk(root: string): Promise<string[]> {
       }
     }
   }
-  return out;
+  return { files: out, truncated };
 }
 
 // Tracked and untracked-but-not-ignored files via git, else a bounded walk.
 // Paths are cwd-relative and always forward-slashed.
-export async function listProjectFiles(cwd: string): Promise<string[]> {
+export async function listProjectFiles(cwd: string, hidden = false): Promise<FileListing> {
   const files = await gitFiles(cwd);
-  return files !== null ? files.slice(0, MAX_FILES) : walk(cwd);
+  if (files !== null) {
+    return { files: files.slice(0, MAX_FILES), truncated: files.length > MAX_FILES };
+  }
+  return walk(cwd, hidden);
 }
 
-const cache = new Map<string, { at: number; files: string[] }>();
+// A query naming a dot-entry (".bashr", "src/.en") opts in to hidden files,
+// which the directory walk otherwise skips.
+export function wantsHidden(query: string): boolean {
+  return /(^|\/)\./.test(query.replace(/\\/g, "/"));
+}
+
+// For a listing that was cut short: how much of the query is a directory
+// path that exists under the cwd ("dnload/foo/ma" -> base "dnload/foo/",
+// rest "ma"), so the search can list just that subtree instead.
+export async function resolveScope(
+  query: string,
+  isDir: (rel: string) => Promise<boolean>,
+): Promise<{ base: string; rest: string }> {
+  const segs = query.split("/");
+  const last = segs.pop() ?? "";
+  let base = "";
+  while (segs.length > 0) {
+    const seg = segs[0]!;
+    if (seg === "" || seg === "." || seg === "..") {
+      break;
+    }
+    const next = `${base}${seg}/`;
+    if (!(await isDir(next))) {
+      break;
+    }
+    base = next;
+    segs.shift();
+  }
+  return { base, rest: [...segs, last].join("/") };
+}
+
+// lstat, not stat: a symlinked directory must not lead the scope out of
+// the session's cwd.
+export async function isRealDirectory(abs: string): Promise<boolean> {
+  try {
+    return (await fsp.lstat(abs)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+const cache = new Map<string, { at: number; listing: FileListing }>();
+
+async function cachedListing(
+  cwd: string,
+  hidden: boolean,
+  list: (cwd: string, hidden: boolean) => Promise<FileListing>,
+): Promise<FileListing> {
+  const now = Date.now();
+  const key = `${cwd}\0${hidden ? "h" : "v"}`;
+  const hit = cache.get(key);
+  if (hit !== undefined && now - hit.at < CACHE_TTL_MS) {
+    return hit.listing;
+  }
+  const raw = await list(cwd, hidden);
+  const listing = { files: withDirectories(raw.files), truncated: raw.truncated };
+  cache.set(key, { at: now, listing });
+  return listing;
+}
 
 export async function searchFiles(
   cwd: string,
   query: string,
-  list: (cwd: string) => Promise<string[]> = listProjectFiles,
-): Promise<string[]> {
-  const now = Date.now();
-  let hit = cache.get(cwd);
-  if (hit === undefined || now - hit.at >= CACHE_TTL_MS) {
-    hit = { at: now, files: withDirectories(await list(cwd)) };
-    cache.set(cwd, hit);
+  list: (cwd: string, hidden: boolean) => Promise<FileListing> = listProjectFiles,
+  isDir: (abs: string) => Promise<boolean> = isRealDirectory,
+): Promise<{ files: string[]; truncated: boolean }> {
+  const hidden = wantsHidden(query);
+  const full = await cachedListing(cwd, hidden, list);
+  if (full.truncated) {
+    // A cut-short listing can't see everywhere; search the typed directory.
+    const q = query.replace(/\\/g, "/");
+    const scope = await resolveScope(q, (rel) => isDir(join(cwd, rel)));
+    if (scope.base !== "") {
+      const sub = await cachedListing(join(cwd, scope.base), hidden, list);
+      return {
+        files: rankFiles(scope.rest, sub.files).map((f) => scope.base + f),
+        truncated: sub.truncated,
+      };
+    }
   }
-  return rankFiles(query, hit.files);
+  return { files: rankFiles(query, full.files), truncated: full.truncated };
 }
