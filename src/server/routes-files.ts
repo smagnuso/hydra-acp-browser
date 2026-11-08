@@ -6,6 +6,7 @@ import type { ServerContext } from "./http.js";
 import { isEditedPath } from "./session-files.js";
 import { readFileWindow } from "./file-window.js";
 import { uncommittedChanges } from "./git-changes.js";
+import { searchFiles } from "./file-search.js";
 
 interface ListBody {
   sessionId?: string;
@@ -187,6 +188,32 @@ export function registerFileRoutes(
       return a.name.localeCompare(b.name);
     });
     reply.send({ cwd, path: body.path ?? "", entries });
+  });
+
+  // Fuzzy file search under the session's cwd, for composer "@" mentions.
+  app.post("/api/files/search", async (request, reply) => {
+    const body = (request.body ?? {}) as { sessionId?: string; query?: string };
+    if (!body.sessionId) {
+      reply.code(400).send({ error: "sessionId required" });
+      return;
+    }
+    const session = await lookupSession(ctx, request, body.sessionId);
+    if (!session) {
+      reply.code(404).send({ error: "session not found" });
+      return;
+    }
+    if (session.remote) {
+      reply.code(400).send({
+        error: `files live on "${session.remote}" and cannot be read from here`,
+      });
+      return;
+    }
+    try {
+      const cwd = await fsp.realpath(session.cwd);
+      reply.send({ files: await searchFiles(cwd, body.query ?? "") });
+    } catch (err) {
+      reply.code(500).send({ error: (err as Error).message });
+    }
   });
 
   app.post("/api/files/read", async (request, reply) => {

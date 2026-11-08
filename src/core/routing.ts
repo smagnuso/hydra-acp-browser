@@ -97,6 +97,8 @@ export function createChatState(sessionId: string, session?: SessionInfo): ChatS
     savedFileView: null,
     fileMentions: new Map(),
     fileMentionsVersion: 0,
+    mentions: new Map(),
+    mentionPicker: null,
     composerValue: loadDraft(sessionId),
     attachments: [],
     busy: false,

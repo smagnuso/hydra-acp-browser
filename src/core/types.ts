@@ -531,6 +531,17 @@ export interface ChatState {
   // mentions land, so this is what invalidates the render memos — see
   // logItemSig and cachedMarkdown in views.ts.
   fileMentionsVersion: number;
+  // Composer "@" mentions picked this session: inserted "@token" -> cwd-
+  // relative file. Only those still present in the text are sent.
+  mentions: Map<string, string>;
+  // Open "@" file picker, or null. start/end span the typed "@query".
+  mentionPicker: {
+    start: number;
+    end: number;
+    query: string;
+    files: string[];
+    selected: number;
+  } | null;
   composerValue: string;
   // Images pasted into the composer, waiting to go out with the next send.
   // Cleared on submit; restored by rollbackAmend if an amend is rejected.

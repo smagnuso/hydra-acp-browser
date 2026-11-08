@@ -132,6 +132,12 @@ import { buildSessionHash } from "./url-routing.js";
 import { openChat, closeChat, requestFullHistory, warmSession, loadEarlierHistory, isConnectingGrace } from "../core/routing.js";
 import { queueDraftWrite } from "../core/composer-draft.js";
 import {
+  closeMentionPicker,
+  moveMentionSelection,
+  pickMention,
+  updateMentionPicker,
+} from "../core/mentions.js";
+import {
   requestNotificationPermission,
   subscribeForPush,
   unsubscribeFromPush,
@@ -191,6 +197,33 @@ function renderAttachmentChips(c: ChatState): Node | null {
         ),
       ),
     ),
+  );
+}
+
+// File list for the composer's "@" mentions; null unless there is
+// something to pick. Rows act on tap (pointerup) like every other control.
+function renderMentionPicker(c: ChatState, pick: (index: number) => void): Node | null {
+  const p = c.mentionPicker;
+  if (p === null || p.files.length === 0) return null;
+  if (!c.composerValue.slice(p.start, p.end).startsWith("@")) return null;
+  return el(
+    "div",
+    { class: "mention-picker", role: "listbox" },
+    ...p.files.map((file, i) => {
+      const isDir = file.endsWith("/");
+      const body = isDir ? file.slice(0, -1) : file;
+      const slash = body.lastIndexOf("/");
+      return el(
+        "button",
+        {
+          class: `mention-row${i === p.selected ? " selected" : ""}`,
+          role: "option",
+          ...tapHandler(() => pick(i)),
+        },
+        el("span", { class: "mention-name" }, body.slice(slash + 1) + (isDir ? "/" : "")),
+        el("span", { class: "mention-dir" }, slash >= 0 ? body.slice(0, slash) : ""),
+      );
+    }),
   );
 }
 
@@ -2682,7 +2715,7 @@ function ensureChatView(c: ChatState): ChatView {
   composerSlot.addEventListener(
     "touchstart",
     (e: TouchEvent) => {
-      if ((e.target as Element | null)?.closest?.(".composer-buttons button")) {
+      if ((e.target as Element | null)?.closest?.(".composer-buttons button, .mention-picker button")) {
         e.preventDefault();
       }
     },
@@ -3616,8 +3649,35 @@ function renderChat(c: ChatState): HTMLElement {
     autosize(t);
     t.setSelectionRange(text.length, text.length);
   };
+  const pickMentionInto = (t: HTMLTextAreaElement, index?: number): void => {
+    const caret = pickMention(c, index);
+    if (caret === null) return;
+    t.value = c.composerValue;
+    autosize(t);
+    t.focus();
+    t.setSelectionRange(caret, caret);
+  };
   const composerOnKey = (e: KeyboardEvent): void => {
     if (e.isComposing) return;
+    const picker = c.mentionPicker;
+    if (picker !== null && picker.files.length > 0 && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        moveMentionSelection(c, e.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
+      if (e.key === "Tab" || e.key === "Enter") {
+        e.preventDefault();
+        pickMentionInto(e.target as HTMLTextAreaElement);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        closeMentionPicker(c);
+        return;
+      }
+    }
     // Wide (split) layout: Escape hands focus back to the rail, landing
     // on this session's own card — the reverse of handleListKeydown's
     // Escape-from-the-rail branch, which sends focus back here. Keeps
@@ -3757,6 +3817,7 @@ function renderChat(c: ChatState): HTMLElement {
           c.historyDraft = null;
         }
         autosize(t);
+        updateMentionPicker(c, t.value, t.selectionStart ?? t.value.length);
         // Dim/undim the send/enqueue/amend buttons directly rather than
         // going through a full render() — a full teardown on every
         // keystroke tanks typing responsiveness and resets the textarea
@@ -3901,6 +3962,7 @@ function renderChat(c: ChatState): HTMLElement {
     "div",
     { class: "composer" },
     renderAttachmentChips(c),
+    renderMentionPicker(c, (index) => pickMentionInto(textarea, index)),
     textarea,
     el(
       "div",

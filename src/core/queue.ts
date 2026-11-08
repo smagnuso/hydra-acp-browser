@@ -24,12 +24,14 @@ import {
 import { uiHooks } from "./hooks.js";
 import { clearDraft, queueDraftWrite } from "./composer-draft.js";
 import { removeOfflineEntry, saveOfflineEntry } from "./offline-queue.js";
+import { mentionBlocks } from "./mentions.js";
 import type { Attachment, ChatState, QueueEntry } from "./types.js";
 
 // Build an ACP ContentBlock[] for session/prompt et al. Text block is
 // omitted when empty so an image-only send doesn't ship a stray blank
 // text block.
 function buildContentBlocks(
+  c: ChatState,
   text: string,
   attachments: Attachment[],
 ): Array<Record<string, unknown>> {
@@ -40,6 +42,7 @@ function buildContentBlocks(
   for (const a of attachments) {
     blocks.push({ type: "image", data: a.data, mimeType: a.mimeType });
   }
+  blocks.push(...mentionBlocks(c, text));
   return blocks;
 }
 
@@ -230,7 +233,7 @@ function dispatchPrompt(
   // need a local chain.
   const promptId = send("session/prompt", {
     sessionId: c.sessionId,
-    prompt: buildContentBlocks(text, attachments),
+    prompt: buildContentBlocks(c, text, attachments),
   });
   if (promptId !== undefined) {
     c.ownPromptIds.set(String(promptId), entry);
@@ -290,7 +293,7 @@ export function flushOfflineQueue(c: ChatState): void {
     }
     const promptId = send("session/prompt", {
       sessionId: c.sessionId,
-      prompt: buildContentBlocks(entry.text, entry.attachments ?? []),
+      prompt: buildContentBlocks(c, entry.text, entry.attachments ?? []),
     });
     if (promptId !== undefined) {
       c.ownPromptIds.set(String(promptId), entry);
@@ -448,7 +451,7 @@ export function updateQueuedPrompt(entry: QueueEntry, text: string): void {
   send("hydra-acp/prompt/update", {
     sessionId: c.sessionId,
     messageId: entry.messageId,
-    prompt: buildContentBlocks(trimmed, entry.attachments ?? []),
+    prompt: buildContentBlocks(c, trimmed, entry.attachments ?? []),
   });
 }
 
@@ -567,7 +570,7 @@ function sendSteerRequest(
   if (!c) return;
   const id = send("_session/steering", {
     sessionId: c.sessionId,
-    prompt: buildContentBlocks(text, entry.attachments ?? []),
+    prompt: buildContentBlocks(c, text, entry.attachments ?? []),
   });
   if (id !== undefined) {
     c.responseHandlers.set(String(id), (frame) => {
@@ -641,7 +644,7 @@ function sendLegacyAmend(
   const id = send("hydra-acp/prompt/amend", {
     sessionId: c.sessionId,
     targetMessageId: target,
-    prompt: buildContentBlocks(text, entry.attachments ?? []),
+    prompt: buildContentBlocks(c, text, entry.attachments ?? []),
   });
   if (id !== undefined) {
     c.responseHandlers.set(String(id), (frame) => {

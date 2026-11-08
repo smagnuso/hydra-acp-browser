@@ -191,3 +191,13 @@ export {
 export { renderMarkdown, renderInlineMarkdown, escapeHtml } from "./markdown.js";
 
 export type * from "./types.js";
+
+export {
+  activeMention,
+  closeMentionPicker,
+  mentionBlocks,
+  mentionToken,
+  moveMentionSelection,
+  pickMention,
+  updateMentionPicker,
+} from "./mentions.js";
