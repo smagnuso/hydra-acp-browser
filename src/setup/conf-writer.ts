@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { paths } from "../util/paths.js";
+import { confHeader, type Platform } from "./platform-hints.js";
 
 export const CONF_PATH = paths.configFile();
 
@@ -46,17 +47,17 @@ export function readExisting(path: string): { text: string; map: Map<string, str
   return { text, map };
 }
 
-const HEADER = `# hydra-acp-browser config — written by 'hydra-acp-browser tailscale setup'.
-# Lock this file: chmod 600.
-`;
-
 function quoteIfNeeded(value: string): string {
   if (/[\s#'"]/.test(value))
     return `"${value.replace(/"/g, '\\"')}"`;
   return value;
 }
 
-export function mergeConf(existing: string, updates: ConfUpdate): string {
+export function mergeConf(
+  existing: string,
+  updates: ConfUpdate,
+  platform: Platform = process.platform,
+): string {
   const lines = parseLines(existing);
   const remaining = new Map<string, string>();
   for (const [k, v] of Object.entries(updates)) {
@@ -77,7 +78,7 @@ export function mergeConf(existing: string, updates: ConfUpdate): string {
 
   if (!existing) {
     out.length = 0;
-    out.push(HEADER.trimEnd());
+    out.push(confHeader(platform).trimEnd());
     out.push("");
   }
 

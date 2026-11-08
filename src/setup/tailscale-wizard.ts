@@ -5,6 +5,7 @@ import { createInterface } from "node:readline";
 import { delimiter, join, resolve } from "node:path";
 import { paths } from "../util/paths.js";
 import { resolveSpawnTarget, type ResolveDeps } from "../util/windows-command.js";
+import { certChmodWarning, confWrittenNote, permissionAdvice, type Platform } from "./platform-hints.js";
 import { CONF_PATH, readExisting, writeConf } from "./conf-writer.js";
 
 const BOLD = "\x1b[1m";
@@ -144,10 +145,22 @@ function failCertsUnavailable(): never {
   );
 }
 
-async function step2MintCert(dnsName: string): Promise<{ certPath: string; keyPath: string }> {
+export interface MintCertDeps {
+  spawn?: typeof spawnSync;
+  confirm?: (question: string, defaultYes: boolean) => Promise<boolean>;
+  tlsDir?: string;
+}
+
+export async function step2MintCert(
+  dnsName: string,
+  platform: Platform = process.platform,
+  deps: MintCertDeps = {},
+): Promise<{ certPath: string; keyPath: string }> {
   header(2, TOTAL_STEPS, "Minting cert");
 
-  const tlsDir = resolve(paths.home(), "tls");
+  const spawn = deps.spawn ?? spawnSync;
+  const ask = deps.confirm ?? confirm;
+  const tlsDir = deps.tlsDir ?? resolve(paths.home(), "tls");
   mkdirSync(tlsDir, { recursive: true });
   chmodSync(tlsDir, 0o700);
   const certPath = resolve(tlsDir, "cert.pem");
@@ -155,7 +168,7 @@ async function step2MintCert(dnsName: string): Promise<{ certPath: string; keyPa
   const certArgs = ["cert", "--cert-file", certPath, "--key-file", keyPath, dnsName];
 
   info("Requesting cert from Tailscale (network call, can take a few seconds)...");
-  const attempt = spawnSync("tailscale", certArgs, { encoding: "utf8" });
+  const attempt = spawn("tailscale", certArgs, { encoding: "utf8" });
   if (attempt.status !== 0) {
     const stderr = attempt.stderr?.trim() ?? "";
     if (isCertsUnavailableError(stderr)) {
@@ -166,17 +179,21 @@ async function step2MintCert(dnsName: string): Promise<{ certPath: string; keyPa
     }
 
     warn("tailscale cert needs elevated access to the local tailscaled socket.");
-    info("Fix this permanently: sudo tailscale set --operator=$(whoami)");
-    info("Future tailscale commands, including re-runs of this wizard, won't need sudo after that.");
+    const advice = permissionAdvice(platform);
+    if (!advice.offerSudo) {
+      fail(advice.failMessage);
+    }
+    info(advice.fixHint!);
+    info(advice.fixHintFollowUp!);
     blank();
-    if (!(await confirm("Retry cert generation with sudo now instead?", true))) {
-      fail("Run `sudo tailscale set --operator=$(whoami)`, then re-run this wizard.");
+    if (!(await ask("Retry cert generation with sudo now instead?", true))) {
+      fail(advice.failMessage);
     }
     // stdin stays attached to the real terminal so sudo's password prompt
     // still works; stdout/stderr are captured so we can still recognize a
     // certs-unavailable failure instead of just reporting a bare exit code.
     info("Requesting cert via sudo (may prompt for your password, then a network call)...");
-    const sudoAttempt = spawnSync("sudo", ["tailscale", ...certArgs], {
+    const sudoAttempt = spawn("sudo", ["tailscale", ...certArgs], {
       stdio: ["inherit", "pipe", "pipe"],
       encoding: "utf8",
     });
@@ -192,7 +209,7 @@ async function step2MintCert(dnsName: string): Promise<{ certPath: string; keyPa
     // tailscale ran as root, so it owns the files it just wrote — the browser
     // server (running as the invoking user) needs to be able to read them.
     const owner = userInfo().username;
-    const chownResult = spawnSync("sudo", ["chown", owner, certPath, keyPath], {
+    const chownResult = spawn("sudo", ["chown", owner, certPath, keyPath], {
       stdio: "inherit",
     });
     if (chownResult.status !== 0) {
@@ -206,7 +223,10 @@ async function step2MintCert(dnsName: string): Promise<{ certPath: string; keyPa
     chmodSync(certPath, 0o600);
     chmodSync(keyPath, 0o600);
   } catch (err) {
-    warn(`Couldn't chmod cert files (${(err as Error).message}). Check ownership if HTTPS fails to start.`);
+    const chmodWarning = certChmodWarning(platform, (err as Error).message);
+    if (chmodWarning !== null) {
+      warn(chmodWarning);
+    }
   }
   ok(`Wrote ${certPath}`);
   ok(`Wrote ${keyPath}`);
@@ -246,7 +266,7 @@ function step3WriteConfig(args: {
     BROWSER_HOST: alreadyBoundEverywhere ? undefined : args.tailscaleIp,
     BROWSER_PREFERRED_HOST: args.dnsName,
   });
-  ok(`Wrote ${CONF_PATH} (chmod 600)`);
+  ok(confWrittenNote(process.platform, CONF_PATH));
   if (alreadyBoundEverywhere) {
     info("BROWSER_HOST=0.0.0.0 left as-is — already reachable on the tailnet interface, and this keeps plain-LAN clients working too.");
   } else {
