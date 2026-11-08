@@ -18,6 +18,7 @@ const chat = (over: Partial<ChatState> = {}): ChatState =>
     composerValue: "",
     mentions: new Map(),
     mentionPicker: null,
+    mentionDismissed: null,
     ...over,
   }) as unknown as ChatState;
 
@@ -201,4 +202,48 @@ test("a title match ranks above a cwd-only match, whatever the recency", () => {
     "hydra_session_ffff6666",
     "hydra_session_eeee5555",
   ]);
+});
+
+test("dismissing the picker keeps it closed for that @ until it is retyped", () => {
+  const c = chat({
+    composerValue: "see @fix",
+    mentionPicker: { start: 4, end: 8, query: "fix", files: ["a.ts"], sessions: [], selected: 0, truncated: false },
+  });
+  m.dismissMentionPicker(c);
+  assert.equal(c.mentionPicker, null);
+  assert.deepEqual(c.mentionDismissed, { start: 4 });
+  // Typing on at the same "@" does not reopen it.
+  m.updateMentionPicker(c, "see @fixe", 9);
+  assert.equal(c.mentionPicker, null);
+  assert.deepEqual(c.mentionDismissed, { start: 4 });
+  // Once the "@" is gone, the dismissal is forgotten.
+  m.updateMentionPicker(c, "see ", 4);
+  assert.equal(c.mentionDismissed, null);
+});
+
+test("dismissing with no picker open records nothing", () => {
+  const c = chat();
+  m.dismissMentionPicker(c);
+  assert.equal(c.mentionDismissed, null);
+});
+
+test("picking a row clears any earlier dismissal", () => {
+  const c = chat({
+    composerValue: "@a",
+    mentionDismissed: { start: 0 },
+    mentionPicker: { start: 0, end: 2, query: "a", files: ["a.ts"], sessions: [], selected: 0, truncated: false },
+  });
+  m.pickMention(c);
+  assert.equal(c.mentionDismissed, null);
+});
+
+test("backspacing a dismissed token down to a bare @ reopens the picker", async () => {
+  const c = chat({ composerValue: "see @fix", mentionDismissed: { start: 4 } });
+  m.updateMentionPicker(c, "see @fix", 8);
+  assert.equal(c.mentionPicker, null);
+  m.updateMentionPicker(c, "see @", 5);
+  assert.equal(c.mentionDismissed, null);
+  assert.equal(c.mentionPicker?.query, "");
+  // Let the search request settle so it cannot leak into another test.
+  await new Promise((r) => setTimeout(r, 20));
 });

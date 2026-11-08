@@ -99,6 +99,7 @@ export function createChatState(sessionId: string, session?: SessionInfo): ChatS
     fileMentionsVersion: 0,
     mentions: new Map(),
     mentionPicker: null,
+    mentionDismissed: null,
     composerValue: loadDraft(sessionId),
     attachments: [],
     busy: false,

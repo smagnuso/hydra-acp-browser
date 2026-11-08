@@ -550,6 +550,9 @@ export interface ChatState {
   // Composer "@" mentions picked this session: inserted "@token" -> cwd-
   // relative file. Only those still present in the text are sent.
   mentions: Map<string, MentionTarget>;
+  // Set when the "@" picker was dismissed: it stays closed for the "@" at
+  // this position, so the next keystroke does not reopen it.
+  mentionDismissed: { start: number } | null;
   // Open "@" file picker, or null. start/end span the typed "@query".
   mentionPicker: {
     start: number;

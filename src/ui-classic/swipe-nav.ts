@@ -505,6 +505,11 @@ function onTouchStart(e: TouchEvent): void {
   // more-vertical drag as an undecided candidate fighting the handle for
   // the same touch, which is what makes handles hard to grab.
   if (hasActiveSelection()) return;
+  // The "@" picker scrolls vertically and has no sideways meaning, so a
+  // drag that drifts off-axis there must not read as a back swipe.
+  if (touch.target instanceof Element && touch.target.closest(".mention-picker")) {
+    return;
+  }
   baseMode = null;
   canForward = false;
   if (state.view === "chat" && hasOpenPane(state.current)) {

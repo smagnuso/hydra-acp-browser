@@ -608,6 +608,8 @@ html.keyboard-open .composer { padding-bottom: 0.6rem; }
 .mention-picker { display: flex; flex-direction: column; max-height: 10rem; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
 .mention-row { display: flex; gap: 0.6rem; align-items: baseline; justify-content: flex-start; text-align: left; width: 100%; padding: 0.3rem 0.6rem; border: 0; border-radius: 0; background: transparent; color: inherit; }
 .mention-row.selected { background: var(--border); }
+.mention-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 0.1rem 0.3rem 0.1rem 0.6rem; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 0.75em; opacity: 0.9; }
+.mention-close { min-width: 2rem; min-height: 1.8rem; padding: 0; border: 0; background: transparent; color: inherit; font-size: 1.3em; line-height: 1; }
 .mention-badge { flex: 0 0 auto; font-size: 0.75em; padding: 0 0.35rem; border: 1px solid var(--border); border-radius: 3px; opacity: 0.75; }
 .mention-note { padding: 0.3rem 0.6rem; opacity: 0.6; font-size: 0.85em; }
 .mention-dir { opacity: 0.6; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

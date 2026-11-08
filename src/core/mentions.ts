@@ -194,6 +194,15 @@ export function mentionBlocks(
   return out;
 }
 
+// Close the picker and keep it closed for this "@" until it is retyped or
+// backspaced down to a bare "@".
+export function dismissMentionPicker(c: ChatState): void {
+  if (c.mentionPicker !== null) {
+    c.mentionDismissed = { start: c.mentionPicker.start };
+  }
+  closeMentionPicker(c);
+}
+
 export function closeMentionPicker(c: ChatState): void {
   if (c.mentionPicker !== null) {
     c.mentionPicker = null;
@@ -208,8 +217,18 @@ let searchSeq = 0;
 export function updateMentionPicker(c: ChatState, text: string, caret: number): void {
   const m = activeMention(text, caret);
   if (m === null) {
+    c.mentionDismissed = null;
     closeMentionPicker(c);
     return;
+  }
+  if (c.mentionDismissed !== null) {
+    // Still the dismissed "@": stay closed, unless the token has been
+    // backspaced down to a bare "@", which is a fresh start.
+    if (c.mentionDismissed.start === m.start && m.query !== "") {
+      closeMentionPicker(c);
+      return;
+    }
+    c.mentionDismissed = null;
   }
   const prev = c.mentionPicker;
   const same = prev !== null && prev.query === m.query;
@@ -299,6 +318,7 @@ export function pickMention(c: ChatState, index?: number): number | null {
       : { kind: "file", path: item.path },
   );
   c.mentionPicker = null;
+  c.mentionDismissed = null;
   notifyChange();
   return caret;
 }

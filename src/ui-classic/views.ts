@@ -132,7 +132,7 @@ import { buildSessionHash } from "./url-routing.js";
 import { openChat, closeChat, requestFullHistory, warmSession, loadEarlierHistory, isConnectingGrace } from "../core/routing.js";
 import { queueDraftWrite } from "../core/composer-draft.js";
 import {
-  closeMentionPicker,
+  dismissMentionPicker,
   mentionItems,
   moveMentionSelection,
   pickMention,
@@ -212,6 +212,21 @@ function renderMentionPicker(c: ChatState, pick: (index: number) => void): Node 
   return el(
     "div",
     { class: "mention-picker", role: "listbox" },
+    el(
+      "div",
+      { class: "mention-head" },
+      el("span", {}, "Mention"),
+      el(
+        "button",
+        {
+          class: "mention-close",
+          title: "Dismiss suggestions",
+          "aria-label": "Dismiss suggestions",
+          ...tapHandler(() => dismissMentionPicker(c)),
+        },
+        "\u00d7",
+      ),
+    ),
     ...items.map((item, i) => {
       const cls = `mention-row${i === p.selected ? " selected" : ""}`;
       if (item.kind === "session") {
@@ -3726,7 +3741,7 @@ function renderChat(c: ChatState): HTMLElement {
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        closeMentionPicker(c);
+        dismissMentionPicker(c);
         return;
       }
     }

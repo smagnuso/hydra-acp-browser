@@ -195,6 +195,7 @@ export type * from "./types.js";
 export {
   activeMention,
   closeMentionPicker,
+  dismissMentionPicker,
   mentionBlocks,
   mentionItems,
   mentionToken,
