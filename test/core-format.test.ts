@@ -69,6 +69,17 @@ test("path labels", () => {
   assert.equal(f.dirName("src/server/a.ts", "/home/u/p"), "src/server");
   assert.equal(f.dirName("/home/u/x/a.ts", "/home/u/p"), "~/x");
   assert.equal(f.dirName("a.ts", "/home/u/p"), "~/p");
+  assert.equal(f.baseName("/a.ts"), "a.ts");
+  assert.equal(f.dirName("/srv/x/a.ts", "/home/u/p"), "/srv/x");
+});
+
+test("path labels handle Windows paths and keep them whole", () => {
+  assert.equal(f.baseName("C:\\proj\\src\\a.ts"), "a.ts");
+  assert.equal(f.baseName("C:/proj\\src/a.ts"), "a.ts");
+  assert.equal(f.baseName("src\\a.ts"), "a.ts");
+  assert.equal(f.dirName("src\\server\\a.ts", "C:\\proj"), "src\\server");
+  assert.equal(f.dirName("C:\\x\\y\\a.ts", "C:\\proj"), "C:\\x\\y");
+  assert.equal(f.dirName("a.ts", "C:\\Users\\u\\p"), "C:\\Users\\u\\p");
 });
 
 test("turnAgentParts collects agent text after a stamp until the next turn", () => {

@@ -52,6 +52,10 @@ test("path helpers", () => {
   assert.equal(files.isMarkdownPath("README.md"), true);
   assert.equal(files.relativeToCwd("/w/proj", "/w/proj/src/a.ts"), "src/a.ts");
   assert.equal(files.relativeToCwd("/w/proj", "/tmp/x"), "/tmp/x");
+  assert.equal(files.relativeToCwd("/w/proj/", "/w/proj/a.ts"), "a.ts");
+  assert.equal(files.relativeToCwd("/w/proj", "/w/proj2/a.ts"), "/w/proj2/a.ts");
+  assert.equal(files.relativeToCwd("/w/proj", "src/a.ts"), "src/a.ts");
+  assert.equal(files.relativeToCwd("", "/w/a.ts"), "/w/a.ts");
   assert.equal(files.imageUrl("s 1", "a/b.png"), "/api/files/image?sessionId=s%201&path=a%2Fb.png");
   assert.equal(files.windowStartFor(500), 300);
   assert.equal(files.windowStartFor(10), 1);
@@ -111,6 +115,34 @@ test("a file outside the cwd lists the root instead", async () => {
   const c = chat();
   reply = () => Response.json({ path: "", entries: [], content: "x" });
   files.openFileAtLine(c, "/tmp/x/out.ts");
+  await settle();
+  await settle();
+  assert.equal(calls.find((x) => x.url === "/api/files/list")!.body.path, "");
+});
+
+test("relativeToCwd folds Windows paths and keeps their separators", () => {
+  assert.equal(files.relativeToCwd("C:\\proj", "C:\\proj\\src\\a.ts"), "src\\a.ts");
+  assert.equal(files.relativeToCwd("C:/Proj/", "c:\\proj\\a.ts"), "a.ts");
+  assert.equal(files.relativeToCwd("C:\\proj", "C:\\proj2\\a.ts"), "C:\\proj2\\a.ts");
+  assert.equal(files.relativeToCwd("C:\\proj", "D:\\x\\a.ts"), "D:\\x\\a.ts");
+});
+
+test("openFileAtLine roots a Windows in-cwd file at its directory", async () => {
+  const c = chat();
+  c.cwd = "C:\\proj";
+  reply = () => Response.json({ path: "src", entries: [], content: "x" });
+  files.openFileAtLine(c, "C:\\proj\\src\\a.ts");
+  await settle();
+  await settle();
+  assert.equal(calls.find((x) => x.url === "/api/files/list")!.body.path, "src");
+  assert.equal(calls.find((x) => x.url === "/api/files/read")!.body.path, "src\\a.ts");
+});
+
+test("a Windows file outside the cwd lists the root instead", async () => {
+  const c = chat();
+  c.cwd = "C:\\proj";
+  reply = () => Response.json({ path: "", entries: [], content: "x" });
+  files.openFileAtLine(c, "D:\\x\\out.ts");
   await settle();
   await settle();
   assert.equal(calls.find((x) => x.url === "/api/files/list")!.body.path, "");

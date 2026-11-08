@@ -7,6 +7,7 @@ import { api } from "./api.js";
 import { uiHooks } from "./hooks.js";
 import { state, notifyChange } from "./state.js";
 import { editAnchor, type EditAnchor } from "./edit-diff.js";
+import { isAbsolutePath, lastSeparator, pathBelow } from "./path-text.js";
 import type { ChatState, FileEntry } from "./types.js";
 
 // How far a paging pill moves. Smaller than the server's window so the
@@ -28,9 +29,10 @@ export function windowStartFor(line: number): number {
 }
 
 export function relativeToCwd(cwd: string, path: string): string {
-  if (!cwd || !path.startsWith("/")) return path;
-  const base = cwd.endsWith("/") ? cwd : cwd + "/";
-  return path.startsWith(base) ? path.slice(base.length) : path;
+  if (!cwd || !isAbsolutePath(path)) {
+    return path;
+  }
+  return pathBelow(cwd, path) ?? path;
 }
 
 export type ReadWindow = {
@@ -200,14 +202,14 @@ export function openFileAtLine(
   uiHooks.beforeFileOverlayOpen();
   c.forwardPanes = [];
   const path = relativeToCwd(c.cwd, rawPath);
-  const outsideCwd = path.startsWith("/");
+  const outsideCwd = isAbsolutePath(path);
   // A file outside the cwd is readable only because this session edited
   // it (the server's per-file allowlist); its *directory* is not
   // listable, and asking would fail the listing half of the fetch below
   // and surface an error over a preview that loaded fine. Root the
   // listing at the cwd instead, so "back to listing" still goes
   // somewhere sensible.
-  const slash = path.lastIndexOf("/");
+  const slash = lastSeparator(path);
   const dirPath = outsideCwd || slash === -1 ? "" : path.slice(0, slash);
   // A markdown file renders as prose by default, and that view has no
   // line gutter at all, so a line request has to force source view or

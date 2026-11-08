@@ -169,6 +169,13 @@ test("fileDiffCounts sums hunks, and splitDiffPath keeps outside paths absolute 
   assert.deepEqual(diff.splitDiffPath("/w", "/w/src/a.ts"), { name: "a.ts", dir: "src/" });
   assert.deepEqual(diff.splitDiffPath("/w", "a.ts"), { name: "a.ts", dir: "" });
   assert.deepEqual(diff.splitDiffPath("/w", "/home/sam/x/a.ts"), { name: "a.ts", dir: "~/x/" });
+  assert.deepEqual(diff.splitDiffPath("/w", "/srv/x/a.ts"), { name: "a.ts", dir: "/srv/x/" });
+});
+
+test("splitDiffPath handles Windows paths and keeps outside ones whole", () => {
+  assert.deepEqual(diff.splitDiffPath("C:\\w", "C:\\w\\src\\a.ts"), { name: "a.ts", dir: "src\\" });
+  assert.deepEqual(diff.splitDiffPath("C:/W/", "c:\\w\\a.ts"), { name: "a.ts", dir: "" });
+  assert.deepEqual(diff.splitDiffPath("C:\\w", "D:\\x\\a.ts"), { name: "a.ts", dir: "D:\\x\\" });
 });
 
 test("diffPaneStatus says why the pane is empty", () => {

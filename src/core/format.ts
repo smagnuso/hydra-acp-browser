@@ -1,6 +1,7 @@
 // Display strings every UI shows the same way: durations, token counts,
 // cost, model labels and short paths. Pure, no DOM.
 
+import { isAbsolutePath, lastSeparator } from "./path-text.js";
 import { shortenCwd } from "./session-list.js";
 import type { ChatState } from "./types.js";
 
@@ -92,7 +93,7 @@ export function fmtCost(cost: unknown): string | null {
 // Collapse a leading home directory into "~" so the session list has
 // room to actually show the rest of the path instead of truncating it.
 export function baseName(path: string): string {
-  const slash = path.lastIndexOf("/");
+  const slash = lastSeparator(path);
   return slash === -1 ? path : path.slice(slash + 1);
 }
 
@@ -109,10 +110,10 @@ export function baseName(path: string): string {
 // the end, so a long absolute path would show the useless head and cut
 // the part that tells you where you are.
 export function dirName(path: string, cwd: string): string {
-  const slash = path.lastIndexOf("/");
+  const slash = lastSeparator(path);
   if (slash === -1) return shortenCwd(cwd);
   const dir = path.slice(0, slash);
-  return dir.startsWith("/") ? shortenCwd(dir) : dir;
+  return isAbsolutePath(dir) ? shortenCwd(dir) : dir;
 }
 
 // Wall-clock stamp for a prompt or a finished turn (mirrors the TUI's

@@ -55,6 +55,8 @@ test("cwd helpers collapse home and prefer the workspace source", () => {
   assert.equal(shortenCwd("/home/u/x"), "~/x");
   assert.equal(shortenCwd("/Users/u/x"), "~/x");
   assert.equal(shortenCwd("/srv/x"), "/srv/x");
+  assert.equal(shortenCwd("C:\\Users\\u\\x"), "C:\\Users\\u\\x");
+  assert.equal(shortenCwd("\\\\srv\\share\\x"), "\\\\srv\\share\\x");
   assert.equal(
     displayCwd(s({ sessionId: "w", workspace: { sourceCwd: "/src" } } as never)),
     "/src",
@@ -90,6 +92,7 @@ test("search matches title, id, agent and the home-shortened cwd", () => {
   assert.ok(matchesSessionSearch(s({ sessionId: "hydra_session_a1b2" }), "a1b2"));
   assert.ok(matchesSessionSearch(s({ sessionId: "x", agentId: "claude" }), "CLAU"));
   assert.ok(matchesSessionSearch(local, "~/proj"));
+  assert.ok(matchesSessionSearch(s({ sessionId: "w", cwd: "C:\\Users\\u\\proj" }), "users\\u\\proj"));
   assert.ok(!matchesSessionSearch(local, "nope"));
   assert.deepEqual(
     ids(filterSessions(every, { ...all, sessionSearch: "  fix  " })),

@@ -5,6 +5,7 @@ import { el, tapHandler, TAP_MOVE_THRESHOLD } from "./dom.js";
 import { render } from "./renderer.js";
 import { setState, state } from "../core/state.js";
 import { openChat } from "../core/routing.js";
+import { tailSegments } from "../core/path-text.js";
 import {
   usage as view,
   METRICS,
@@ -500,7 +501,7 @@ function renderLegend(m: Model, currency: string): HTMLElement {
 const SESSIONS_MAX = 200;
 
 function tailPath(cwd: string): string {
-  return cwd.split("/").filter((p) => p.length > 0).slice(-2).join("/");
+  return tailSegments(cwd, 2);
 }
 
 function sessionKey(id: string): string {

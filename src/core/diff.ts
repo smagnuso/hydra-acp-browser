@@ -5,6 +5,7 @@
 
 import { api } from "./api.js";
 import { cachedDiffCounts, editAnchor } from "./edit-diff.js";
+import { isAbsolutePath, lastSeparator } from "./path-text.js";
 import { shortenCwd } from "./session-list.js";
 import { closeFiles, openFileAtLine, openFiles, relativeToCwd } from "./files.js";
 import { state, notifyChange } from "./state.js";
@@ -377,9 +378,9 @@ export function fileDiffCounts(file: FileDiff): { added: number; removed: number
 // which tells them apart from the relative ones).
 export function splitDiffPath(cwd: string, path: string): { name: string; dir: string } {
   const rel = relativeToCwd(cwd, path);
-  const slash = rel.lastIndexOf("/");
+  const slash = lastSeparator(rel);
   const dir = slash >= 0 ? rel.slice(0, slash + 1) : "";
-  return { name: rel.slice(slash + 1), dir: dir.startsWith("/") ? shortenCwd(dir) : dir };
+  return { name: rel.slice(slash + 1), dir: isAbsolutePath(dir) ? shortenCwd(dir) : dir };
 }
 
 export type DiffPaneStatus =
