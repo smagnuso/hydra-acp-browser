@@ -121,6 +121,7 @@ export function createChatState(sessionId: string, session?: SessionInfo): ChatS
     reconnectAttempt: 0,
     headerExpanded: false,
     titleDraft: null,
+    tagsDraft: null,
     unsolicitedTurnOpen: new Set(),
     configOptions: [],
     connectionHealthy: true,

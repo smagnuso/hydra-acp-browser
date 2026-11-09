@@ -167,6 +167,25 @@ export function registerSessionRoutes(
     }
   });
 
+  app.patch("/api/sessions/:id/tags", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const body = (request.body ?? {}) as { tags?: unknown };
+    if (
+      !Array.isArray(body.tags) ||
+      !body.tags.every((t) => typeof t === "string")
+    ) {
+      reply.code(400).send({ error: "tags must be an array of strings" });
+      return;
+    }
+    try {
+      await clientFor(ctx, request).setTags(id, body.tags as string[]);
+      reply.code(204).send();
+    } catch (err) {
+      const status = err instanceof HydraRestError ? err.status : 502;
+      reply.code(status).send({ error: (err as Error).message });
+    }
+  });
+
   app.patch("/api/sessions/:id/read", async (request, reply) => {
     const id = (request.params as { id: string }).id;
     const body = (request.body ?? {}) as { read?: unknown };

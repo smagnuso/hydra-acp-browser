@@ -43,6 +43,7 @@ export interface HydraSessionInfo {
   // User-set sort weight, toggled with `*` in the TUI picker. Absent/0
   // = normal, any positive integer = high priority.
   priority?: number;
+  tags?: string[];
   // Present only for a session running in an isolated workspace. Named
   // `workspace` on the wire (GET/POST /v1/sessions), not `workspaceInfo`
   // — that name is only used in the separate ACP `_meta["hydra-acp"]`
@@ -248,6 +249,15 @@ export class HydraRestClient {
       "PATCH",
       `/v1/sessions/${encodeURIComponent(sessionId)}`,
       { priority },
+    );
+  }
+
+  // Replaces the whole tag set; [] clears. See PROTOCOL.md's tags body.
+  async setTags(sessionId: string, tags: string[]): Promise<void> {
+    await this.json(
+      "PATCH",
+      `/v1/sessions/${encodeURIComponent(sessionId)}`,
+      { tags },
     );
   }
 

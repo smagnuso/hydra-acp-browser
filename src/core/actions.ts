@@ -90,6 +90,18 @@ export async function setSessionPriority(
   void pollSessions();
 }
 
+// Replaces the session's tag set; [] clears it.
+export async function setSessionTags(
+  sessionId: string,
+  tags: string[],
+): Promise<void> {
+  await api(`/api/sessions/${encodeURIComponent(sessionId)}/tags`, {
+    method: "PATCH",
+    body: JSON.stringify({ tags }),
+  });
+  void pollSessions();
+}
+
 // GET target for a bundle download; the session cookie carries auth.
 export function sessionExportUrl(sessionId: string): string {
   return `/api/sessions/${encodeURIComponent(sessionId)}/export`;

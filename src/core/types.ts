@@ -84,6 +84,8 @@ export interface SessionInfo {
   // ranking (still below anything actually busy/awaiting input). Persisted
   // on the daemon, so it survives restarts and applies to cold sessions.
   priority?: number;
+  // User-set labels (daemon PATCH `tags`); absent when none.
+  tags?: string[];
   // A turn ended that nobody has marked read since (daemon read state,
   // shared with every client). See read-state.ts.
   unread?: boolean;
@@ -652,6 +654,7 @@ export interface ChatState {
   // back to null once the edit is saved or cancelled, at which point the
   // input falls back to showing the live title again.
   titleDraft: string | null;
+  tagsDraft: string | null;
   // Whether renderChat has already tried auto-focusing the composer for
   // this ChatState. One-shot so it fires on the chat's first render
   // (nothing else has had a chance to take focus yet) and never again —

@@ -126,6 +126,7 @@ import {
   importBundleFromText,
   setSessionTitle,
   setSessionPriority as setSessionPriorityAction,
+  setSessionTags as setSessionTagsAction,
   sessionExportUrl,
 } from "../core/actions.js";
 import { buildSessionHash } from "./url-routing.js";
@@ -1075,6 +1076,61 @@ function titleRow(c: ChatState, liveTitle: string): HTMLElement {
     el("span", { class: "k" }, "title"),
     input,
   );
+}
+
+// Space-separated tag editor; saves the whole set on blur/Enter, Escape
+// discards. The daemon normalizes and validates, so a bad tag surfaces
+// as a banner.
+function tagsRow(c: ChatState, liveTags: string[] | undefined): HTMLElement {
+  let cancelled = false;
+  const live = (liveTags ?? []).map((t) => "#" + t).join(" ");
+  const input = el("input", {
+    type: "text",
+    class: "title-edit",
+    placeholder: "#tag #another",
+    "data-focus-key": "chat-tags-edit",
+    oninput: (e: Event) => {
+      c.tagsDraft = (e.target as HTMLInputElement).value;
+    },
+    onkeydown: (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        (e.target as HTMLInputElement).blur();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelled = true;
+        (e.target as HTMLInputElement).blur();
+      }
+    },
+    onblur: (e: Event) => {
+      const value = (e.target as HTMLInputElement).value.trim();
+      c.tagsDraft = null;
+      if (!cancelled && value !== live) {
+        void saveSessionTags(
+          c.sessionId,
+          value.split(/\s+/).filter((w) => w.length > 0),
+        );
+      }
+      render();
+    },
+  }) as HTMLInputElement;
+  input.value = c.tagsDraft ?? live;
+  return el(
+    "div",
+    { class: "detail" },
+    el("span", { class: "k" }, "tags"),
+    input,
+  );
+}
+
+async function saveSessionTags(sessionId: string, tags: string[]): Promise<void> {
+  try {
+    await setSessionTagsAction(sessionId, tags);
+  } catch (err) {
+    setState({
+      banner: { kind: "bad", text: "tags update failed: " + (err as Error).message },
+    });
+  }
 }
 
 async function saveSessionTitle(sessionId: string, title: string): Promise<void> {
@@ -3693,6 +3749,7 @@ function renderChat(c: ChatState): HTMLElement {
         titleRow(c, title),
         detailRow("session", shortSessionId(c.sessionId)),
         detailRow("directory", displayedCwd ? shortenCwd(displayedCwd) : "?"),
+        tagsRow(c, live?.tags),
         priorityRow(c.sessionId, live?.priority),
         workspaceRow(live?.workspace),
         ...c.configOptions.map(configOptionRow),
