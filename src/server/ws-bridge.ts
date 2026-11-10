@@ -1000,7 +1000,7 @@ function handleConnection(
 
   async function doHandshake(): Promise<void> {
     const [initResp, cold] = await Promise.all([
-      runInitialize(upstream) as Promise<
+      runInitialize(upstream, { elicitationForm: true }) as Promise<
         { _meta?: Record<string, unknown> } | undefined
       >,
       // Only matters for a passive reconnect (readonlyMode below) — skip

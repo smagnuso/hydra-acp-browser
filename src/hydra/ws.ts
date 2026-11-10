@@ -256,6 +256,8 @@ export class UpstreamConnection extends EventEmitter<UpstreamEvents> {
 export interface HandshakeOptions {
   protocolVersion?: number;
   clientCapabilities?: Record<string, unknown>;
+  // Only for connections that relay to a UI able to render and answer forms.
+  elicitationForm?: boolean;
 }
 
 export async function runInitialize(
@@ -264,9 +266,12 @@ export async function runInitialize(
 ): Promise<unknown> {
   return await conn.request("initialize", {
     protocolVersion: opts.protocolVersion ?? ACP_PROTOCOL_VERSION,
-    clientCapabilities: opts.clientCapabilities ?? {
-      fs: { readTextFile: false, writeTextFile: false },
-      terminal: false,
+    clientCapabilities: {
+      ...(opts.clientCapabilities ?? {
+        fs: { readTextFile: false, writeTextFile: false },
+        terminal: false,
+      }),
+      ...(opts.elicitationForm ? { elicitation: { form: {} } } : {}),
     },
     clientInfo: { name: "hydra-acp-browser", version: pkg.version },
   });
