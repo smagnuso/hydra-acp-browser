@@ -5101,12 +5101,30 @@ function elicitationInput(
   return input;
 }
 
+// A form taller than the chat pane would otherwise arrive scrolled to its
+// last question. Show it from the top, and stop following the transcript so
+// the next repaint does not pull it back down.
+function revealElicitationTop(id: string): void {
+  requestAnimationFrame(() => {
+    const c = state.current;
+    const view = c ? chatViews.get(c) : undefined;
+    const card = view?.root.querySelector<HTMLElement>(`[data-elicitation-id="${id}"]`);
+    if (!view || !card || card.offsetHeight <= view.body.clientHeight) {
+      return;
+    }
+    view.stickToBottom = false;
+    const gap = card.getBoundingClientRect().top - view.body.getBoundingClientRect().top;
+    view.body.scrollTop += gap - 8;
+  });
+}
+
 function renderElicitation(entry: ElicitationEntry): HTMLElement {
   const id = entry.elicitationId;
   let draft = elicitationDrafts.get(id);
   if (!draft) {
     draft = elicitationDefaults(entry.fields);
     elicitationDrafts.set(id, draft);
+    revealElicitationTop(id);
   }
   const d = draft;
   const errors = elicitationTried.has(id) ? validateElicitation(entry.fields, d) : {};
@@ -5133,7 +5151,7 @@ function renderElicitation(entry: ElicitationEntry): HTMLElement {
   });
   return el(
     "div",
-    { class: "perm elicit" },
+    { class: "perm elicit", "data-elicitation-id": id },
     el("div", { class: "title" }, entry.title || "Question from the agent"),
     entry.message ? el("div", { class: "desc" }, entry.message) : null,
     ...questions,
