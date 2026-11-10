@@ -253,6 +253,15 @@ data.
   are backslashed and the front-end helpers must stay separator-agnostic. Tests
   simulate this with `path.win32` (see the git-changes path-chain test).
 
+- **Hold agent requests until the attach handshake finishes.** The server
+  parks notifications in `handshakeBuffer` while it decides the replay policy,
+  and must park agent-to-client requests the same way
+  (`deferredUpstreamRequests`, flushed after `bridge/ready`). The page resets
+  its chat state on `bridge/replay_policy`, so a request forwarded before that
+  frame is wiped. This bit when the daemon redelivered a pending form to a
+  reloaded page: it arrived first and vanished, leaving the session "blocked"
+  with no form. Permission requests only escaped because of the notify delay.
+
 ## Updating this file
 
 If you discover a durable, non-obvious invariant while working here (the
