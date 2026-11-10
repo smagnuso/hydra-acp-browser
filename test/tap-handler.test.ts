@@ -42,7 +42,7 @@ let selection: { isCollapsed: boolean; anchorNode: unknown; text: string } | nul
         },
 };
 
-const { tapHandler, TAP_MOVE_THRESHOLD, noteTapRescued } = await import("../src/ui-classic/dom.js");
+const { tapHandler, TAP_MOVE_THRESHOLD, noteTapRescued, isImeComposing } = await import("../src/ui-classic/dom.js");
 
 interface Handlers {
   onpointerdown: (e: unknown) => void;
@@ -397,4 +397,10 @@ test("keyboard activation (detail 0) still fires, pointer clicks do not double-f
   const h2 = tapHandler(() => fired++) as unknown as Handlers;
   h2.onclick({ ...evt(0, 0), detail: 0 });
   assert.equal(fired, 2, "Enter/Space activation still works");
+});
+
+test("isImeComposing catches both isComposing and Safari's keyCode 229", () => {
+  assert.equal(isImeComposing({ isComposing: true, keyCode: 13 } as KeyboardEvent), true);
+  assert.equal(isImeComposing({ isComposing: false, keyCode: 229 } as KeyboardEvent), true);
+  assert.equal(isImeComposing({ isComposing: false, keyCode: 13 } as KeyboardEvent), false);
 });

@@ -167,6 +167,13 @@ export function isFormControl(target: EventTarget | null): boolean {
 // laptop but still wants touch behavior). JS-side uses: deciding whether
 // autofocusing the composer is free (no virtual keyboard to pop up) or
 // costly (steals the screen on a touch device).
+// True while an IME is mid-composition. Safari fires the Enter that commits
+// a composition after compositionend, with isComposing already false but
+// keyCode 229, so both signals are needed.
+export function isImeComposing(e: KeyboardEvent): boolean {
+  return e.isComposing || e.keyCode === 229;
+}
+
 export function isDesktopPointer(): boolean {
   return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 }

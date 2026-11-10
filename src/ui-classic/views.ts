@@ -11,6 +11,7 @@ import {
   delegatedTap,
   isFormControl,
   isDesktopPointer,
+  isImeComposing,
   isWideLayout,
   hasActiveSelection,
   lastTapActivatedAt,
@@ -1060,6 +1061,9 @@ function titleRow(c: ChatState, liveTitle: string): HTMLElement {
       c.titleDraft = (e.target as HTMLInputElement).value;
     },
     onkeydown: (e: KeyboardEvent) => {
+      if (isImeComposing(e)) {
+        return;
+      }
       if (e.key === "Enter") {
         e.preventDefault();
         (e.target as HTMLInputElement).blur();
@@ -1102,6 +1106,9 @@ function tagsRow(c: ChatState, liveTags: string[] | undefined): HTMLElement {
       c.tagsDraft = (e.target as HTMLInputElement).value;
     },
     onkeydown: (e: KeyboardEvent) => {
+      if (isImeComposing(e)) {
+        return;
+      }
       if (e.key === "Enter") {
         e.preventDefault();
         (e.target as HTMLInputElement).blur();
@@ -3791,7 +3798,7 @@ function renderChat(c: ChatState): HTMLElement {
     t.setSelectionRange(caret, caret);
   };
   const composerOnKey = (e: KeyboardEvent): void => {
-    if (e.isComposing) return;
+    if (isImeComposing(e)) return;
     const picker = c.mentionPicker;
     if (picker !== null && mentionItems(picker).length > 0 && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -4837,6 +4844,9 @@ function renderQueueEditor(
     render();
   };
   textarea.addEventListener("keydown", (ev) => {
+    if (isImeComposing(ev)) {
+      return;
+    }
     if (ev.key === "Enter" && !ev.shiftKey) {
       ev.preventDefault();
       commit();
