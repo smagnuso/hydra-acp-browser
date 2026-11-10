@@ -78,6 +78,7 @@ export function createChatState(sessionId: string, session?: SessionInfo): ChatS
     log: [],
     toolCalls: new Map(),
     pendingPermissions: new Map(),
+    pendingElicitations: new Map(),
     pendingRequestById: new Map(),
     responseHandlers: new Map(),
     spinner: null,

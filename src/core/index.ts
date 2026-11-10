@@ -41,7 +41,7 @@ export {
   updateQueuedPrompt,
 } from "./queue.js";
 
-export { respondPermission } from "./bridge.js";
+export { respondPermission, respondElicitation } from "./bridge.js";
 export {
   createSession,
   killSession,
@@ -162,6 +162,17 @@ export {
   type PermissionDetail,
   type OptionTone,
 } from "./permission.js";
+export {
+  parseElicitationRequest,
+  validateElicitation,
+  elicitationResult,
+  groupElicitationFields,
+  type ElicitationField,
+  type ElicitationOption,
+  type ElicitationAction,
+  type ElicitationDraft,
+  type ElicitationValue,
+} from "./elicitation.js";
 export { loadCwdHistory, loadLastCwd, saveLastCwd } from "./cwd-history.js";
 export {
   startPermissionWatching,

@@ -181,6 +181,17 @@ function handleFrame(w: Watcher, frame: Record<string, unknown>): void {
     notifyChange();
     return;
   }
+  if (method === "elicitation/create" && frame.id !== undefined) {
+    // Forms are answered in the open chat; abstain so the watcher never counts as a vote.
+    w.ws?.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: frame.id,
+        error: { code: -32601, message: "method not handled: elicitation/create" },
+      }),
+    );
+    return;
+  }
   if (method === "session/update") {
     const update = ((frame.params ?? {}) as Record<string, unknown>).update as
       | Record<string, unknown>

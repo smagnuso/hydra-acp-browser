@@ -3,6 +3,7 @@
 // plumbing — that lives in bridge.ts.
 
 import { parsePermissionRequest } from "./permission.js";
+import { parseElicitationRequest } from "./elicitation.js";
 import { state, setState, notifyChange } from "./state.js";
 import { markOpenChatRead } from "./read-state.js";
 import { contentToText } from "./markdown.js";
@@ -74,6 +75,7 @@ export function resetChatHistoryState(c: ChatState): void {
   );
   c.toolCalls = new Map();
   c.pendingPermissions = new Map();
+  c.pendingElicitations = new Map();
   c.spinner = null;
   c.plan = null;
   c.mode = null;
@@ -2013,6 +2015,22 @@ function onPermissionResolved(update: AnyRecord | undefined): void {
   resolvePermissionByToolCallId(toolCallId);
 }
 
+// Sibling client answered an elicitation form first; drop ours.
+function onElicitationResolved(update: AnyRecord | undefined): void {
+  const id = typeof update?.elicitationId === "string" ? update.elicitationId : undefined;
+  if (id) {
+    resolveElicitation(id);
+  }
+}
+
+export function resolveElicitation(elicitationId: string): void {
+  if (!state.current) return;
+  state.current.pendingElicitations.delete(elicitationId);
+  state.current.log = state.current.log.filter(
+    (e) => !(e.kind === "elicit" && e.elicitationId === elicitationId),
+  );
+}
+
 function resolvePermissionByToolCallId(toolCallId: string): void {
   if (!state.current) return;
   state.current.pendingPermissions.delete(toolCallId);
@@ -2187,6 +2205,10 @@ export function handleNotification(frame: JsonRpcFrame, fromCache = false): void
   // signal, not session activity.
   if (kind === "permission_resolved") {
     onPermissionResolved(update);
+    return;
+  }
+  if (kind === "elicitation_resolved") {
+    onElicitationResolved(update);
     return;
   }
   // Most update kinds indicate the agent is mid-turn. Mode/model/usage
@@ -2476,6 +2498,19 @@ export function handleAgentRequest(req: JsonRpcFrame): void {
     state.current.pendingPermissions.set(parsed.toolCallId, parsed);
     pushLog({ kind: "perm", toolCallId: parsed.toolCallId });
     return;
+  }
+  if (req.method === "elicitation/create") {
+    const parsed = parseElicitationRequest(
+      req.id as string | number,
+      (req.params ?? {}) as AnyRecord,
+    );
+    if (parsed) {
+      // A redelivered form (reconnect) replaces the old entry, not duplicates it.
+      resolveElicitation(parsed.elicitationId);
+      state.current.pendingElicitations.set(parsed.elicitationId, parsed);
+      pushLog({ kind: "elicit", elicitationId: parsed.elicitationId });
+      return;
+    }
   }
   // Unknown agent request — reply with method-not-found so we don't
   // hold the agent up.

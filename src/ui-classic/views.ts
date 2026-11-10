@@ -28,7 +28,7 @@ import {
   pollSessions,
   tryImportBundleWith409,
 } from "../core/api.js";
-import { reportPushEndpoint, respondPermission } from "../core/bridge.js";
+import { reportPushEndpoint, respondElicitation, respondPermission } from "../core/bridge.js";
 import {
   amendPrompt,
   amendQueuedPrompt,
@@ -115,6 +115,13 @@ import {
 import { loadCwdHistory, loadLastCwd } from "../core/cwd-history.js";
 import { permissionDetails, permissionOptionTone } from "../core/permission.js";
 import {
+  groupElicitationFields,
+  validateElicitation,
+  type ElicitationDraft,
+  type ElicitationField,
+  type ElicitationValue,
+} from "../core/elicitation.js";
+import {
   formatAttachmentSize,
   attachmentSrc,
   addImageAttachments,
@@ -162,6 +169,7 @@ import type {
   FileEntry,
   FileOverlayState,
   ImageLogItem,
+  ElicitationEntry,
   PermissionEntry,
   QueueEntry,
   SessionInfo,
@@ -4362,6 +4370,11 @@ function renderLogItem(c: ChatState, item: ChatState["log"][number]): Node {
     if (!entry) return document.createTextNode("");
     return renderPermission(entry);
   }
+  if (item.kind === "elicit") {
+    const entry = state.current?.pendingElicitations.get(item.elicitationId);
+    if (!entry) return document.createTextNode("");
+    return renderElicitation(entry);
+  }
   if (item.kind === "plan") {
     return renderPlan(item.entries);
   }
@@ -4992,6 +5005,175 @@ function renderPermission(entry: PermissionEntry): HTMLElement {
         "button",
         { ...tapHandler(() => respondPermission(entry.toolCallId, "__cancel__")) },
         "Cancel",
+      ),
+    ),
+  );
+}
+
+// Form state lives outside the DOM: the chat re-renders on every state
+// change and would otherwise wipe what the user has typed.
+const elicitationDrafts = new Map<string, ElicitationDraft>();
+const elicitationTried = new Set<string>();
+
+function finishElicitation(id: string): void {
+  elicitationDrafts.delete(id);
+  elicitationTried.delete(id);
+}
+
+function elicitationInput(
+  id: string,
+  draft: ElicitationDraft,
+  f: ElicitationField,
+): HTMLElement {
+  const set = (v: ElicitationValue | undefined): void => {
+    draft[f.key] = v;
+  };
+  if (f.kind === "choice") {
+    const name = `${id}:${f.key}`;
+    return el(
+      "div",
+      { class: "elicit-opts" },
+      ...f.options.map((o) => {
+        const input = el("input", { type: "radio", name }) as HTMLInputElement;
+        input.checked = draft[f.key] === o.value;
+        input.addEventListener("change", () => set(o.value));
+        return el(
+          "label",
+          { class: "elicit-opt" },
+          input,
+          el(
+            "span",
+            null,
+            el("span", { class: "elicit-opt-title" }, o.title),
+            o.description ? el("span", { class: "elicit-opt-desc" }, o.description) : null,
+          ),
+        );
+      }),
+    );
+  }
+  if (f.kind === "multi") {
+    return el(
+      "div",
+      { class: "elicit-opts" },
+      ...f.options.map((o) => {
+        const input = el("input", { type: "checkbox" }) as HTMLInputElement;
+        const cur = (): string[] => (Array.isArray(draft[f.key]) ? (draft[f.key] as string[]) : []);
+        input.checked = cur().includes(o.value);
+        input.addEventListener("change", () => {
+          const rest = cur().filter((v) => v !== o.value);
+          set(input.checked ? [...rest, o.value] : rest);
+        });
+        return el(
+          "label",
+          { class: "elicit-opt" },
+          input,
+          el(
+            "span",
+            null,
+            el("span", { class: "elicit-opt-title" }, o.title),
+            o.description ? el("span", { class: "elicit-opt-desc" }, o.description) : null,
+          ),
+        );
+      }),
+    );
+  }
+  if (f.kind === "boolean") {
+    const input = el("input", { type: "checkbox" }) as HTMLInputElement;
+    input.checked = (draft[f.key] as boolean | undefined) ?? f.default ?? false;
+    input.addEventListener("change", () => set(input.checked));
+    return el("label", { class: "elicit-opt" }, input, el("span", null, f.title));
+  }
+  const input = el("input", {
+    type: f.kind === "number" ? "number" : "text",
+    class: "elicit-text",
+    ...(f.kind === "number" && f.integer ? { step: 1 } : {}),
+  }) as HTMLInputElement;
+  const cur = draft[f.key];
+  input.value = cur === undefined ? "" : String(cur);
+  input.addEventListener("input", () => {
+    if (f.kind === "number") {
+      set(input.value === "" ? undefined : Number(input.value));
+    } else {
+      set(input.value);
+    }
+  });
+  return input;
+}
+
+function renderElicitation(entry: ElicitationEntry): HTMLElement {
+  const id = entry.elicitationId;
+  let draft = elicitationDrafts.get(id);
+  if (!draft) {
+    draft = {};
+    elicitationDrafts.set(id, draft);
+  }
+  const d = draft;
+  const errors = elicitationTried.has(id) ? validateElicitation(entry.fields, d) : {};
+  const groups = groupElicitationFields(entry.fields);
+  const questions = groups.map(({ field, custom }) => {
+    const isBool = field.kind === "boolean";
+    const err = errors[field.key] ?? (custom ? errors[custom.key] : undefined);
+    return el(
+      "div",
+      { class: err ? "elicit-field invalid" : "elicit-field" },
+      isBool ? null : el("div", { class: "elicit-q" }, field.title, field.required ? " *" : ""),
+      field.description && !isBool ? el("div", { class: "elicit-desc" }, field.description) : null,
+      elicitationInput(id, d, field),
+      custom
+        ? el(
+            "div",
+            { class: "elicit-custom" },
+            el("div", { class: "elicit-desc" }, custom.title),
+            elicitationInput(id, d, custom),
+          )
+        : null,
+      err ? el("div", { class: "elicit-err" }, err) : null,
+    );
+  });
+  return el(
+    "div",
+    { class: "perm elicit" },
+    el("div", { class: "title" }, entry.title || "Question from the agent"),
+    entry.message ? el("div", { class: "desc" }, entry.message) : null,
+    ...questions,
+    el(
+      "div",
+      { class: "opts" },
+      el(
+        "button",
+        {
+          class: "primary",
+          ...tapHandler(() => {
+            if (Object.keys(validateElicitation(entry.fields, d)).length > 0) {
+              elicitationTried.add(id);
+              setState({});
+              return;
+            }
+            finishElicitation(id);
+            respondElicitation(id, "accept", d);
+          }),
+        },
+        "Submit",
+      ),
+      el(
+        "button",
+        {
+          ...tapHandler(() => {
+            finishElicitation(id);
+            respondElicitation(id, "decline");
+          }),
+        },
+        "Skip",
+      ),
+      el(
+        "button",
+        {
+          ...tapHandler(() => {
+            finishElicitation(id);
+            respondElicitation(id, "cancel");
+          }),
+        },
+        "Dismiss",
       ),
     ),
   );

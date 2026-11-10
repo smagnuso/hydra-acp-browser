@@ -29,6 +29,7 @@ function makeChatState(): ChatState {
     log: [],
     toolCalls: new Map(),
     pendingPermissions: new Map(),
+    pendingElicitations: new Map(),
     pendingRequestById: new Map(),
     responseHandlers: new Map(),
     spinner: null,

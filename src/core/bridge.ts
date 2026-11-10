@@ -4,6 +4,7 @@
 // frame router that fans out to acp.ts and queue.ts.
 
 import { permissionOutcome } from "./permission.js";
+import { elicitationResult, type ElicitationAction, type ElicitationDraft } from "./elicitation.js";
 import { state, notifyChange } from "./state.js";
 import { uiHooks } from "./hooks.js";
 import {
@@ -555,6 +556,23 @@ export function handleFrame(frame: JsonRpcFrame): void {
 // through this module's reply(). Defining respondPermission here so
 // views.ts can import a single button-click handler without touching
 // acp.ts internals.
+// Answers a pending elicitation form. "accept" sends the draft's values.
+export function respondElicitation(
+  elicitationId: string,
+  action: ElicitationAction,
+  draft: ElicitationDraft = {},
+): void {
+  if (!state.current) return;
+  const entry = state.current.pendingElicitations.get(elicitationId);
+  if (!entry) return;
+  state.current.pendingElicitations.delete(elicitationId);
+  state.current.log = state.current.log.filter(
+    (e) => !(e.kind === "elicit" && e.elicitationId === elicitationId),
+  );
+  reply(entry.requestId, elicitationResult(action, entry.fields, draft));
+  notifyChange();
+}
+
 export function respondPermission(toolCallId: string, optionId: string): void {
   if (!state.current) return;
   const entry = state.current.pendingPermissions.get(toolCallId) as

@@ -31,6 +31,7 @@ function chatWith(log: LogItem[], promptQueue: QueueEntry[]): ChatState {
     promptQueue,
     toolCalls: new Map(),
     pendingPermissions: new Map(),
+    pendingElicitations: new Map(),
     queueByMessageId: new Map(),
     ownPromptIds: new Map(),
     unsolicitedTurnOpen: new Set(),

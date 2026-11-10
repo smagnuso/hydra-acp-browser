@@ -20,6 +20,7 @@ function chat(o: Partial<Record<string, unknown>> = {}): ChatState {
     spinner: null,
     toolCalls: new Map(),
     pendingPermissions: new Map(),
+    pendingElicitations: new Map(),
     ...o,
   } as unknown as ChatState;
 }

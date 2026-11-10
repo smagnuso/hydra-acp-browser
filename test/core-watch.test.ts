@@ -205,3 +205,14 @@ test("a ready socket reports its push endpoint and visibility", async () => {
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(ws.sent.length, 4);
 });
+
+test("an elicitation form is abstained from, never answered", () => {
+  reset();
+  state.sessions = [sess("a")];
+  w.syncPermissionWatchers();
+  const ws = FakeWs.instances[0]!;
+  ws.receive({ jsonrpc: "2.0", id: 21, method: "elicitation/create", params: { mode: "form" } });
+  const reply = JSON.parse(ws.sent.find((x) => JSON.parse(x).id === 21)!);
+  assert.equal(reply.error.code, -32601);
+  assert.equal(w.watchedPermissions().length, 0);
+});

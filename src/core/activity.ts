@@ -38,7 +38,7 @@ export function chatActivity(c: ChatState): ChatActivity {
     currentTool = c.toolCalls.get(ids[ids.length - 1]!)?.title;
   }
   let phase: ChatPhase = "idle";
-  if (c.pendingPermissions.size > 0) {
+  if (c.pendingPermissions.size > 0 || c.pendingElicitations.size > 0) {
     phase = "waiting";
   } else if (c.inTurn) {
     phase = spinner?.sending ? "sending" : "working";

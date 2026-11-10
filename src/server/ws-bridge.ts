@@ -473,7 +473,7 @@ function handleConnection(
   // deliverPush's suppression rules in turn-notify-callback.ts: skip if
   // this tab (or a sibling) is already looking at the session, and only
   // target the device that actually submitted the prompt.
-  async function maybeSendPermissionPush(): Promise<void> {
+  async function maybeSendPermissionPush(body: string): Promise<void> {
     if (isSessionVisible(sessionId)) {
       log.info(`session=${sessionId} currently visible — suppressing permission push`);
       return;
@@ -487,7 +487,7 @@ function handleConnection(
     const title = await fetchSessionTitle();
     await sendPushToEndpoint(ownPushEndpoint, {
       title,
-      body: "Waiting on a permission approval.",
+      body,
       url: `/#/session/${encodeURIComponent(sessionId)}`,
       tag: `hydra-acp-permission-${sessionId}`,
     });
@@ -499,13 +499,16 @@ function handleConnection(
   // the auto-approver — the notification handler below clears it and no
   // push goes out. Skipped entirely when the in-flight turn isn't ours;
   // see currentTurnIsOwn.
-  function schedulePermissionNotify(toolCallId: string): void {
+  function schedulePermissionNotify(
+    toolCallId: string,
+    body = "Waiting on a permission approval.",
+  ): void {
     if (permissionNotifyDelayMs <= 0 || !currentTurnIsOwn) {
       return;
     }
     const timer = setTimeout(() => {
       pendingPermissionNotifyTimers.delete(toolCallId);
-      void maybeSendPermissionPush();
+      void maybeSendPermissionPush(body);
       maybeStopUpstream();
     }, permissionNotifyDelayMs);
     pendingPermissionNotifyTimers.set(toolCallId, timer);
@@ -582,6 +585,7 @@ function handleConnection(
         | {
             sessionUpdate?: unknown;
             toolCallId?: unknown;
+            elicitationId?: unknown;
             messageId?: unknown;
             content?: unknown;
           }
@@ -657,6 +661,17 @@ function handleConnection(
           maybeStopUpstream();
         }
       }
+      if (
+        update?.sessionUpdate === "elicitation_resolved" &&
+        typeof update.elicitationId === "string"
+      ) {
+        const notifyTimer = pendingPermissionNotifyTimers.get(update.elicitationId);
+        if (notifyTimer) {
+          clearTimeout(notifyTimer);
+          pendingPermissionNotifyTimers.delete(update.elicitationId);
+          maybeStopUpstream();
+        }
+      }
       if (handshakeBuffer) {
         handshakeBuffer.push(n);
         return;
@@ -708,6 +723,16 @@ function handleConnection(
         return;
       }
       deliver();
+      return;
+    }
+    if (r.method === "elicitation/create") {
+      const meta = (r.params as { _meta?: Record<string, { elicitationId?: unknown } | undefined> } | undefined)
+        ?._meta?.["hydra-acp"];
+      const elicitationId =
+        typeof meta?.elicitationId === "string" ? meta.elicitationId : String(r.id);
+      outstandingFromUpstream.add(String(r.id));
+      sendBrowserFrame(r);
+      schedulePermissionNotify(elicitationId, "Waiting on an answer to a question.");
       return;
     }
     outstandingFromUpstream.add(String(r.id));

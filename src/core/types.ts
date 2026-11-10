@@ -2,6 +2,8 @@
 // data is variable (ACP notifications, agents, etc.) and tighter where
 // behavior depends on it (queue entries, log items).
 
+import type { ElicitationField } from "./elicitation.js";
+
 // Spec shape for a session config option (ConfigOption) and its values,
 // mirroring cli/src/core/hydra-commands.ts. Delivered on session/attach
 // (top-level configOptions) and via config_option_update notifications.
@@ -256,6 +258,16 @@ export interface PermissionEntry {
   options: Array<{ optionId: string; name?: string; kind?: string }>;
 }
 
+export interface ElicitationEntry {
+  // JSON-RPC request id, echoed verbatim in the reply. Correlation with the
+  // daemon's elicitation_resolved dismissal is by elicitationId.
+  requestId: string | number;
+  elicitationId: string;
+  message: string;
+  title?: string;
+  fields: ElicitationField[];
+}
+
 export interface PlanLogItem {
   kind: "plan";
   entries: unknown;
@@ -377,6 +389,7 @@ export type LogItem =
   // as sentAt above.
   | { kind: "turn-stamp"; elapsedMs: number; toolCount: number; stopReason?: string; endedAt: number }
   | { kind: "perm"; toolCallId: string }
+  | { kind: "elicit"; elicitationId: string }
   | PlanLogItem
   | ExitPlanLogItem
   | EditDiffLogItem
@@ -508,6 +521,7 @@ export interface ChatState {
   log: LogItem[];
   toolCalls: Map<string, ToolCallState>;
   pendingPermissions: Map<string, PermissionEntry>;
+  pendingElicitations: Map<string, ElicitationEntry>;
   pendingRequestById: Map<string, unknown>;
   // Per-id callbacks registered by call sites (e.g. amendPrompt) that
   // need the JSON-RPC response value, not just the side-effects of
