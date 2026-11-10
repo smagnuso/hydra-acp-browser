@@ -5084,12 +5084,19 @@ function elicitationInput(
     input.addEventListener("change", () => set(input.checked));
     return el("label", { class: "elicit-opt" }, input, el("span", null, f.title));
   }
-  const input = el("input", {
-    type: f.kind === "number" ? "number" : "text",
-    class: "elicit-text",
-    ...(f.kind === "number" && f.integer ? { step: 1 } : {}),
-  }) as HTMLInputElement;
   const cur = draft[f.key];
+  // An <input> drops line breaks from its value, so a multi-line default (a
+  // pi editor prefill) would be flattened on display and on every edit.
+  const multiline = f.kind !== "number" && typeof cur === "string" && /[\r\n]/.test(cur);
+  const input = (
+    multiline
+      ? el("textarea", { class: "elicit-text", rows: 4 })
+      : el("input", {
+          type: f.kind === "number" ? "number" : "text",
+          class: "elicit-text",
+          ...(f.kind === "number" && f.integer ? { step: 1 } : {}),
+        })
+  ) as HTMLInputElement | HTMLTextAreaElement;
   input.value = cur === undefined ? "" : String(cur);
   input.addEventListener("input", () => {
     if (f.kind === "number") {
