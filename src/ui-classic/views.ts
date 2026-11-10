@@ -5177,6 +5177,7 @@ function renderElicitation(entry: ElicitationEntry): HTMLElement {
       el(
         "button",
         {
+          title: "Skip: tell the agent you are not answering; it carries on",
           ...tapHandler(() => {
             finishElicitation(id);
             respondElicitation(id, "decline");
@@ -5187,6 +5188,7 @@ function renderElicitation(entry: ElicitationEntry): HTMLElement {
       el(
         "button",
         {
+          title: "Dismiss: cancel the question; the agent will not ask again",
           ...tapHandler(() => {
             finishElicitation(id);
             respondElicitation(id, "cancel");
