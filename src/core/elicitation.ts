@@ -21,6 +21,7 @@ export type ElicitationField =
       description?: string;
       required: boolean;
       options: ElicitationOption[];
+      default?: string;
     }
   | {
       kind: "multi";
@@ -31,6 +32,7 @@ export type ElicitationField =
       options: ElicitationOption[];
       minItems?: number;
       maxItems?: number;
+      default?: string[];
     }
   | {
       kind: "text";
@@ -40,6 +42,9 @@ export type ElicitationField =
       required: boolean;
       minLength?: number;
       maxLength?: number;
+      pattern?: string;
+      format?: string;
+      default?: string;
     }
   | {
       kind: "number";
@@ -50,6 +55,7 @@ export type ElicitationField =
       integer: boolean;
       minimum?: number;
       maximum?: number;
+      default?: number;
     }
   | {
       kind: "boolean";
@@ -111,6 +117,15 @@ function enumOptions(prop: Rec): ElicitationOption[] {
   }));
 }
 
+function multiDefault(prop: Rec, options: ElicitationOption[]): { default?: string[] } {
+  if (!Array.isArray(prop.default)) {
+    return {};
+  }
+  const known = new Set(options.map((o) => o.value));
+  const def = (prop.default as unknown[]).filter((v): v is string => typeof v === "string" && known.has(v));
+  return def.length > 0 ? { default: def } : {};
+}
+
 function parseField(key: string, prop: Rec, required: boolean): ElicitationField | null {
   const title = asStr(prop.title) ?? key;
   const description = asStr(prop.description);
@@ -119,13 +134,22 @@ function parseField(key: string, prop: Rec, required: boolean): ElicitationField
     case "string": {
       const options = enumOptions(prop);
       if (options.length > 0) {
-        return { kind: "choice", ...base, options };
+        const def = asStr(prop.default);
+        return {
+          kind: "choice",
+          ...base,
+          options,
+          ...(def !== undefined && options.some((o) => o.value === def) ? { default: def } : {}),
+        };
       }
       return {
         kind: "text",
         ...base,
         ...(asNum(prop.minLength) !== undefined ? { minLength: asNum(prop.minLength) } : {}),
         ...(asNum(prop.maxLength) !== undefined ? { maxLength: asNum(prop.maxLength) } : {}),
+        ...(asStr(prop.pattern) ? { pattern: asStr(prop.pattern) } : {}),
+        ...(asStr(prop.format) ? { format: asStr(prop.format) } : {}),
+        ...(typeof prop.default === "string" ? { default: prop.default } : {}),
       };
     }
     case "number":
@@ -136,6 +160,7 @@ function parseField(key: string, prop: Rec, required: boolean): ElicitationField
         integer: prop.type === "integer",
         ...(asNum(prop.minimum) !== undefined ? { minimum: asNum(prop.minimum) } : {}),
         ...(asNum(prop.maximum) !== undefined ? { maximum: asNum(prop.maximum) } : {}),
+        ...(asNum(prop.default) !== undefined ? { default: asNum(prop.default) } : {}),
       };
     case "boolean":
       return {
@@ -159,6 +184,7 @@ function parseField(key: string, prop: Rec, required: boolean): ElicitationField
         options,
         ...(asNum(prop.minItems) !== undefined ? { minItems: asNum(prop.minItems) } : {}),
         ...(asNum(prop.maxItems) !== undefined ? { maxItems: asNum(prop.maxItems) } : {}),
+        ...multiDefault(prop, options),
       };
     }
     default:
@@ -206,6 +232,67 @@ export function parseElicitationRequest(
   };
 }
 
+const MAX_PATTERN_LENGTH = 256;
+const MAX_PATTERN_INPUT = 10000;
+
+function patternMatches(pattern: string, value: string): boolean {
+  if (pattern.length > MAX_PATTERN_LENGTH || value.length > MAX_PATTERN_INPUT) {
+    return true;
+  }
+  try {
+    return new RegExp(pattern).test(value);
+  } catch {
+    return true;
+  }
+}
+
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+function validDate(v: string): boolean {
+  const m = DATE_RE.exec(v);
+  if (!m) {
+    return false;
+  }
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
+}
+
+// Null when the value fits the format or the format is unknown (annotation only).
+function formatError(format: string, v: string): string | null {
+  switch (format) {
+    case "email":
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : "Enter a valid email address";
+    case "uri":
+      try {
+        const u = new URL(v);
+        return u.protocol.length > 1 ? null : "Enter a valid URI";
+      } catch {
+        return "Enter a valid URI";
+      }
+    case "date":
+      return validDate(v) ? null : "Enter a date as YYYY-MM-DD";
+    case "date-time":
+      return /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/.test(v) &&
+        validDate(v.slice(0, 10)) &&
+        !Number.isNaN(Date.parse(v))
+        ? null
+        : "Enter a date and time like 2024-01-31T09:30:00Z";
+    default:
+      return null;
+  }
+}
+
+// The answers a form starts with: every field's schema default.
+export function elicitationDefaults(fields: ElicitationField[]): ElicitationDraft {
+  const draft: ElicitationDraft = {};
+  for (const f of fields) {
+    if (f.default !== undefined) {
+      draft[f.key] = Array.isArray(f.default) ? [...f.default] : f.default;
+    }
+  }
+  return draft;
+}
+
 function isBlank(v: ElicitationValue | undefined): boolean {
   return v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
 }
@@ -220,7 +307,7 @@ export function validateElicitation(
   for (const f of fields) {
     const v = draft[f.key];
     if (isBlank(v)) {
-      if (f.required && !(f.kind === "boolean" && f.default !== undefined)) {
+      if (f.required && f.default === undefined) {
         errors[f.key] = "Required";
       }
       continue;
@@ -236,6 +323,13 @@ export function validateElicitation(
         errors[f.key] = `At least ${f.minLength} characters`;
       } else if (f.maxLength !== undefined && v.length > f.maxLength) {
         errors[f.key] = `At most ${f.maxLength} characters`;
+      } else if (f.pattern !== undefined && !patternMatches(f.pattern, v)) {
+        errors[f.key] = "Does not match the expected format";
+      } else if (f.format !== undefined) {
+        const bad = formatError(f.format, v);
+        if (bad) {
+          errors[f.key] = bad;
+        }
       }
     } else if (f.kind === "number") {
       if (typeof v !== "number" || !Number.isFinite(v)) {
@@ -265,7 +359,7 @@ export function elicitationResult(
   const content: Record<string, ElicitationValue> = {};
   for (const f of fields) {
     let v = draft[f.key];
-    if (v === undefined && f.kind === "boolean" && f.default !== undefined) {
+    if (v === undefined && f.default !== undefined) {
       v = f.default;
     }
     if (!isBlank(v)) {

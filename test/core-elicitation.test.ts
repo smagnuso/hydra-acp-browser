@@ -158,3 +158,85 @@ test("a form this client cannot render is abstained from with MethodNotFound", (
   } as never);
   assert.equal((sent[0] as { error: { code: number } }).error.code, -32601);
 });
+
+const parseProps = (properties: Record<string, unknown>) =>
+  e.parseElicitationRequest(1, { requestedSchema: { type: "object", properties } })!.fields;
+
+test("schema defaults seed the draft for every field type", () => {
+  const fields = parseProps({
+    c: { type: "string", oneOf: [{ const: "a", title: "A" }, { const: "b", title: "B" }], default: "b" },
+    m: { type: "array", items: { enum: ["x", "y", "z"] }, default: ["x", "z", "nope"] },
+    t: { type: "string", default: "hi" },
+    n: { type: "integer", default: 4 },
+    b: { type: "boolean", default: false },
+    bad: { type: "string", enum: ["a"], default: "zzz" },
+  });
+  assert.deepEqual(e.elicitationDefaults(fields), { c: "b", m: ["x", "z"], t: "hi", n: 4, b: false });
+  assert.deepEqual(e.elicitationResult("accept", fields, {}).content, { c: "b", m: ["x", "z"], t: "hi", n: 4, b: false });
+});
+
+test("string length, pattern and format are validated", () => {
+  const fields = parseProps({
+    len: { type: "string", minLength: 2, maxLength: 3 },
+    pat: { type: "string", pattern: "^[a-z]+$" },
+    mail: { type: "string", format: "email" },
+    uri: { type: "string", format: "uri" },
+    date: { type: "string", format: "date" },
+    dt: { type: "string", format: "date-time" },
+    other: { type: "string", format: "hostname-ish" },
+  });
+  const bad = e.validateElicitation(fields, {
+    len: "a",
+    pat: "ABC",
+    mail: "nope",
+    uri: "not a uri",
+    date: "2024-02-30",
+    dt: "2024-01-31",
+    other: "anything",
+  });
+  assert.deepEqual(Object.keys(bad).sort(), ["date", "dt", "len", "mail", "pat", "uri"]);
+  assert.deepEqual(
+    e.validateElicitation(fields, {
+      len: "abc",
+      pat: "abc",
+      mail: "a@b.co",
+      uri: "https://x.test/p",
+      date: "2024-02-29",
+      dt: "2024-01-31T09:30:00Z",
+    }),
+    {},
+  );
+  assert.equal(e.validateElicitation(fields, { len: "abcd" }).len, "At most 3 characters");
+});
+
+test("pattern evaluation is bounded and tolerates invalid regex", () => {
+  const long = parseProps({ p: { type: "string", pattern: "a".repeat(300) } });
+  assert.deepEqual(e.validateElicitation(long, { p: "b" }), {});
+  const bad = parseProps({ p: { type: "string", pattern: "(" } });
+  assert.deepEqual(e.validateElicitation(bad, { p: "b" }), {});
+  const big = parseProps({ p: { type: "string", pattern: "^a$" } });
+  assert.deepEqual(e.validateElicitation(big, { p: "b".repeat(10001) }), {});
+});
+
+test("number bounds and multi-select item counts are validated", () => {
+  const fields = parseProps({
+    n: { type: "number", minimum: 1, maximum: 5 },
+    m: { type: "array", items: { enum: ["a", "b", "c"] }, minItems: 2, maxItems: 2 },
+  });
+  assert.equal(e.validateElicitation(fields, { n: 6, m: ["a"] }).n, "At most 5");
+  assert.equal(e.validateElicitation(fields, { m: ["a"] }).m, "Pick at least 2");
+  assert.equal(e.validateElicitation(fields, { m: ["a", "b", "c"] }).m, "Pick at most 2");
+  assert.deepEqual(e.validateElicitation(fields, { n: 3, m: ["a", "b"] }), {});
+});
+
+test("elicitation_resolved with action cancel and no resolvedBy drops the form", () => {
+  const { c } = chat();
+  handleAgentRequest({ jsonrpc: "2.0", id: 14, method: "elicitation/create", params: form() } as never);
+  handleNotification({
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: { sessionId: "s1", update: { sessionUpdate: "elicitation_resolved", elicitationId: "el1", action: "cancel" } },
+  } as never);
+  assert.equal(c.pendingElicitations.size, 0);
+  assert.equal(c.log.length, 0);
+});

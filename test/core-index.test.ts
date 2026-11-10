@@ -45,6 +45,7 @@ const FUNCTIONS = [
   "validateElicitation",
   "elicitationResult",
   "groupElicitationFields",
+  "elicitationDefaults",
   "createSession",
   "killSession",
   "clientLog",

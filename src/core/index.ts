@@ -167,6 +167,7 @@ export {
   validateElicitation,
   elicitationResult,
   groupElicitationFields,
+  elicitationDefaults,
   type ElicitationField,
   type ElicitationOption,
   type ElicitationAction,

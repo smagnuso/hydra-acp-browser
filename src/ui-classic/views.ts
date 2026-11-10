@@ -115,6 +115,7 @@ import {
 import { loadCwdHistory, loadLastCwd } from "../core/cwd-history.js";
 import { permissionDetails, permissionOptionTone } from "../core/permission.js";
 import {
+  elicitationDefaults,
   groupElicitationFields,
   validateElicitation,
   type ElicitationDraft,
@@ -5104,7 +5105,7 @@ function renderElicitation(entry: ElicitationEntry): HTMLElement {
   const id = entry.elicitationId;
   let draft = elicitationDrafts.get(id);
   if (!draft) {
-    draft = {};
+    draft = elicitationDefaults(entry.fields);
     elicitationDrafts.set(id, draft);
   }
   const d = draft;
