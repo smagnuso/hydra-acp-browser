@@ -680,7 +680,19 @@ function handleConnection(
     sendBrowserFrame(n);
   });
 
-  upstream.on("request", (r) => {
+  // Requests that arrive while the attach handshake is still running, which
+  // includes the daemon's redelivery of a form or permission that was already
+  // pending when this connection attached. Notifications are held in
+  // handshakeBuffer for the same reason: the browser resets its chat state on
+  // bridge/replay_policy, so anything it was handed before that is wiped.
+  const deferredUpstreamRequests: JsonRpcRequest[] = [];
+  function flushDeferredUpstreamRequests(): void {
+    for (const r of deferredUpstreamRequests.splice(0)) {
+      handleUpstreamRequest(r);
+    }
+  }
+
+  function handleUpstreamRequest(r: JsonRpcRequest): void {
     if (SHORT_CIRCUIT_AGENT_REQUEST_METHODS.has(r.method)) {
       // We advertised fs/* off in initialize; if an agent still asks,
       // refuse rather than expose the user's filesystem to it.
@@ -737,6 +749,14 @@ function handleConnection(
     }
     outstandingFromUpstream.add(String(r.id));
     sendBrowserFrame(r);
+  }
+
+  upstream.on("request", (r) => {
+    if (handshakeBuffer) {
+      deferredUpstreamRequests.push(r);
+      return;
+    }
+    handleUpstreamRequest(r);
   });
 
   upstream.on("response", (r) => {
@@ -1144,6 +1164,7 @@ function handleConnection(
       params: readyParams,
     });
     upstreamReady = true;
+    flushDeferredUpstreamRequests();
     while (browserBuffer.length > 0) {
       const next = browserBuffer.shift()!;
       // Route back through handleBrowserFrame, not forwardBrowserFrame
