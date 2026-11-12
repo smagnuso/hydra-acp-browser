@@ -87,3 +87,22 @@ test("passes an older daemon's 404 through so the SPA can fall back to polling",
   assert.equal(res.status, 404);
   mode = "stream";
 });
+
+test("relays one session's stream from the daemon's per-session route", async () => {
+  mode = "stream";
+  seen.length = 0;
+  const res = await fetch(`${baseUrl}/api/sessions/hydra_session_abc/stream`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type") ?? "", /text\/event-stream/);
+  assert.match(await firstChunk(res), /event: sessions/);
+  const upstream = seen[0]!;
+  assert.equal(upstream.url, "/v1/sessions/hydra_session_abc/stream");
+  assert.equal(upstream.headers.authorization, "Bearer tok");
+});
+
+test("passes a 404 for an unknown session through on the per-session stream", async () => {
+  mode = "missing";
+  const res = await fetch(`${baseUrl}/api/sessions/hydra_session_nope/stream`);
+  assert.equal(res.status, 404);
+  mode = "stream";
+});

@@ -159,3 +159,28 @@ test("runSessionStream ignores a malformed payload and keeps reading", async () 
   });
   assert.equal(frames.length, 1);
 });
+
+test("runSessionStream can follow one session's stream, which has no cursor to resume from", async () => {
+  const abort = new AbortController();
+  const urls: string[] = [];
+  let call = 0;
+  let seen = 0;
+  await runSessionStream({
+    signal: abort.signal,
+    path: "/api/sessions/abc/stream",
+    resumable: false,
+    fetchImpl: (async (url: string) => {
+      urls.push(url);
+      call++;
+      return streamResponse([sse({ sessions: [{ sessionId: "abc", cwd: "/w" }], removed: [], cursor: call })]);
+    }) as unknown as typeof fetch,
+    sleep: async () => undefined,
+    onFrame: () => {
+      seen++;
+      if (seen === 2) {
+        abort.abort();
+      }
+    },
+  });
+  assert.deepEqual(urls, ["/api/sessions/abc/stream", "/api/sessions/abc/stream"]);
+});

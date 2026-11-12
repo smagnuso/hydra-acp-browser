@@ -203,30 +203,10 @@ function reattachIfWarmedElsewhere(live: SessionInfo): void {
 // it while we're viewing one session.
 async function pollCurrentSessionOnly(sessionId: string): Promise<void> {
   try {
-    const live = suppressStaleWarmth(
+    landCurrentSession(
+      sessionId,
       await api<SessionInfo>(`/api/sessions/${encodeURIComponent(sessionId)}`),
     );
-    const idx = state.sessions.findIndex((s) => s.sessionId === sessionId);
-    if (idx >= 0) {
-      state.sessions[idx] = live;
-    } else {
-      state.sessions.push(live);
-    }
-    // Navigated away (or the chat closed) while the request was in
-    // flight — the fetched data is still merged above for whenever the
-    // list is next shown, but there's no chat-view fingerprint to
-    // reconcile against anymore.
-    if (!state.current || state.current.sessionId !== sessionId) {
-      return;
-    }
-    reattachIfWarmedElsewhere(live);
-    // This is what makes deep-link reloads eventually pick up the real
-    // session title.
-    const fp = `${live.title}|${live.cwd}|${live.agentId}|${live.currentModel}|${live.workspace?.label}|${live.workspace?.vcs?.branch}|${live.workspace?.clean}`;
-    if (fp !== state.current._lastMetaFp) {
-      state.current._lastMetaFp = fp;
-      notifyChange();
-    }
   } catch {
     // Best-effort — a transient failure just skips this cycle's
     // refresh; the next poll tries again. A genuinely closed/deleted
@@ -234,6 +214,33 @@ async function pollCurrentSessionOnly(sessionId: string): Promise<void> {
     // hydra-acp/session/closed banner (bridge.ts), so duplicating that
     // here as a second, possibly-stale error banner would just be
     // noise.
+  }
+}
+
+// Folds one session's fresh row into state and repaints if what a chat
+// shows changed. Shared by the single-session poll and its stream.
+function landCurrentSession(sessionId: string, row: SessionInfo): void {
+  const live = suppressStaleWarmth(row);
+  const idx = state.sessions.findIndex((s) => s.sessionId === sessionId);
+  if (idx >= 0) {
+    state.sessions[idx] = live;
+  } else {
+    state.sessions.push(live);
+  }
+  // Navigated away (or the chat closed) while the request was in
+  // flight — the fetched data is still merged above for whenever the
+  // list is next shown, but there's no chat-view fingerprint to
+  // reconcile against anymore.
+  if (!state.current || state.current.sessionId !== sessionId) {
+    return;
+  }
+  reattachIfWarmedElsewhere(live);
+  // This is what makes deep-link reloads eventually pick up the real
+  // session title.
+  const fp = `${live.title}|${live.cwd}|${live.agentId}|${live.currentModel}|${live.workspace?.label}|${live.workspace?.vcs?.branch}|${live.workspace?.clean}`;
+  if (fp !== state.current._lastMetaFp) {
+    state.current._lastMetaFp = fp;
+    notifyChange();
   }
 }
 
@@ -425,11 +432,66 @@ function startSessionStream(): void {
   });
 }
 
+// The narrow chat view shows one session and polls just that one. Its own
+// stream pushes the row instead; it is opened when such a chat is open and
+// closed when it is not.
+let currentStreamAbort: AbortController | null = null;
+let currentStreamId: string | null = null;
+let currentStreamHealthy = false;
+let currentBackstopTicks = 0;
+
+function narrowChatSession(): string | null {
+  return state.view === "chat" && state.current && !uiHooks.isWideLayout()
+    ? state.current.sessionId
+    : null;
+}
+
+function syncCurrentStream(): void {
+  const want = narrowChatSession();
+  if (want === currentStreamId) {
+    return;
+  }
+  currentStreamAbort?.abort();
+  currentStreamAbort = null;
+  currentStreamId = null;
+  currentStreamHealthy = false;
+  if (want === null) {
+    return;
+  }
+  const abort = new AbortController();
+  currentStreamAbort = abort;
+  currentStreamId = want;
+  void runSessionStream({
+    path: `/api/sessions/${encodeURIComponent(want)}/stream`,
+    resumable: false,
+    signal: abort.signal,
+    onFrame: (frame) => {
+      currentStreamHealthy = true;
+      const row = frame.sessions[0];
+      if (row !== undefined && narrowChatSession() === want) {
+        landCurrentSession(want, row);
+      }
+    },
+    onDisconnect: () => {
+      currentStreamHealthy = false;
+    },
+  }).then((outcome) => {
+    if (abort === currentStreamAbort && outcome === "unsupported") {
+      currentStreamHealthy = false;
+    }
+  });
+}
+
 export function startPolling(): void {
   if (pollTimer) clearInterval(pollTimer);
   void pollSessions();
   pollTimer = setInterval(() => {
-    if (streamHealthy && fullListInUse() && ++backstopTicks % STREAM_BACKSTOP_TICKS !== 0) {
+    syncCurrentStream();
+    if (fullListInUse()) {
+      if (streamHealthy && ++backstopTicks % STREAM_BACKSTOP_TICKS !== 0) {
+        return;
+      }
+    } else if (currentStreamHealthy && ++currentBackstopTicks % STREAM_BACKSTOP_TICKS !== 0) {
       return;
     }
     void pollSessions();

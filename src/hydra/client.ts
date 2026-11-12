@@ -201,6 +201,8 @@ export class HydraRestClient {
   // can pipe it on. Throws HydraRestError on a non-2xx, which includes the
   // 404 an older daemon answers with.
   async openSessionStream(opts: {
+    // One session's row (GET /v1/sessions/:id/stream) instead of the list.
+    sessionId?: string;
     since?: number;
     signal: AbortSignal;
   }): Promise<Response> {
@@ -209,7 +211,11 @@ export class HydraRestClient {
       qs.set("since", String(opts.since));
     }
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
-    const r = await fetch(`${this.baseUrl}/v1/sessions/stream${suffix}`, {
+    const path =
+      opts.sessionId !== undefined
+        ? `/v1/sessions/${encodeURIComponent(opts.sessionId)}/stream`
+        : "/v1/sessions/stream";
+    const r = await fetch(`${this.baseUrl}${path}${suffix}`, {
       headers: {
         Authorization: `Bearer ${this.token}`,
         Accept: "text/event-stream",
@@ -220,7 +226,7 @@ export class HydraRestClient {
       await r.body?.cancel().catch(() => undefined);
       throw new HydraRestError(
         r.status,
-        `GET /v1/sessions/stream: ${r.status}`,
+        `GET ${path}: ${r.status}`,
       );
     }
     return r;

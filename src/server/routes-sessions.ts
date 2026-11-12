@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { HydraRestClient, HydraRestError } from "../hydra/client.js";
 import { UpstreamConnection, runInitialize } from "../hydra/ws.js";
 import { expandTilde } from "../util/home-path.js";
@@ -92,21 +92,19 @@ export function registerSessionRoutes(
     }
   });
 
-  // Relays the daemon's session list stream so the SPA gets pushes instead
-  // of polling. A byte-for-byte pipe: the SPA parses the frames, and the
-  // daemon's own status (404 from an older daemon) is passed through so the
-  // SPA can fall back to polling.
-  app.get("/api/sessions/stream", async (request, reply) => {
-    const query = request.query as { since?: string } | undefined;
-    const since = query?.since !== undefined ? Number(query.since) : undefined;
+  // Pipes a daemon stream through to the SPA byte for byte; the SPA parses
+  // the frames. The daemon's own status (404 from an older daemon, or for an
+  // unknown session) is passed through so the SPA can fall back to polling.
+  const relayStream = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    open: (signal: AbortSignal) => Promise<Response>,
+  ): Promise<FastifyReply> => {
     const upstream = new AbortController();
     request.raw.on("close", () => upstream.abort());
     let response: Response;
     try {
-      response = await clientFor(ctx, request).openSessionStream({
-        since,
-        signal: upstream.signal,
-      });
+      response = await open(upstream.signal);
     } catch (err) {
       const status = err instanceof HydraRestError ? err.status : 502;
       reply.code(status).send({ error: (err as Error).message });
@@ -135,6 +133,24 @@ export function registerSessionRoutes(
       }
     }
     return reply;
+  };
+
+  // The daemon's session list stream, so the SPA gets pushes instead of
+  // polling.
+  app.get("/api/sessions/stream", async (request, reply) => {
+    const query = request.query as { since?: string } | undefined;
+    const since = query?.since !== undefined ? Number(query.since) : undefined;
+    return relayStream(request, reply, (signal) =>
+      clientFor(ctx, request).openSessionStream({ since, signal }),
+    );
+  });
+
+  // One session's row, for the narrow chat view that shows a single session.
+  app.get("/api/sessions/:id/stream", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    return relayStream(request, reply, (signal) =>
+      clientFor(ctx, request).openSessionStream({ sessionId: id, signal }),
+    );
   });
 
   // Single-session lookup, used by the SPA to keep the currently-open

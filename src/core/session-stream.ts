@@ -64,6 +64,10 @@ const BACKOFF_MS = [1_000, 2_000, 5_000, 15_000];
 
 export interface SessionStreamOptions {
   signal: AbortSignal;
+  // Which stream to open: the whole list (the default) or one session's row,
+  // /api/sessions/:id/stream. The latter has no cursor to resume from.
+  path?: string;
+  resumable?: boolean;
   // Cursor of a list already in hand. Without it the first frame is the
   // whole list, which would duplicate what the caller just fetched.
   initialCursor?: number;
@@ -106,10 +110,11 @@ export async function runSessionStream(
   let failures = 0;
   while (!opts.signal.aborted) {
     try {
+      const base = opts.path ?? "/api/sessions/stream";
       const path =
-        cursor === undefined
-          ? "/api/sessions/stream"
-          : `/api/sessions/stream?since=${cursor}`;
+        cursor === undefined || opts.resumable === false
+          ? base
+          : `${base}?since=${cursor}`;
       const response = await fetchImpl(path, {
         credentials: "same-origin",
         headers: { Accept: "text/event-stream" },
