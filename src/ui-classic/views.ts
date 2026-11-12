@@ -3,7 +3,7 @@
 // largest module by design — keeping all the DOM-shaping code together
 // makes UX iteration easier than chasing pieces across files.
 
-import { state, setState, isRailDirty, markRailClean, markRailDirty } from "../core/state.js";
+import { state, setState, isRailDirty, markRailClean, markRailDirty, notifyChange } from "../core/state.js";
 import { render, noteTypingActivity, isPointerDownNow } from "./renderer.js";
 import {
   el,
@@ -1626,6 +1626,27 @@ export function seedInitialSessionOrder(ids: string[]): void {
   trustSeededOrderOnce = true;
 }
 
+// A reorder held back because the pointer was moving has to be retried when
+// the hold ends. Nothing else is guaranteed to render again: the poll used
+// to, as busy sessions' timestamps changed every tick, but with the stream
+// pushing only real changes the list can sit in the stale order until
+// something else moves.
+let holdRetryTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleHeldReorderRetry(): void {
+  if (holdRetryTimer !== null) {
+    return;
+  }
+  const wait = Math.max(
+    0,
+    REORDER_HOLDOFF_MS - (performance.now() - lastListPointerMoveAt),
+  );
+  holdRetryTimer = setTimeout(() => {
+    holdRetryTimer = null;
+    markRailDirty();
+    notifyChange();
+  }, wait + 50);
+}
+
 function stableSortSessions(sessions: SessionInfo[]): SessionInfo[] {
   const natural = sessions.slice().sort(compareSessions);
   const idle = performance.now() - lastListPointerMoveAt > REORDER_HOLDOFF_MS;
@@ -1633,9 +1654,10 @@ function stableSortSessions(sessions: SessionInfo[]): SessionInfo[] {
     lastCommittedOrder = natural.map((s) => s.sessionId);
     return natural;
   }
+  const fromSeed = trustSeededOrderOnce;
   trustSeededOrderOnce = false;
   const rank = new Map((lastCommittedOrder ?? []).map((id, i) => [id, i]));
-  return natural
+  const held = natural
     .map((s, i) => ({ s, i }))
     .sort((a, b) => {
       const ra = rank.get(a.s.sessionId);
@@ -1651,6 +1673,12 @@ function stableSortSessions(sessions: SessionInfo[]): SessionInfo[] {
       return a.i - b.i;
     })
     .map((x) => x.s);
+  // The seeded first render differs from natural on purpose (see above),
+  // and the live poll corrects it; retrying here would undo that.
+  if (!fromSeed && held.some((s, i) => s.sessionId !== natural[i]?.sessionId)) {
+    scheduleHeldReorderRetry();
+  }
+  return held;
 }
 
 function groupSessions(sessions: SessionInfo[], mode: "project" | "recent"): SessionGroup[] {
