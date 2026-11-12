@@ -46,6 +46,7 @@ your `index.html`. `/login` (form POST, `password`, optional `next`) and
 | `GET /api/agents` | Agents available for new sessions. |
 | `GET /api/remotes` | Federation peers, fetched live. |
 | `GET /api/sessions?cwd=&all=true&since=<cursor>` | Session list; `since` is a delta cursor. |
+| `GET /api/sessions/stream?since=<cursor>` | Server-sent stream of session list changes, relayed from the daemon's `GET /v1/sessions/stream`. Each `event: sessions` frame is `{sessions, removed, cursor}` holding only the rows that changed; merge by upserting and dropping `removed`. Pass the poll's cursor as `since` so the first frame is not the whole list. The daemon's 404 (older daemon) passes through, so a client can fall back to polling. |
 | `GET /api/sessions/:id` | One session's metadata. |
 | `GET /api/sessions/:id/history?beforeSeq=&turns=` | Older history page ("load earlier"). |
 | `GET /api/sessions/:id/diff?fold=` | Per-file diff of everything the session edited, rebuilt from history by the daemon (`[{path, created, hunks}]`). Paths are added to the edited-files allowlist so the Files API can open them. |

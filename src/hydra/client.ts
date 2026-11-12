@@ -196,6 +196,36 @@ export class HydraRestClient {
     };
   }
 
+  // Opens the daemon's session list stream (PROTOCOL.md's
+  // GET /v1/sessions/stream) and hands back the raw response so the caller
+  // can pipe it on. Throws HydraRestError on a non-2xx, which includes the
+  // 404 an older daemon answers with.
+  async openSessionStream(opts: {
+    since?: number;
+    signal: AbortSignal;
+  }): Promise<Response> {
+    const qs = new URLSearchParams();
+    if (opts.since !== undefined) {
+      qs.set("since", String(opts.since));
+    }
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    const r = await fetch(`${this.baseUrl}/v1/sessions/stream${suffix}`, {
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        Accept: "text/event-stream",
+      },
+      signal: opts.signal,
+    });
+    if (!r.ok || !r.body) {
+      await r.body?.cancel().catch(() => undefined);
+      throw new HydraRestError(
+        r.status,
+        `GET /v1/sessions/stream: ${r.status}`,
+      );
+    }
+    return r;
+  }
+
   // Single-session equivalent of listSessions — used to keep one
   // session's live metadata (title/cwd/model/workspace) fresh while a
   // client is viewing it, without paying to list and serialize every

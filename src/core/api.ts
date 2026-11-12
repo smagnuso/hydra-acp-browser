@@ -6,6 +6,8 @@ import { setState, state, sameValue, markRailDirty, notifyChange } from "./state
 import { uiHooks } from "./hooks.js";
 import { forceReconnect } from "./routing.js";
 import { mergeSessionListPage } from "./session-merge.js";
+import { mergeSessionStreamFrame, runSessionStream } from "./session-stream.js";
+import type { SessionListPage } from "./session-merge.js";
 import { loadPersistedSessionCache, queueSessionCacheWrite } from "./session-cache.js";
 import type { SessionInfo } from "./types.js";
 
@@ -235,6 +237,67 @@ async function pollCurrentSessionOnly(sessionId: string): Promise<void> {
   }
 }
 
+// Everything after the merge: banner expiry, state, reattach and the
+// guarded repaint. Shared by the poll and the stream so a push lands the
+// same way a poll does.
+function landSessions(newSessions: SessionInfo[]): void {
+  // This blanket clear is the only expiry a transient banner has
+  // (compaction notices, import results, steer failures all just wait
+  // for the next poll), so it stays. What it must not sweep is a
+  // banner whose owner is still in the state it describes: a poll can
+  // succeed over HTTP while the chat socket is down, and clearing
+  // "Reconnecting…" here made it blink out and back on every failed
+  // attempt. Those are marked sticky and cleared by their owner.
+  const clearedBanner = state.banner !== null && !state.banner.sticky;
+  const sessionsChanged = !sameValue(state.sessions, newSessions);
+  state.sessions = newSessions;
+  liveSessionListLanded = true;
+  if (clearedBanner) {
+    state.banner = null;
+  }
+  // Wide layout keeps the rail (and this full-list poll) active even
+  // while a chat is open — see reattachIfWarmedElsewhere for why a
+  // cold chat needs this nudge.
+  if (state.current) {
+    const live = newSessions.find(
+      (s) => s.sessionId === state.current!.sessionId,
+    );
+    if (live) {
+      // openChat can only read cwd out of whatever session list was
+      // already loaded, so a deep link (or any load that opens a chat
+      // before the first poll lands) leaves it empty for the life of
+      // that ChatState — nothing else ever set it. Everything building
+      // an absolute path off it was quietly wrong in that state:
+      // "copy path" yielded /src/foo.ts, and a file link couldn't tell
+      // an in-project path from an outside one.
+      if (!state.current.cwd && live.cwd) {
+        state.current.cwd = live.cwd;
+      }
+      reattachIfWarmedElsewhere(live);
+    }
+  }
+  // Bypasses setState (the assignment above), so its rail-dirty
+  // tracking needs the same signal explicitly — see state.ts.
+  if (sessionsChanged) {
+    markRailDirty();
+  }
+  if (!sessionsChanged && !clearedBanner) {
+    return;
+  }
+  // Don't disrupt the user mid-selection. Skip this cycle; the next
+  // poll or frame re-checks. Banner changes still render so errors surface.
+  if (!clearedBanner && uiHooks.hasActiveSelection()) {
+    return;
+  }
+  // While a modal is open the list is hidden behind a backdrop and
+  // the user is focused on the form. Re-rendering blows away native
+  // <select> popups (and any other transient UI the browser owns).
+  if (!clearedBanner && state.modal) {
+    return;
+  }
+  notifyChange();
+}
+
 async function pollAllSessions(): Promise<void> {
   try {
     // Daemon's default `/v1/sessions` view already excludes one-shot
@@ -272,61 +335,8 @@ async function pollAllSessions(): Promise<void> {
     if (page.removed.length > 0 || page.sessions.some((s) => s.status === "cold")) {
       queueSessionCacheWrite(newSessions as SessionInfo[], sessionCursor);
     }
-    // This blanket clear is the only expiry a transient banner has
-    // (compaction notices, import results, steer failures all just wait
-    // for the next poll), so it stays. What it must not sweep is a
-    // banner whose owner is still in the state it describes: a poll can
-    // succeed over HTTP while the chat socket is down, and clearing
-    // "Reconnecting…" here made it blink out and back on every failed
-    // attempt. Those are marked sticky and cleared by their owner.
-    const clearedBanner = state.banner !== null && !state.banner.sticky;
-    const sessionsChanged = !sameValue(state.sessions, newSessions);
-    state.sessions = newSessions;
-    liveSessionListLanded = true;
-    if (clearedBanner) {
-      state.banner = null;
-    }
-    // Wide layout keeps the rail (and this full-list poll) active even
-    // while a chat is open — see reattachIfWarmedElsewhere for why a
-    // cold chat needs this nudge.
-    if (state.current) {
-      const live = (newSessions as SessionInfo[]).find(
-        (s) => s.sessionId === state.current!.sessionId,
-      );
-      if (live) {
-        // openChat can only read cwd out of whatever session list was
-        // already loaded, so a deep link (or any load that opens a chat
-        // before the first poll lands) leaves it empty for the life of
-        // that ChatState — nothing else ever set it. Everything building
-        // an absolute path off it was quietly wrong in that state:
-        // "copy path" yielded /src/foo.ts, and a file link couldn't tell
-        // an in-project path from an outside one.
-        if (!state.current.cwd && live.cwd) {
-          state.current.cwd = live.cwd;
-        }
-        reattachIfWarmedElsewhere(live);
-      }
-    }
-    // Bypasses setState (the assignment above), so its rail-dirty
-    // tracking needs the same signal explicitly — see state.ts.
-    if (sessionsChanged) {
-      markRailDirty();
-    }
-    if (!sessionsChanged && !clearedBanner) {
-      return;
-    }
-    // Don't disrupt the user mid-selection. Skip this cycle; the next
-    // poll re-checks. Banner changes still render so errors surface.
-    if (!clearedBanner && uiHooks.hasActiveSelection()) {
-      return;
-    }
-    // While a modal is open the list is hidden behind a backdrop and
-    // the user is focused on the form. Re-rendering blows away native
-    // <select> popups (and any other transient UI the browser owns).
-    if (!clearedBanner && state.modal) {
-      return;
-    }
-    notifyChange();
+    landSessions(newSessions as SessionInfo[]);
+    startSessionStream();
   } catch (err) {
     // Could be from hydra-acp-browser (auth, CSRF, host allowlist) or
     // from the upstream hydra daemon (502). The error text comes from
@@ -337,10 +347,91 @@ async function pollAllSessions(): Promise<void> {
   }
 }
 
+// Push from the daemon, relayed at /api/sessions/stream. It never moves
+// sessionCursor: the poll keeps owning that, so a frame this tab chose not
+// to apply (typing, a narrow chat view) is healed by the next incremental
+// poll instead of being lost.
+let streamAbort: AbortController | null = null;
+let streamHealthy = false;
+let streamFrames: SessionListPage[] = [];
+let streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
+const STREAM_RETRY_MS = 300;
+// With the stream up the poll only backstops it: 15 ticks of 2s.
+const STREAM_BACKSTOP_TICKS = 15;
+let backstopTicks = 0;
+
+// pollSessions only reads the full list outside a narrow chat view; in one
+// it polls the single open session, which the stream does not replace.
+function fullListInUse(): boolean {
+  return !(state.view === "chat" && state.current && !uiHooks.isWideLayout());
+}
+
+function flushStreamFrames(): void {
+  streamFlushTimer = null;
+  if (streamFrames.length === 0) {
+    return;
+  }
+  if (!fullListInUse()) {
+    streamFrames = [];
+    return;
+  }
+  if (uiHooks.isActivelyTyping()) {
+    streamFlushTimer = setTimeout(flushStreamFrames, STREAM_RETRY_MS);
+    return;
+  }
+  const frames = streamFrames;
+  streamFrames = [];
+  let next = state.sessions as SessionInfo[];
+  for (const frame of frames) {
+    next = mergeSessionStreamFrame(next, frame);
+  }
+  const landed = next.map(suppressStaleWarmth);
+  if (
+    sessionCursor !== undefined &&
+    frames.some(
+      (f) => f.removed.length > 0 || f.sessions.some((s) => s.status === "cold"),
+    )
+  ) {
+    queueSessionCacheWrite(landed, sessionCursor);
+  }
+  landSessions(landed);
+}
+
+// Called once the first poll has landed, so the stream can ask for changes
+// since that poll's cursor instead of replaying the whole list.
+function startSessionStream(): void {
+  if (streamAbort !== null || sessionCursor === undefined) {
+    return;
+  }
+  const abort = new AbortController();
+  streamAbort = abort;
+  void runSessionStream({
+    signal: abort.signal,
+    initialCursor: sessionCursor,
+    onFrame: (frame) => {
+      streamHealthy = true;
+      streamFrames.push(frame);
+      if (streamFlushTimer === null) {
+        streamFlushTimer = setTimeout(flushStreamFrames, 0);
+      }
+    },
+    onDisconnect: () => {
+      streamHealthy = false;
+    },
+  }).then((outcome) => {
+    if (outcome === "unsupported") {
+      streamHealthy = false;
+    }
+  });
+}
+
 export function startPolling(): void {
   if (pollTimer) clearInterval(pollTimer);
   void pollSessions();
   pollTimer = setInterval(() => {
+    if (streamHealthy && fullListInUse() && ++backstopTicks % STREAM_BACKSTOP_TICKS !== 0) {
+      return;
+    }
     void pollSessions();
   }, 2000);
 }

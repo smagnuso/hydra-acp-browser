@@ -92,6 +92,51 @@ export function registerSessionRoutes(
     }
   });
 
+  // Relays the daemon's session list stream so the SPA gets pushes instead
+  // of polling. A byte-for-byte pipe: the SPA parses the frames, and the
+  // daemon's own status (404 from an older daemon) is passed through so the
+  // SPA can fall back to polling.
+  app.get("/api/sessions/stream", async (request, reply) => {
+    const query = request.query as { since?: string } | undefined;
+    const since = query?.since !== undefined ? Number(query.since) : undefined;
+    const upstream = new AbortController();
+    request.raw.on("close", () => upstream.abort());
+    let response: Response;
+    try {
+      response = await clientFor(ctx, request).openSessionStream({
+        since,
+        signal: upstream.signal,
+      });
+    } catch (err) {
+      const status = err instanceof HydraRestError ? err.status : 502;
+      reply.code(status).send({ error: (err as Error).message });
+      return reply;
+    }
+    reply.hijack();
+    const res = reply.raw;
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    });
+    res.on("close", () => upstream.abort());
+    try {
+      for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+        if (!res.write(chunk)) {
+          await new Promise<void>((resolve) => res.once("drain", resolve));
+        }
+      }
+    } catch {
+      // Upstream ended or the client left; either way this relay is done.
+    } finally {
+      if (!res.writableEnded) {
+        res.end();
+      }
+    }
+    return reply;
+  });
+
   // Single-session lookup, used by the SPA to keep the currently-open
   // session's metadata fresh without polling the full list.
   app.get("/api/sessions/:id", async (request, reply) => {
