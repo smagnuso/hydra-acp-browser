@@ -345,8 +345,8 @@ export function renderApp(root: HTMLElement, s: AppState): void {
 // isRailDirty()/markRailClean() (state.ts) gate the rebuild on whether
 // anything rail-relevant actually changed since the last one.
 
-function buildRailContents(): Node[] {
-  return [renderTopbar(), renderSessionSearch(), renderList()];
+function buildRailContents(live = true): Node[] {
+  return [renderTopbar(), renderSessionSearch(live), renderList()];
 }
 
 // Static snapshot of the session-list pane for swipe-nav.ts's chat→list
@@ -356,7 +356,7 @@ function buildRailContents(): Node[] {
 // either way — cancelled, or replaced wholesale by the real list once
 // closeChat()'s render lands.
 export function buildListPreviewPane(): HTMLElement {
-  return el("div", { class: "swipe-preview-list" }, ...buildRailContents());
+  return el("div", { class: "swipe-preview-list" }, ...buildRailContents(false));
 }
 
 // Lightweight identity card for swipe-nav.ts's list→chat drag-reveal —
@@ -678,7 +678,67 @@ export function focusListRail(): void {
 // data-focus-key: render() tears the whole tree down (poll ticks, WS
 // traffic), and without one the caret would be lost mid-word — see
 // renderer.ts's focus/selection restore.
-function renderSessionSearch(): HTMLElement {
+const SEARCH_DEBOUNCE_MS = 150;
+let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+let searchPending = false;
+
+function cancelSearchDebounce(): void {
+  clearTimeout(searchDebounce);
+  searchPending = false;
+}
+
+// One input node reused by every render. Rebuilding it from
+// state.sessionSearch dropped keys typed between the state update and the
+// async render; the node holding the live text must never be replaced.
+let searchInput: HTMLInputElement | null = null;
+
+function getSearchInput(): HTMLInputElement {
+  if (searchInput) {
+    return searchInput;
+  }
+  searchInput = el("input", {
+    class: "session-search",
+    // Deliberately type=text, not type=search: the native search
+    // widget's own clear affordance varies by browser and would sit
+    // alongside ours.
+    type: "text",
+    placeholder: "Filter sessions…",
+    "data-focus-key": "session-search",
+    autocomplete: "off",
+    autocapitalize: "off",
+    autocorrect: "off",
+    spellcheck: "false",
+    oninput: (e: Event) => {
+      const value = (e.target as HTMLInputElement).value;
+      clearTimeout(searchDebounce);
+      searchPending = true;
+      searchDebounce = setTimeout(() => {
+        searchPending = false;
+        setState({ sessionSearch: value });
+      }, SEARCH_DEBOUNCE_MS);
+    },
+    onkeydown: (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // Escape clears first and only gives up focus on a second
+      // press, so it can't strand a filter the user can no longer
+      // see the effect of. stopPropagation keeps the window-level
+      // list/modal Escape handlers out of it either way.
+      e.preventDefault();
+      e.stopPropagation();
+      cancelSearchDebounce();
+      const input = e.target as HTMLInputElement;
+      if (input.value.length > 0 || state.sessionSearch.length > 0) {
+        input.value = "";
+        setState({ sessionSearch: "" });
+      } else {
+        input.blur();
+      }
+    },
+  }) as HTMLInputElement;
+  return searchInput;
+}
+
+function renderSessionSearch(live = true): HTMLElement {
   const clear =
     state.sessionSearch.length > 0
       ? el(
@@ -686,47 +746,30 @@ function renderSessionSearch(): HTMLElement {
           {
             class: "session-search-clear",
             title: "Clear filter",
-            ...tapHandler(() => setState({ sessionSearch: "" })),
+            ...tapHandler(() => {
+              cancelSearchDebounce();
+              const input = getSearchInput();
+              input.value = "";
+              setState({ sessionSearch: "" });
+            }),
           },
           "×",
         )
       : null;
-  return el(
-    "div",
-    { class: "session-search-row" },
-    el("input", {
+  let input: HTMLInputElement;
+  if (live) {
+    input = getSearchInput();
+    if (!searchPending && input.value !== state.sessionSearch) {
+      input.value = state.sessionSearch;
+    }
+  } else {
+    input = el("input", {
       class: "session-search",
-      // Deliberately type=text, not type=search: the native search
-      // widget's own clear affordance varies by browser and would sit
-      // alongside ours.
       type: "text",
-      placeholder: "Filter sessions…",
       value: state.sessionSearch,
-      "data-focus-key": "session-search",
-      autocomplete: "off",
-      autocapitalize: "off",
-      autocorrect: "off",
-      spellcheck: "false",
-      oninput: (e: Event) => {
-        setState({ sessionSearch: (e.target as HTMLInputElement).value });
-      },
-      onkeydown: (e: KeyboardEvent) => {
-        if (e.key !== "Escape") return;
-        // Escape clears first and only gives up focus on a second
-        // press, so it can't strand a filter the user can no longer
-        // see the effect of. stopPropagation keeps the window-level
-        // list/modal Escape handlers out of it either way.
-        e.preventDefault();
-        e.stopPropagation();
-        if (state.sessionSearch.length > 0) {
-          setState({ sessionSearch: "" });
-        } else {
-          (e.target as HTMLInputElement).blur();
-        }
-      },
-    }),
-    clear,
-  );
+    }) as HTMLInputElement;
+  }
+  return el("div", { class: "session-search-row" }, input, clear);
 }
 
 function renderTopbar(): HTMLElement {
@@ -999,18 +1042,60 @@ function renderList(): HTMLElement {
     }
     list.appendChild(el("div", { class: "empty" }, msg));
   }
+  // Building a DOM card per session is what made typing in the filter
+  // stall on a multi-thousand list, so only a window is rendered.
+  const filterKey = `${state.sessionSearch.trim()}|${state.hostFilter}|${state.showCold}|${state.groupBy}`;
+  if (filterKey !== lastCardLimitKey) {
+    lastCardLimitKey = filterKey;
+    cardLimit = CARD_PAGE;
+  }
+  const pinned = state.listHighlightedSessionId;
+  let remaining = cardLimit;
   for (const g of groups) {
+    if (remaining <= 0) {
+      break;
+    }
     const groupNode = el("div", { class: "group" });
     if (g.label) {
       groupNode.appendChild(el("h2", null, g.label));
     }
     for (const s of g.sessions) {
+      if (remaining <= 0 && s.sessionId !== pinned) {
+        continue;
+      }
+      remaining--;
       groupNode.appendChild(renderSessionCard(s, g.label === null));
     }
     list.appendChild(groupNode);
   }
+  const hidden = visible.length - (cardLimit - remaining);
+  if (hidden > 0) {
+    const sentinel = el("div", { class: "list-more" }, `${hidden} more…`);
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) {
+          return;
+        }
+        io.disconnect();
+        cardLimit += CARD_PAGE;
+        markRailDirty();
+        notifyChange();
+      },
+      { rootMargin: "600px" },
+    );
+    queueMicrotask(() => {
+      if (sentinel.isConnected) {
+        io.observe(sentinel);
+      }
+    });
+    list.appendChild(sentinel);
+  }
   return list;
 }
+
+const CARD_PAGE = 150;
+let cardLimit = CARD_PAGE;
+let lastCardLimitKey = "";
 
 function detailRow(label: string, value: string): HTMLElement {
   return el(
