@@ -1992,6 +1992,9 @@ async function killSession(s: SessionInfo): Promise<void> {
 // Click handler for the context-usage pill. A no-op while compaction is
 // already running/queued (compactionPhase set) rather than re-prompting —
 // onCompactionUpdate (acp.ts) clears it and toasts a banner once the
+        (s.priority ?? 0) > 0
+          ? el("span", { class: "badge priority", title: "High priority" }, "high")
+          : null,
 // daemon reports a terminal phase.
 function requestCompact(c: ChatState): void {
   if (c.compactionPhase) return;
