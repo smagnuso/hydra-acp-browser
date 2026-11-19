@@ -1176,52 +1176,141 @@ function titleRow(c: ChatState, liveTitle: string): HTMLElement {
   );
 }
 
-// Space-separated tag editor; saves the whole set on blur/Enter, Escape
-// discards. The daemon normalizes and validates, so a bad tag surfaces
-// as a banner.
+// Tag chips with a remove button each, plus a picker of tags already used
+// on other sessions and a "new tag" entry. c.tagsDraft is non-null only
+// while the new-tag input is open (it holds the text typed so far).
 function tagsRow(c: ChatState, liveTags: string[] | undefined): HTMLElement {
-  let cancelled = false;
-  const live = (liveTags ?? []).map((t) => "#" + t).join(" ");
-  const input = el("input", {
-    type: "text",
-    class: "title-edit",
-    placeholder: "#tag #another",
-    "data-focus-key": "chat-tags-edit",
-    oninput: (e: Event) => {
-      c.tagsDraft = (e.target as HTMLInputElement).value;
-    },
-    onkeydown: (e: KeyboardEvent) => {
-      if (isImeComposing(e)) {
-        return;
+  const current = liveTags ?? [];
+  const normalize = (raw: string): string => raw.trim().replace(/^#+/, "");
+  let row: HTMLElement | null = null;
+  let committed = false;
+  // A <select> removed while focused never fires focusout, which would
+  // leave the renderer's select hold latched; blur it first.
+  const releaseFocus = (): void => {
+    if (row && document.activeElement instanceof HTMLSelectElement && row.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
+  };
+  // Swap the row in place instead of waiting on render(), which can be
+  // held back by typing/pointer gates and leave the new-tag input up.
+  const save = (next: string[]): void => {
+    if (committed) {
+      return;
+    }
+    committed = true;
+    c.tagsDraft = null;
+    void saveSessionTags(c.sessionId, next);
+    releaseFocus();
+    row?.replaceWith(tagsRow(c, next));
+    render();
+  };
+  const add = (raw: string): void => {
+    const tag = normalize(raw);
+    if (!tag || current.includes(tag)) {
+      if (!committed) {
+        committed = true;
+        c.tagsDraft = null;
+        row?.replaceWith(tagsRow(c, current));
+        render();
       }
-      if (e.key === "Enter") {
-        e.preventDefault();
-        (e.target as HTMLInputElement).blur();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        cancelled = true;
-        (e.target as HTMLInputElement).blur();
-      }
+      return;
+    }
+    save([...current, tag]);
+  };
+  const known = [...new Set(state.sessions.flatMap((s) => s.tags ?? []))]
+    .filter((t) => !current.includes(t))
+    .sort();
+  const NEW = "__new__";
+  const makeNewInput = (): HTMLInputElement => {
+    let cancelled = false;
+    const input = el("input", {
+      type: "text",
+      class: "title-edit tag-new",
+      placeholder: "new tag",
+      "data-focus-key": "chat-tags-edit",
+      oninput: (e: Event) => {
+        c.tagsDraft = (e.target as HTMLInputElement).value;
+      },
+      onkeydown: (e: KeyboardEvent) => {
+        if (isImeComposing(e)) {
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          (e.target as HTMLInputElement).blur();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          cancelled = true;
+          (e.target as HTMLInputElement).blur();
+        }
+      },
+      onblur: (e: Event) => {
+        if (cancelled) {
+          if (!committed) {
+            committed = true;
+            c.tagsDraft = null;
+            row?.replaceWith(tagsRow(c, current));
+            render();
+          }
+        } else {
+          add((e.target as HTMLInputElement).value);
+        }
+      },
+    }) as HTMLInputElement;
+    input.value = c.tagsDraft ?? "";
+    return input;
+  };
+  const picker = el(
+    "select",
+    {
+      class: "tag-picker",
+      title: "Add a tag",
+      onchange: (e: Event) => {
+        const v = (e.target as HTMLSelectElement).value;
+        if (v === NEW) {
+          // Swap and focus synchronously: mobile browsers only raise the
+          // keyboard for focus() called inside the user's gesture.
+          c.tagsDraft = "";
+          releaseFocus();
+          const input = makeNewInput();
+          picker.replaceWith(input);
+          input.focus();
+        } else if (v) {
+          add(v);
+        }
+      },
     },
-    onblur: (e: Event) => {
-      const value = (e.target as HTMLInputElement).value.trim();
-      c.tagsDraft = null;
-      if (!cancelled && value !== live) {
-        void saveSessionTags(
-          c.sessionId,
-          value.split(/\s+/).filter((w) => w.length > 0),
-        );
-      }
-      render();
-    },
-  }) as HTMLInputElement;
-  input.value = c.tagsDraft ?? live;
-  return el(
+    el("option", { value: "" }, "+ tag"),
+    ...known.map((t) => el("option", { value: t }, "#" + t)),
+    el("option", { value: NEW }, "new tag…"),
+  );
+  row = el(
     "div",
     { class: "detail" },
     el("span", { class: "k" }, "tags"),
-    input,
+    el(
+      "div",
+      { class: "tag-chips" },
+      ...current.map((t) =>
+        el(
+          "span",
+          { class: "tag-chip" },
+          "#" + t,
+          el(
+            "button",
+            {
+              class: "tag-remove",
+              title: "Remove tag",
+              ...tapHandler(() => save(current.filter((x) => x !== t))),
+            },
+            "×",
+          ),
+        ),
+      ),
+      c.tagsDraft !== null ? makeNewInput() : picker,
+    ),
   );
+  return row;
 }
 
 async function saveSessionTags(sessionId: string, tags: string[]): Promise<void> {
@@ -1903,6 +1992,9 @@ function renderSessionCard(s: SessionInfo, showCwd: boolean): HTMLElement {
               "blocked",
             )
           : null,
+        (s.priority ?? 0) > 0
+          ? el("span", { class: "badge priority", title: "High priority" }, "high")
+          : null,
         // `!s.remote` matters here: a live federated entry can carry
         // its own importedFromMachine baggage (the peer's own record
         // may itself have been imported from somewhere once) — remote
@@ -1992,9 +2084,6 @@ async function killSession(s: SessionInfo): Promise<void> {
 // Click handler for the context-usage pill. A no-op while compaction is
 // already running/queued (compactionPhase set) rather than re-prompting —
 // onCompactionUpdate (acp.ts) clears it and toasts a banner once the
-        (s.priority ?? 0) > 0
-          ? el("span", { class: "badge priority", title: "High priority" }, "high")
-          : null,
 // daemon reports a terminal phase.
 function requestCompact(c: ChatState): void {
   if (c.compactionPhase) return;
